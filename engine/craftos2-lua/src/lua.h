@@ -363,6 +363,10 @@ LUA_API void  (lua_halt) (lua_State *L); /* forcefully halts the Lua state speci
 LUA_API void  (lua_externalerror) (lua_State *L, const char * message); /* throws an error into a running state - meant to be run from a different thread */
 LUA_API void  (lua_setlockstate) (lua_State *L, int enabled); /* enables/disables lua_lock */
 LUA_API void  (lua_setdisableflags)(lua_State *L, unsigned char flags); /* sets flags to disable features; bit 0 = bytecode load/dump */
+LUA_API void  (lua_setccversion)(lua_State *L, int version); /* craftos-agent: CC:Tweaked version (major*1000000+minor*1000+patch) the VM follows */
+LUA_API int   (lua_getccversion)(lua_State *L);
+/* craftos-agent: whether L behaves as CC:Tweaked major.minor.patch or newer */
+#define lua_ccatleast(L,ma,mi,pa)	(lua_getccversion(L) >= (ma) * 1000000 + (mi) * 1000 + (pa))
 
 
 

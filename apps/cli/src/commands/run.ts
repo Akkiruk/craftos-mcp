@@ -18,9 +18,10 @@ import {
 } from "@craftos-mcp/runner";
 
 const USAGE = [
-  "usage: craftos-mcp run <program.lua> [args...] [--world x.json] [--addons a,b] [--monitor name:WxH]",
+  "usage: craftos-mcp run <program.lua> [args...] [--world x.json] [--mc 1.20.1] [--addons a,b] [--monitor name:WxH]",
   "                      [--timeout seconds] [--timescale n] [--screenshot out.png] [--dir folder]",
   "",
+  "--mc picks the Minecraft version: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1 (CC:Tweaked 1.121.0).",
   "Runs the program in a fresh computer and prints the terminal and every monitor as text. Put program arguments",
   "that start with - after --. --screenshot saves the terminal as out.png and each monitor as out-<name>.png.",
   "Exit code: 0 finished, 1 the program failed, 124 timed out, 2 engine or usage error.",
@@ -98,7 +99,7 @@ const run: Command = {
         program,
         args: programArgs,
         monitors: (values.monitor ?? []).map(parseMonitor),
-        world: loadWorld(config, values.world, values.addons),
+        world: loadWorld(config, values.world, values.addons, values.mc),
         timeScale: number("timescale", values.timescale),
         screenshots: values.screenshot !== undefined,
         ...(timeout ? { timeoutMs: timeout * 1000 } : {}),

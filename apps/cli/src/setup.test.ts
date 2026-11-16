@@ -13,6 +13,11 @@ const setup = (await import(/* @vite-ignore */ setupUrl)) as {
   platformKey(platform: string, arch: string): string | undefined;
   readZip(buf: Buffer): Generator<{ name: string; data: Buffer; mode: number }>;
   extractZip(buf: Buffer, root: string, prefixes?: string[]): string[];
+  romVersions(
+    argv: string[],
+    versions: { mc: string }[],
+    env?: Record<string, string>,
+  ): string[];
 };
 
 interface Entry {
@@ -129,5 +134,30 @@ describe("setup: engine zip", () => {
     expect(() => [
       ...setup.readZip(Buffer.from("<html>not found</html>".repeat(5))),
     ]).toThrow(/not a zip/);
+  });
+});
+
+describe("setup: ROM versions", () => {
+  const versions = [{ mc: "1.18.2" }, { mc: "1.20.1" }, { mc: "1.21.1" }];
+  it("builds 1.18.2 by default, others with --mc or CRAFTOS_SETUP_MC", () => {
+    expect(setup.romVersions([], versions, {})).toEqual(["1.18.2"]);
+    expect(setup.romVersions(["--mc", "1.20.1,1.21.1"], versions, {})).toEqual([
+      "1.20.1",
+      "1.21.1",
+    ]);
+    expect(setup.romVersions(["--mc", "all"], versions, {})).toEqual([
+      "1.18.2",
+      "1.20.1",
+      "1.21.1",
+    ]);
+    expect(
+      setup.romVersions([], versions, { CRAFTOS_SETUP_MC: "1.21.1" }),
+    ).toEqual(["1.21.1"]);
+  });
+
+  it("refuses an unknown version", () => {
+    expect(() => setup.romVersions(["--mc", "1.12.2"], versions, {})).toThrow(
+      /known: 1\.18\.2, 1\.20\.1, 1\.21\.1/,
+    );
   });
 });

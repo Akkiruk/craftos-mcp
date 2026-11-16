@@ -176,7 +176,10 @@ LUALIB_API int luaL_argerror_ (lua_State *L, int narg, const char *extramsg) {
 
 static int typeerror (lua_State *L, int narg, const char *tname) {
   const char *msg, *tn = NULL;
-  if (luaL_getmetafield(L, narg, "__name"))
+  /* CC 1.104+ names a table or userdata by its string __name (Cobalt's ErrorFactory.typeName, CC's
+     VarargArguments.getCustomType); 1.101.3 always says the plain type */
+  if (lua_ccatleast(L, 1, 104, 0) && (lua_type(L, narg) == LUA_TTABLE || lua_type(L, narg) == LUA_TUSERDATA) &&
+      luaL_getmetafield(L, narg, "__name") && lua_type(L, -1) == LUA_TSTRING)
     tn = lua_tostring(L, -1);
   if (!tn)
     tn = lua_type(L, narg) == LUA_TNONE ? "nil" : luaL_typename(L, narg);  /* CC says "got nil" for a missing argument */
@@ -198,7 +201,20 @@ LUALIB_API void luaL_where (lua_State *L, int level) {
       lua_pushfstring(L, "%s:%d: ", ar.short_src, ar.currentline);
       return;
     }
-    /* CC's Cobalt names a native caller: `pcall(fs.copy, ...)` fails with "pcall: ..." */
+    /* CC 1.109+ (Cobalt 0.8+, LuaError without a level): the nearest Lua caller's position instead */
+    if (lua_ccatleast(L, 1, 109, 0)) {
+      int up;
+      for (up = level + 1; lua_getstack(L, up, &ar); up++) {
+        lua_getinfo(L, "Sl", &ar);
+        if (ar.currentline > 0) {
+          lua_pushfstring(L, "%s:%d: ", ar.short_src, ar.currentline);
+          return;
+        }
+      }
+      lua_pushliteral(L, "");
+      return;
+    }
+    /* CC 1.101.3's Cobalt names a native caller: `pcall(fs.copy, ...)` fails with "pcall: ..." */
     if (ar.what != NULL && ar.what[0] == 'C' && ar.name != NULL) {
       lua_pushfstring(L, "%s: ", ar.name);
       return;
@@ -763,10 +779,16 @@ LUALIB_API const char *luaL_tolstring (lua_State *L, int idx, size_t *len) {
       case LUA_TNIL:
         lua_pushliteral(L, "nil");
         break;
-      default:
-        lua_pushfstring(L, "%s: %p", luaL_typename(L, idx),
-                                            (ptrdiff_t)lua_topointer(L, idx));
+      default: {
+        const char *tn = luaL_typename(L, idx);
+        /* CC 1.108+ (Cobalt's LuaValue.toString): a table or userdata with a string __name prints as "Name: ..." */
+        int named = lua_ccatleast(L, 1, 108, 0) && (lua_type(L, idx) == LUA_TTABLE || lua_type(L, idx) == LUA_TUSERDATA) &&
+                    luaL_getmetafield(L, idx, "__name");
+        if (named && lua_type(L, -1) == LUA_TSTRING) tn = lua_tostring(L, -1);
+        lua_pushfstring(L, "%s: %p", tn, (ptrdiff_t)lua_topointer(L, idx));
+        if (named) lua_remove(L, -2);
         break;
+      }
     }
   }
   return lua_tolstring(L, -1, len);

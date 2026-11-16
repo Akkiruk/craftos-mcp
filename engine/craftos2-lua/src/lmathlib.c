@@ -530,7 +530,13 @@ static int math_random(lua_State *L) {
         up = luaL_checkinteger(L, 2);
         break;
     }
-    default: return luaL_error(L, "wrong number of arguments");
+    default: {
+        /* CC 1.101.3's Cobalt 0.6 uses the first two and ignores the rest; 1.109+ refuses them */
+        if (lua_ccatleast(L, 1, 109, 0)) return luaL_error(L, "wrong number of arguments");
+        low = luaL_checkinteger(L, 1);
+        up = luaL_checkinteger(L, 2);
+        break;
+    }
     }
     /* random integer in the interval [low, up] */
     luaL_argcheck(L, low <= up, lua_gettop(L) == 1 ? 1 : 2, "interval is empty");

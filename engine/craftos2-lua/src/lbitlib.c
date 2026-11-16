@@ -179,10 +179,10 @@ static int b_replace (lua_State *L) {
   b_uint r = luaL_checkunsigned(L, 1);
   b_uint v = luaL_checkunsigned(L, 2);
   int f = fieldargs(L, 3, &w);
-  int m = mask(w);
+  b_uint m = mask(w);
   v &= m;  /* erase bits outside given width */
   r = (r & ~(m << f)) | (v << f);
-  lua_pushunsigned(L, r);
+  lua_pushunsigned(L, trim(r));  /* craftos-agent: 32 bits, as Cobalt (bit32.replace(-1, 0, 1, 2) is 2^32 - 7) */
   return 1;
 }
 

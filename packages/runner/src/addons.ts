@@ -13,14 +13,20 @@
  *
  * The Lua side of each addon lives in rom-overlay/rom/ccsim/addons/<module>/ (see the README there); its world
  * types and docs are listed here.
+ *
+ * Each addon names its mod version per Minecraft version (versions.ts). A world on a Minecraft version the mod has
+ * no release for cannot switch it on (Bigger Reactors on 1.21.1); "all" and the default leave it out. The Lua side
+ * still simulates the 1.18.2 version of every mod: the other versions say which release a later round follows.
  */
+import { DEFAULT_MC } from "./versions.js";
 
 export interface AddonInfo {
   /** Id used in `world.addons` and CRAFTOS_ADDONS. */
   readonly id: string;
-  /** Mod name and the version the simulation follows. */
+  /** Mod name. */
   readonly name: string;
-  readonly version: string;
+  /** Minecraft version -> the mod version for it. A Minecraft version missing here has no release of the mod. */
+  readonly versions: Readonly<Record<string, string>>;
   /** Peripheral types (`world.peripherals[].type`) that belong to it. */
   readonly types: readonly string[];
   /** Top-level world keys that configure it. */
@@ -37,7 +43,7 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "advanced-peripherals",
     name: "Advanced Peripherals",
-    version: "0.7.31r",
+    versions: { "1.18.2": "0.7.31r", "1.20.1": "0.7.48r", "1.21.1": "0.7.62b" },
     types: [
       "playerDetector",
       "chatBox",
@@ -62,7 +68,7 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "mekanism",
     name: "Mekanism",
-    version: "10.2.5",
+    versions: { "1.18.2": "10.2.5", "1.20.1": "10.4.16", "1.21.1": "10.7.19" },
     types: [
       "qioDriveArray",
       "qioDashboard",
@@ -149,7 +155,7 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "mekanism-generators",
     name: "Mekanism Generators",
-    version: "10.2.5",
+    versions: { "1.18.2": "10.2.5", "1.20.1": "10.4.16", "1.21.1": "10.7.19" },
     types: [
       "fissionReactorLogicAdapter",
       "fissionReactorPort",
@@ -171,7 +177,7 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "create",
     name: "Create",
-    version: "0.5.1.i",
+    versions: { "1.18.2": "0.5.1.i", "1.20.1": "6.0.8", "1.21.1": "6.0.10" },
     types: [
       "Create_DisplayLink",
       "Create_Speedometer",
@@ -190,7 +196,7 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "create-additions",
     name: "Create Crafts & Additions",
-    version: "1.0.0",
+    versions: { "1.18.2": "1.0.0", "1.20.1": "1.3.3", "1.21.1": "1.7.2" },
     types: [
       "electric_motor",
       "modular_accumulator",
@@ -208,7 +214,11 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "toms-peripherals",
     name: "Tom's Peripherals",
-    version: "1.18.2-1.2.1",
+    versions: {
+      "1.18.2": "1.18.2-1.2.1",
+      "1.20.1": "1.20.1-1.3.1",
+      "1.21.1": "1.21.1-1.3.1",
+    },
     types: ["tm_gpu", "tm_keyboard", "tm_rsPort", "tm_wdt"],
     worldKeys: ["tomsPeripherals"],
     docs: "docs/toms-peripherals.md",
@@ -218,7 +228,11 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "bigger-reactors",
     name: "Bigger Reactors",
-    version: "1.18.2-0.6.0-beta.1.4 (Phosphophyllite 1.18.2-0.6.0-beta.1.6)",
+    // there is no Bigger Reactors for 1.21.1
+    versions: {
+      "1.18.2": "1.18.2-0.6.0-beta.1.4 (Phosphophyllite 1.18.2-0.6.0-beta.1.6)",
+      "1.20.1": "1.20.1-0.6.0-beta.10.5",
+    },
     types: ["BiggerReactors_Reactor", "BiggerReactors_Turbine"],
     worldKeys: ["biggerReactors"],
     docs: "docs/bigger-reactors.md",
@@ -228,7 +242,11 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "extreme-reactors",
     name: "Extreme Reactors",
-    version: "1.18.2-2.0.71 (ZeroCore2 1.18.2-2.1.39)",
+    versions: {
+      "1.18.2": "1.18.2-2.0.71 (ZeroCore2 1.18.2-2.1.39)",
+      "1.20.1": "1.20.1-2.0.97",
+      "1.21.1": "1.21.1-2.4.28",
+    },
     types: ["BigReactors-Reactor", "BigReactors-Turbine"],
     worldKeys: ["extremeReactors"],
     docs: "docs/extreme-reactors.md",
@@ -251,11 +269,24 @@ function normalise(id: string): string {
   return flat;
 }
 
-function parseList(spec: string | readonly string[]): string[] {
+/** The mod version an addon follows on a Minecraft version, or undefined when the mod has none there. */
+export function addonVersion(
+  addon: AddonInfo,
+  mc: string = DEFAULT_MC,
+): string | undefined {
+  return addon.versions[mc];
+}
+
+/** The addons that exist on a Minecraft version. */
+export function addonsFor(mc: string = DEFAULT_MC): AddonInfo[] {
+  return ADDONS.filter((a) => addonVersion(a, mc) !== undefined);
+}
+
+function parseList(spec: string | readonly string[], mc: string): string[] {
   const list = typeof spec === "string" ? spec.split(",") : [...spec];
   const trimmed = list.map((s) => s.trim()).filter((s) => s !== "");
   if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "all")
-    return ADDONS.map((a) => a.id);
+    return addonsFor(mc).map((a) => a.id);
   if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "none") return [];
   const ids = trimmed.map(normalise);
   const unknown = ids.filter((id) => !BY_ID.has(id));
@@ -264,21 +295,35 @@ function parseList(spec: string | readonly string[]): string[] {
       `unknown addon ${unknown.map((u) => JSON.stringify(u)).join(", ")}; known: ${ADDONS.map((a) => a.id).join(", ")}`,
     );
   }
+  const missing = ids.filter(
+    (id) => addonVersion(BY_ID.get(id)!, mc) === undefined,
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `${missing.map((id) => `${BY_ID.get(id)!.name} (addon "${id}")`).join(", ")} has no release for Minecraft ${mc}; ` +
+        `addons on ${mc}: ${
+          addonsFor(mc)
+            .map((a) => a.id)
+            .join(", ") || "none"
+        }. Leave it out or pick another world.version.`,
+    );
+  }
   return ids;
 }
 
-/** The addons a world runs with, in ADDONS order. */
+/** The addons a world runs with, in ADDONS order. `mc`: the world's Minecraft version (versions.ts). */
 export function resolveAddons(
   worldAddons: string | readonly string[] | undefined,
   env: NodeJS.ProcessEnv = process.env,
+  mc: string = DEFAULT_MC,
 ): string[] {
   const envSpec = env["CRAFTOS_ADDONS"];
   const ids =
     worldAddons !== undefined
-      ? parseList(worldAddons)
+      ? parseList(worldAddons, mc)
       : envSpec !== undefined
-        ? parseList(envSpec)
-        : ADDONS.map((a) => a.id);
+        ? parseList(envSpec, mc)
+        : addonsFor(mc).map((a) => a.id);
   const on = new Set(ids);
   for (const id of on) {
     for (const need of BY_ID.get(id)?.requires ?? []) {
@@ -304,25 +349,33 @@ export function checkWorldAddons(
     [key: string]: unknown;
   },
   enabled: readonly string[],
+  mc: string = DEFAULT_MC,
 ): void {
   const on = new Set(enabled);
   const problems: string[] = [];
+  const absent: string[] = [];
   for (const p of world.peripherals ?? []) {
     const addon = p.type ? addonOfType(p.type) : undefined;
     if (addon && !on.has(addon.id)) {
-      problems.push(
-        `peripheral ${JSON.stringify(p.name)} is a ${p.type} from ${addon.name} (addon "${addon.id}")`,
-      );
+      const what = `peripheral ${JSON.stringify(p.name)} is a ${p.type} from ${addon.name} (addon "${addon.id}")`;
+      if (addonVersion(addon, mc) === undefined) absent.push(what);
+      else problems.push(what);
     }
   }
   for (const addon of ADDONS) {
     if (on.has(addon.id)) continue;
     for (const key of addon.worldKeys ?? []) {
-      if (world[key] !== undefined)
-        problems.push(
-          `world.${key} configures ${addon.name} (addon "${addon.id}")`,
-        );
+      if (world[key] !== undefined) {
+        const what = `world.${key} configures ${addon.name} (addon "${addon.id}")`;
+        if (addonVersion(addon, mc) === undefined) absent.push(what);
+        else problems.push(what);
+      }
     }
+  }
+  if (absent.length > 0) {
+    throw new Error(
+      `${absent.join("; ")}, which has no release for Minecraft ${mc}. Leave it out or pick another world.version.`,
+    );
   }
   if (problems.length > 0) {
     throw new Error(
@@ -332,15 +385,21 @@ export function checkWorldAddons(
   }
 }
 
-/** For craftos_info: every addon and whether the default (CRAFTOS_ADDONS) has it on. */
-export function addonReport(env: NodeJS.ProcessEnv = process.env): {
+/**
+ * For craftos_info: every addon, its version on `mc` ("none" when the mod has no release there) and whether the
+ * default (CRAFTOS_ADDONS) has it on.
+ */
+export function addonReport(
+  env: NodeJS.ProcessEnv = process.env,
+  mc: string = DEFAULT_MC,
+): {
   source: string;
   addons: { id: string; name: string; version: string; on: boolean }[];
 } {
   let enabled: string[];
   let source: string;
   try {
-    enabled = resolveAddons(undefined, env);
+    enabled = resolveAddons(undefined, env, mc);
     source =
       env["CRAFTOS_ADDONS"] !== undefined
         ? `CRAFTOS_ADDONS=${env["CRAFTOS_ADDONS"]}`
@@ -354,7 +413,7 @@ export function addonReport(env: NodeJS.ProcessEnv = process.env): {
     addons: ADDONS.map((a) => ({
       id: a.id,
       name: a.name,
-      version: a.version,
+      version: addonVersion(a, mc) ?? "none",
       on: enabled.includes(a.id),
     })),
   };

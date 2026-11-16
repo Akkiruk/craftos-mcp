@@ -35,4 +35,12 @@ extern int fs_handle_writeLine(lua_State *L);
 extern int fs_handle_writeByte(lua_State *L);
 extern int fs_handle_flush(lua_State *L);
 extern int fs_handle_seek(lua_State *L);
+/* craftos-agent: CC:Tweaked 1.109.0+ handles (raw bytes in every mode, r+/w+, coerced writes) */
+extern int fs_handle_readCharRaw(lua_State *L);
+extern int fs_handle_readByteRaw(lua_State *L);
+extern int fs_handle_readAllRaw(lua_State *L);
+extern int fs_handle_readLineRaw(lua_State *L);
+extern int fs_handle_writeStringRaw(lua_State *L);
+extern int fs_handle_writeByteRaw(lua_State *L);
+extern int fs_handle_writeLineRaw(lua_State *L);
 #endif

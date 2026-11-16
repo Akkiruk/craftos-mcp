@@ -1,0 +1,9 @@
+{
+  "peripherals": [
+    { "name": "back", "type": "modem" },
+    { "name": "left", "type": "speaker" }
+  ],
+  "monitors": [
+    { "name": "top", "blocksWide": 6, "blocksHigh": 6, "textScale": 0.5 }
+  ]
+}

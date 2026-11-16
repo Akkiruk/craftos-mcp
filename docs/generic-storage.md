@@ -105,6 +105,19 @@ How a block with several tanks behaves (Forge handlers differ; the sim follows t
 As the chest: `size`, `list`, `getItemDetail`, `getItemLimit`, `pushItems` and `pullItems`. They can move into or
 out of any block with an inventory part, including the mixed ones.
 
+### On Minecraft 1.20.1 and 1.21.1 (CC:Tweaked 1.121.0)
+
+The method lists and their arguments, messages and threads are the same (`AbstractInventoryMethods`,
+`AbstractFluidMethods`, `AbstractEnergyMethods` and Forge's `InventoryMethods`, tag `v1.20.1-1.121.0`). What differs:
+
+- `getItemDetail` gains `mapColour` and `mapColor` (the item's block's map colour, from the version's block data) and
+  its `itemGroups` is always empty (`ItemDetails.fill`).
+- `pushItems`/`pullItems` now ask the other block for its inventory on the side its peripheral is attached by
+  (1.101.3 asked with no side). The sim's inventories are not sided, so nothing changes here; a sided block reached
+  over a modem would see only that side's slots in the real game.
+- Moving goes through `ForgeItemContainer.moveTo` (one source slot, into the target's slots in order), which moves what
+  1.101.3's `moveItem` moved.
+
 ## Change over time
 
 Rates run on the virtual clock, 50 ms per tick, and are caught up before anything looks at the block (a method call,

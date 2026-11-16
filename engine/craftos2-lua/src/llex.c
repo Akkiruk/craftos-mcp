@@ -210,7 +210,7 @@ static void buffreplace (LexState *ls, char from, char to) {
 #endif
 
 
-#define buff2d(b,e)	luaO_str2d(luaZ_buffer(b), luaZ_bufflen(b) - 1, e)
+#define buff2d(b,e)	luaO_str2d(luaZ_buffer(b), luaZ_bufflen(b) - 1, e, luaG_ccatleast(ls->L, 1, 109, 0))
 
 /*
 ** in case of format error, try to change decimal point separator to
@@ -501,8 +501,10 @@ static int llex (LexState *ls, SemInfo *seminfo) {
       }
       case ':': {
         next(ls);
-        /* Lua 5.1 (CC:Tweaked) has no `::label::`: a second colon is just another ':' token. */
-        return ':';
+        /* CC:Tweaked 1.101.3 runs Lua 5.1, which has no `::label::`: a second colon is just another ':' token.
+           1.109 (Cobalt 0.8, Lua 5.2) has labels. */
+        if (!luaG_ccatleast(ls->L, 1, 109, 0) || ls->current != ':') return ':';
+        else { next(ls); return TK_DBCOLON; }
       }
       case '"': case '\'': {  /* short literal strings */
         read_string(ls, ls->current, seminfo);

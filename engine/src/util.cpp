@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <Poco/Base64Decoder.h>
 #include <Poco/Base64Encoder.h>
+#include <Poco/Net/IPAddress.h>
 #include <sys/stat.h>
 #include <FileEntry.hpp>
 #include "platform.hpp"
@@ -158,8 +159,14 @@ path_t fixpath_mkdir(Computer * comp, const std::string& path, bool md, std::str
     if (md && fixpath_ro(comp, path)) return path_t();
     path_t firstTest = fixpath(comp, path, true, true, mountPath);
     if (!firstTest.empty()) return firstTest;
-    std::list<std::string> components = split_list(path, "/\\");
-    while (!components.empty() && components.front().empty()) components.pop_front();
+    std::list<std::string> components;
+    for (std::string s : split_list(path, "/\\")) {
+        // the parts as fixpath reads them, so the folders made are trimmed and have no "." or ".." in them
+        s.erase(std::remove_if(s.begin(), s.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), s.end());
+        if (!ccPathPart(comp, s)) continue;
+        if (s == "..") { if (components.empty()) return path_t(); components.pop_back(); }
+        else components.push_back(s);
+    }
     if (components.empty()) return fixpath(comp, "", true);
     components.pop_back();
     std::list<std::string> append;
@@ -190,22 +197,34 @@ inline bool isVFSPath(path_t path) {
     return false;
 }
 
+bool ccPathPart(const Computer * comp, std::string& s) {
+    const size_t first = s.find_first_not_of(' ');
+    s = first == std::string::npos ? std::string() : s.substr(first, s.find_last_not_of(' ') - first + 1);
+    const bool newer = ccAtLeast(comp, 1, 117, 0);
+    if (newer && s.size() > 255) {
+        s = s.substr(0, 255);
+        const size_t last = s.find_last_not_of(' ');
+        s = last == std::string::npos ? std::string() : s.substr(0, last + 1);
+    }
+    if (s.empty() || s == "..") return !s.empty();
+    if (newer) return !(s[0] == '.' && s.find_first_not_of(". ") == std::string::npos);
+    return !std::all_of(s.begin(), s.end(), [](const char c)->bool{return c == '.';});
+}
+
 path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt, std::string * mountPath, bool * isRoot) {
     path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), path.end());
     std::vector<std::string> elems = split(path, "/\\");
     std::list<std::string> pathc;
     for (std::string s : elems) {
+        if (!ccPathPart(comp, s)) continue;  // trimmed first, so " .. " is ".." and " . " is "."
         if (s == "..") {
             if (pathc.empty() && addExt) return path_t();
             else if (pathc.empty()) pathc.push_back("..");
             else pathc.pop_back();
-        } else if (!s.empty() && s.find_first_not_of(' ') != std::string::npos && !std::all_of(s.begin(), s.end(), [](const char c)->bool{return c == '.';})) {
-            s = s.substr(s.find_first_not_of(' '), s.find_last_not_of(' ') - s.find_first_not_of(' ') + 1);
-            pathc.push_back(s);
-        }
+        } else pathc.push_back(s);
     }
     while (!pathc.empty() && pathc.front().empty()) pathc.pop_front();
-    if (!pathc.empty() && pathc.back().size() > 255) {
+    if (!ccAtLeast(comp, 1, 117, 0) && !pathc.empty() && pathc.back().size() > 255) {
         std::string s = pathc.back().substr(0, 255);
         pathc.pop_back();
         s = s.substr(0, s.find_last_not_of(' '));
@@ -304,14 +323,12 @@ bool fixpath_ro(Computer *comp, std::string path) {
     std::vector<std::string> elems = split(path, "/\\");
     std::list<std::string> pathc;
     for (std::string s : elems) {
+        if (!ccPathPart(comp, s)) continue;  // as fixpath: an all-space part used to throw here
         if (s == "..") { if (pathc.empty()) return false; else pathc.pop_back(); }
-        else if (!s.empty() && !std::all_of(s.begin(), s.end(), [](const char c)->bool{return c == '.';})) {
-            s = s.substr(s.find_first_not_of(' '), s.find_last_not_of(' ') - s.find_first_not_of(' ') + 1);
-            pathc.push_back(s);
-        }
+        else pathc.push_back(s);
     }
     while (!pathc.empty() && pathc.front().empty()) pathc.pop_front();
-    if (!pathc.empty() && pathc.back().size() > 255) {
+    if (!ccAtLeast(comp, 1, 117, 0) && !pathc.empty() && pathc.back().size() > 255) {
         std::string s = pathc.back().substr(0, 255);
         pathc.pop_back();
         s = s.substr(0, s.find_last_not_of(' '));
@@ -394,32 +411,78 @@ struct IPv6 {uint16_t a, b, c, d, e, f, g, h;};
 
 static constexpr uint32_t makeIP(int a, int b, int c, int d) {return (a << 24) | (b << 16) | (c << 8) | d;}
 
-static std::vector<std::pair<uint32_t, uint8_t> > reservedIPv4s = {
+// craftos-agent: CC:Tweaked's `$private` (AddressPredicate.PrivatePattern). Every version: Java's any-local, loopback,
+// link-local, site-local and multicast addresses.
+static const std::vector<std::pair<uint32_t, uint8_t> > privateIPv4s = {
     {makeIP(0, 0, 0, 0), 32},
-    {makeIP(10, 0, 0, 0), 8},
-    {makeIP(100, 64, 0, 0), 10},
     {makeIP(127, 0, 0, 0), 8},
     {makeIP(169, 254, 0, 0), 16},
+    {makeIP(10, 0, 0, 0), 8},
     {makeIP(172, 16, 0, 0), 12},
-    {makeIP(192, 0, 0, 0), 24},
-    {makeIP(192, 0, 2, 0), 24},
     {makeIP(192, 168, 0, 0), 16},
-    {makeIP(198, 18, 0, 0), 15},
     {makeIP(224, 0, 0, 0), 4},
-    {makeIP(255, 255, 255, 255), 32}
 };
-
-static std::vector<std::pair<IPv6, uint8_t> > reservedIPv6s = {
+static const std::vector<std::pair<IPv6, uint8_t> > privateIPv6s = {
     {{0, 0, 0, 0, 0, 0, 0, 0}, 128},
     {{0, 0, 0, 0, 0, 0, 0, 1}, 128},
-    {{0xfc00, 0, 0, 0, 0, 0, 0, 0}, 7},
-    {{0xfd00, 0, 0, 0, 0, 0, 0, 0}, 8},
     {{0xfe80, 0, 0, 0, 0, 0, 0, 0}, 10},
     {{0xfec0, 0, 0, 0, 0, 0, 0, 0}, 10},
-    {{0xff00, 0, 0, 0, 0, 0, 0, 0}, 8}
+    {{0xff00, 0, 0, 0, 0, 0, 0, 0}, 8},
+};
+// 1.101.3: two cloud metadata addresses and fd00::/8
+static const std::vector<std::pair<uint32_t, uint8_t> > privateIPv4s_1101 = {
+    {makeIP(100, 100, 100, 200), 32},
+    {makeIP(192, 0, 0, 192), 32},
+};
+static const std::vector<std::pair<IPv6, uint8_t> > privateIPv6s_1101 = {
+    {{0xfd00, 0, 0, 0, 0, 0, 0, 0}, 8},
+};
+// 1.121.0: IANA's reserved ranges instead (CGNAT, TEST-NETs, benchmarking, NAT64, 2001::/23, fc00::/7)
+static const std::vector<std::pair<uint32_t, uint8_t> > privateIPv4s_1121 = {
+    {makeIP(100, 64, 0, 0), 10},
+    {makeIP(192, 0, 0, 0), 24},
+    {makeIP(192, 0, 2, 0), 24},
+    {makeIP(192, 88, 99, 0), 24},
+    {makeIP(198, 18, 0, 0), 15},
+    {makeIP(198, 51, 100, 0), 24},
+    {makeIP(203, 0, 113, 0), 24},
+};
+static const std::vector<std::pair<IPv6, uint8_t> > privateIPv6s_1121 = {
+    {{0x64, 0xff9b, 0, 0, 0, 0, 0, 0}, 96},
+    {{0x64, 0xff9b, 1, 0, 0, 0, 0, 0}, 48},
+    {{0x2001, 0, 0, 0, 0, 0, 0, 0}, 23},
+    {{0xfc00, 0, 0, 0, 0, 0, 0, 0}, 7},
 };
 
-static std::atomic_bool didAddIPv4IPs(false);
+static uint32_t prefixMask(int bits) { return bits <= 0 ? 0u : bits >= 32 ? 0xFFFFFFFFu : 0xFFFFFFFFu << (32 - bits); }
+
+static bool isPrivateIPv4(uint32_t ip) {
+    // the reserved lists changed after 1.101.3 (1.106.1-1.120); only 1.101.3 and 1.121.0 are supported versions
+    const bool newer = ccAtLeast(NULL, 1, 120, 0);
+    for (const auto * list : {&privateIPv4s, newer ? &privateIPv4s_1121 : &privateIPv4s_1101})
+        for (const auto& cl : *list)
+            if ((ip & prefixMask(cl.second)) == (cl.first & prefixMask(cl.second))) return true;
+    return false;
+}
+
+static bool isPrivateIPv6(const uint16_t w[8]) {
+    // an IPv4-mapped address (::ffff:a.b.c.d) is the IPv4 address, as Java parses it
+    if (!w[0] && !w[1] && !w[2] && !w[3] && !w[4] && w[5] == 0xffff) return isPrivateIPv4(((uint32_t)w[6] << 16) | w[7]);
+    const bool newer = ccAtLeast(NULL, 1, 120, 0);
+    for (const auto * list : {&privateIPv6s, newer ? &privateIPv6s_1121 : &privateIPv6s_1101}) {
+        for (const auto& cl : *list) {
+            const uint16_t pw[8] = {cl.first.a, cl.first.b, cl.first.c, cl.first.d, cl.first.e, cl.first.f, cl.first.g, cl.first.h};
+            int bits = cl.second;
+            bool match = true;
+            for (int k = 0; k < 8 && bits > 0 && match; k++, bits -= 16) {
+                const uint16_t mask = bits >= 16 ? 0xFFFF : (uint16_t)(0xFFFF << (16 - bits));
+                if ((w[k] & mask) != (pw[k] & mask)) match = false;
+            }
+            if (match) return true;
+        }
+    }
+    return false;
+}
 
 bool matchIPClass(const std::string& address, const std::string& pattern) {
     static const std::regex ipv4_regex("(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)");
@@ -427,14 +490,10 @@ bool matchIPClass(const std::string& address, const std::string& pattern) {
     static const std::regex ipv4_class_regex("(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)/(\\d+)");
     static const std::regex regex_escape("[\\^\\$\\\\\\.\\+\\?\\(\\)\\[\\]\\{\\}\\|]");
     static const std::regex regex_wildcard("\\*");
-    if (!didAddIPv4IPs.load()) {
-        didAddIPv4IPs.store(true);
-        reservedIPv6s.reserve(reservedIPv6s.size() + reservedIPv4s.size());
-        for (const auto& cl : reservedIPv4s)
-            reservedIPv6s.push_back(std::make_pair<IPv6, uint8_t>({0, 0, 0, 0, 0, 0xffff, (uint16_t)(cl.first >> 16), (uint16_t)(cl.first & 0xFFFF)}, cl.second + 96));
-    }
     std::smatch pmatch, amatch;
     const std::regex patreg(std::regex_replace(std::regex_replace(pattern, regex_escape, "\\$&"), regex_wildcard, ".*"));
+    // craftos-agent: a /n prefix keeps the top n bits (the shift used to be by n itself, so 10.0.0.0/8 only covered
+    // 10.0.0.x while 192.0.0.0/24 blocked every 192.x.x.x)
     if ((pattern == "$private" && address == "localhost") || std::regex_match(address, patreg)) return true;
     else if (std::regex_match(address, amatch, ipv4_regex)) {
         const int a1 = std::stoi(amatch[1]), a2 = std::stoi(amatch[2]), a3 = std::stoi(amatch[3]), a4 = std::stoi(amatch[4]);
@@ -442,11 +501,35 @@ bool matchIPClass(const std::string& address, const std::string& pattern) {
         if (std::regex_match(pattern, pmatch, ipv4_class_regex)) {
             const int b1 = std::stoi(pmatch[1]), b2 = std::stoi(pmatch[2]), b3 = std::stoi(pmatch[3]), b4 = std::stoi(pmatch[4]);
             const uint32_t pattern_ip = makeIP(b1, b2, b3, b4);
-            const uint32_t netmask = 0xFFFFFFFFu << std::stoi(pmatch[5]);
+            const uint32_t netmask = prefixMask(std::stoi(pmatch[5]));
             return (pattern_ip & netmask) == (ip & netmask);
-        } else if (pattern == "$private")
-            for (const auto& cl : reservedIPv4s)
-                if ((ip & (0xFFFFFFFFu << cl.second)) == cl.first) return true;
-    } // check IPv6 addresses
+        } else if (pattern == "$private") return isPrivateIPv4(ip);
+    } else if (pattern == "$private" && address.find(':') != std::string::npos) {
+        // craftos-agent: IPv6 literals (http://[::1]) by CC's rules too
+        Poco::Net::IPAddress ip6;
+        std::string host = address;
+        if (host.size() > 1 && host.front() == '[' && host.back() == ']') host = host.substr(1, host.size() - 2);
+        if (!Poco::Net::IPAddress::tryParse(host, ip6) || ip6.family() != Poco::Net::IPAddress::IPv6) return false;
+        const unsigned char * b = (const unsigned char *)ip6.addr();
+        uint16_t w[8];
+        for (int k = 0; k < 8; k++) w[k] = (uint16_t)((b[2 * k] << 8) | b[2 * k + 1]);
+        return isPrivateIPv6(w);
+    }
     return false;
+}
+
+bool parseCCVersion(const std::string& text, int * code) {
+    int parts[3] = {0, 0, 0};
+    int n = 0;
+    size_t i = 0;
+    while (n < 3) {
+        if (i >= text.size() || !isdigit((unsigned char)text[i])) return false;
+        long v = 0;
+        while (i < text.size() && isdigit((unsigned char)text[i])) { v = v * 10 + (text[i] - '0'); if (v > 999) return false; i++; }
+        parts[n++] = (int)v;
+        if (n < 3) { if (i >= text.size() || text[i] != '.') return false; i++; }
+    }
+    if (i != text.size()) return false;
+    *code = ccVersionOf(parts[0], parts[1], parts[2]);
+    return true;
 }

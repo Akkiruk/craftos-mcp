@@ -14,6 +14,11 @@ set(LUA_SOURCES
   loadlib.c lobject.c lopcodes.c loslib.c lparser.c lstate.c lstring.c lstrlib.c ltable.c
   ltablib.c ltm.c lundump.c lutf8lib.c lvm.c lzio.c)
 list(TRANSFORM LUA_SOURCES PREPEND "${LUA_DIR}/src/")
+# The browser build (Emscripten, build-web.cmd): its own targets and flags, none of the native dependencies.
+if(EMSCRIPTEN)
+  include(web/web.cmake)
+  return()
+endif()
 add_library(lua52 SHARED ${LUA_SOURCES})
 target_include_directories(lua52 PUBLIC ${LUA_DIR}/include PRIVATE ${LUA_DIR}/src)
 target_compile_definitions(lua52 PRIVATE LUA_COMPAT_UNPACK LUA_COMPAT_LOADSTRING LUA_COMPAT_LOG10 LUA_COMPAT_MAXN)

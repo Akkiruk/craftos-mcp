@@ -2,11 +2,17 @@
 -- generates from the real game jars (vanilla 1.18.2, Forge and every mod in the pack). Each namespace is its own
 -- file and is only loaded when something from it turns up.
 --
+-- Each Minecraft version has its own set: 1.18.2's in /rom/ccsim/turtle/data/, any other in its <mc>/ folder there
+-- (core.version.blockData, from packages/runner/src/versions.ts). A version without a set of its own (1.21.1 so
+-- far) falls back to 1.18.2's.
+--
 -- A world can add to or override any of it in world.gameData: { names, blocks, items, loot, blockTags, itemTags,
 -- recipes, maxCount, fuel, hardness } (see docs/turtle.md).
-return function(extra)
+return function(extra, dir)
   local M = {}
   local DIR = "/rom/ccsim/turtle/data/"
+  if type(dir) == "string" and dir ~= DIR and fs.exists(dir .. "minecraft.lua") then DIR = dir end
+  M.dir = DIR
   local loaded = {}
   extra = extra or {}
 
@@ -23,7 +29,9 @@ return function(extra)
       end
     end
     d = d or {}
-    for _, s in ipairs({ "names", "blocks", "defaults", "items", "loot", "blockTags", "itemTags" }) do d[s] = d[s] or {} end
+    for _, s in ipairs({ "names", "blocks", "defaults", "items", "loot", "blockTags", "itemTags", "mapColours" }) do
+      d[s] = d[s] or {}
+    end
     loaded[ns] = d
     return d
   end
@@ -100,6 +108,37 @@ return function(extra)
   function M.itemHasTag(id, tag)
     tag = M.id((tostring(tag):gsub("^#", "")))
     return hasTag("itemTags", id, tag)
+  end
+
+  --- The block's map colour (MapColor.col, RGB) in this state, as CC:Tweaked 1.121.0's details give it: nil when it
+  --- has none (MapColor.NONE) or the data set does not know (only sets read from the server's code have them).
+  --- world.gameData.mapColours can give or override one: id -> colour, or false for none.
+  function M.mapColour(id, state)
+    local entry = section("mapColours", id)
+    if entry == nil or entry == false then return nil end
+    if type(entry) == "table" then
+      local defaults = M.defaultState(id) or {}
+      local key = {}
+      for i, prop in ipairs(entry.by or {}) do
+        local v = state and state[prop]
+        if v == nil then v = defaults[prop] end
+        key[i] = tostring(v)
+      end
+      entry = (entry.values or {})[table.concat(key, ",")] or entry.default
+    end
+    if type(entry) ~= "number" or entry == 0 then return nil end
+    return entry
+  end
+
+  local compostables
+  --- ComposterBlock.COMPOSTABLES: the chance one item raises a composter's level, or nil when it cannot be composted.
+  function M.compostChance(id)
+    if not compostables then
+      local fn = loadfile(DIR .. "_compostables.lua", "t", {})
+      compostables = fn and fn().compostables or {}
+      for k, v in pairs(extra.compostables or {}) do compostables[k] = v ~= false and v or nil end
+    end
+    return compostables[id]
   end
 
   local tagMembers, recipes

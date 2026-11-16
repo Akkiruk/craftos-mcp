@@ -19,3 +19,5 @@ coverage/
 __pycache__/
 # The public copy builds Tom's Peripherals' fonts on each machine (scripts/build-toms-fonts.mjs)
 /rom-overlay/rom/ccsim/addons/toms-peripherals/fonts.lua
+# make-showcase.mjs --keep work folder
+/docs/media/showcase/.work/

@@ -27,6 +27,24 @@ M.config = {
 
 -- Server-mod behaviour this build does not simulate: always off.
 M.vhcc, M.v36 = false, false
+--- The Minecraft / CC:Tweaked version the world is on (packages/runner/src/versions.ts; world.json `version`).
+--- Modules read it to follow a version: what CC:Tweaked 1.121.0 does differently from 1.101.3 is behind M.cc121
+--- (docs/turtle.md, "Minecraft versions").
+M.version = { mc = "1.18.2", cc = "1.101.3", loader = "forge", blockData = "/rom/ccsim/turtle/data/" }
+--- The world runs CC:Tweaked 1.121.0 (Minecraft 1.20.1 and 1.21.1); set by M.load from the version.
+M.cc121 = false
+--- Whether the world's CC:Tweaked is at least this version ("1.109.0").
+function M.ccAtLeast(want)
+  local function parts(v)
+    local a, b, c = tostring(v):match("^(%d+)%.(%d+)%.(%d+)$")
+    return tonumber(a) or 0, tonumber(b) or 0, tonumber(c) or 0
+  end
+  local a1, b1, c1 = parts(M.version.cc)
+  local a2, b2, c2 = parts(want)
+  if a1 ~= a2 then return a1 > a2 end
+  if b1 ~= b2 then return b1 > b2 end
+  return c1 >= c2
+end
 --- Whether a mod (an addon id such as "create") is part of this world.
 M.addons, M.addonsAll = {}, true
 function M.addonOn(id) return M.addonsAll or M.addons[id] == true end
@@ -129,6 +147,10 @@ function M.load()
   local text = readFile(WORLD_PATH)
   local world = text and textutils.unserializeJSON(text) or {}
   M.world = world
+  if type(world.version) == "table" then
+    for key, value in pairs(world.version) do M.version[key] = value end
+  end
+  M.cc121 = M.ccAtLeast("1.121.0")
   -- 2.2.36 is the target and the default; "2.2.35" is kept only as an explicit opt-out for old measurements
   -- Mods the world runs with (packages/runner/src/addons.ts). The runner always sends the list; without one, all.
   M.addons = {}
@@ -641,11 +663,13 @@ function M.installEventHook()
   function os.shutdown(...)
     if M.dirty then M.save() end
     if M.flushBeacon then M.flushBeacon() end
+    if M.flushHost then M.flushHost() end -- block changes held back (ccsim/modem.lua)
     return rawShutdown(...)
   end
   function os.reboot(...)
     if M.dirty then M.save() end
     if M.flushBeacon then M.flushBeacon() end
+    if M.flushHost then M.flushHost() end
     return rawReboot(...)
   end
   -- Input-wait beacon for the test harness (any program, no cooperation needed): which event the
@@ -726,10 +750,11 @@ function M.installEventHook()
   -- sequence stays the one the harness chose, even if the program seeds itself from the clock.
   -- Cobalt works the bound out as a Java int, so a range that does not fit one fails
   local rawRandom = math.random
-  function math.random(m, n)
+  function math.random(m, n, ...)
     if n ~= nil and n - m + 1 > 2147483647 then
       error("vm error: java.lang.IllegalArgumentException: bound must be positive", 2)
     end
+    if select("#", ...) > 0 then return rawRandom(m, n, ...) end -- 1.101.3 ignores the extras, 1.121.0 refuses them
     if n ~= nil then return rawRandom(m, n) end
     if m ~= nil then return rawRandom(m) end
     return rawRandom()
@@ -751,6 +776,10 @@ function M.installEventHook()
   -- forward and fires the timers that fall due, so sleeps and timeouts pass without waiting.
   local rawAdvance = os.__ccsimAdvance
   os.__ccsimAdvance = nil
+  -- The server's own work done here (machines catching up after a jump) does not count towards the computer's
+  -- 7 s limit without yielding: call it now and then in a long catch-up (an engine without it: nothing)
+  M.serverWork = os.__ccsimServerWork or function() end
+  os.__ccsimServerWork = nil
   M.native = os.__ccsimNative -- emulator.hide() removes it (scripts/rom-patches/startup-emulator.lua wraps fs with it)
   function handlers.advance(cmd)
     local seconds = tonumber(cmd.seconds)
@@ -819,6 +848,7 @@ function M.installEventHook()
         lastBlockedPublish = now
         publishBeacon()
       end
+      if M.flushHost then M.flushHost() end -- the block changes held back go out before the wait (ccsim/modem.lua)
       local event = table.pack(rawPull())
       if M.dirty then M.save() end
       local inner = deepest()

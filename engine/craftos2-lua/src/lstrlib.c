@@ -6,6 +6,7 @@
 
 
 #include <ctype.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,8 +114,9 @@ static int str_rep (lua_State *L) {
   char * str;
   const char *s = luaL_checklstring(L, 1, &l);
   int n = luaL_checkint(L, 2), i;
-  const char *sep = "";  /* Lua 5.1 (CC:Tweaked) ignores a third argument */
+  const char *sep = "";  /* Lua 5.1 (CC:Tweaked 1.101.3) ignores a third argument */
   sl = 0;
+  if (lua_ccatleast(L, 1, 109, 0)) sep = luaL_optlstring(L, 3, "", &sl);  /* Lua 5.2 (1.109+): a separator */
   if (n <= 0) lua_pushliteral(L, "");
   else if (n == 1) lua_pushvalue(L, 1);
   else {
@@ -176,6 +178,8 @@ static int str_dump (lua_State *L) {
   luaL_Buffer b;
   int strip = lua_gettop(L) > 1 && lua_toboolean(L, 2);
   luaL_checktype(L, 1, LUA_TFUNCTION);
+  if (lua_ccatleast(L, 1, 109, 0))  /* Cobalt 0.8+ (CC 1.109+) cannot dump any function */
+    return luaL_error(L, "unable to dump given function");
   lua_settop(L, 1);
   luaL_buffinit(L,&b);
   if (lua_dump53(L, writer, &b, strip) != 0)
@@ -265,13 +269,39 @@ static const char *classend (MatchState *ms, const char *p) {
 }
 
 
-static int match_class (int c, int cl) {
+/*
+** craftos-agent: CC 1.108+ (Cobalt 0.7.1+, CharProperties) has ASCII-only classes like C's "C" locale: nothing above
+** 127 is a letter, and %p is every ASCII punctuation mark. CC 1.101.3's Cobalt 0.6 follows the cc_class_* tables
+** measured in the real game, and its %g matches nothing.
+*/
+static int match_class_ascii (int c, int cl) {
   int res;
+  int ascii = c >= 0 && c < 128;
+  switch (tolower(cl)) {
+    case 'a' : res = ascii && isalpha(c); break;
+    case 'c' : res = ascii && iscntrl(c); break;
+    case 'd' : res = ascii && isdigit(c); break;
+    case 'g' : res = ascii && isgraph(c); break;
+    case 'l' : res = ascii && islower(c); break;
+    case 'p' : res = ascii && ispunct(c); break;
+    case 's' : res = ascii && isspace(c); break;
+    case 'u' : res = ascii && isupper(c); break;
+    case 'w' : res = ascii && isalnum(c); break;
+    case 'x' : res = ascii && isxdigit(c); break;
+    case 'z' : res = (c == 0); break;  /* deprecated option */
+    default: return (cl == c);
+  }
+  return (islower(cl) ? res : !res);
+}
+
+static int match_class (lua_State *L, int c, int cl) {
+  int res;
+  if (lua_ccatleast(L, 1, 108, 0)) return match_class_ascii(c, cl);
   switch (tolower(cl)) {
     case 'a' : res = cc_class_a[c & 255]; break;
     case 'c' : res = cc_class_c[c & 255]; break;
     case 'd' : res = cc_class_d[c & 255]; break;
-    case 'g' : res = isgraph(c); break;
+    case 'g' : return (cl == c);  /* Cobalt 0.6 (CC 1.101.3) has no %g class: %g is a plain 'g' (fixed in CC 1.108) */
     case 'l' : res = cc_class_l[c & 255]; break;
     case 'p' : res = cc_class_p[c & 255]; break;
     case 's' : res = cc_class_s[c & 255]; break;
@@ -285,7 +315,7 @@ static int match_class (int c, int cl) {
 }
 
 
-static int matchbracketclass (int c, const char *p, const char *ec) {
+static int matchbracketclass (lua_State *L, int c, const char *p, const char *ec) {
   int sig = 1;
   if (*(p+1) == '^') {
     sig = 0;
@@ -294,7 +324,7 @@ static int matchbracketclass (int c, const char *p, const char *ec) {
   while (++p < ec) {
     if (*p == L_ESC) {
       p++;
-      if (match_class(c, uchar(*p)))
+      if (match_class(L, c, uchar(*p)))
         return sig;
     }
     else if ((*(p+1) == '-') && (p+2 < ec)) {
@@ -316,8 +346,8 @@ static int singlematch (MatchState *ms, const char *s, const char *p,
     int c = uchar(*s);
     switch (*p) {
       case '.': return 1;  /* matches any char */
-      case L_ESC: return match_class(c, uchar(*(p+1)));
-      case '[': return matchbracketclass(c, p, ep-1);
+      case L_ESC: return match_class(ms->L, c, uchar(*(p+1)));
+      case '[': return matchbracketclass(ms->L, c, p, ep-1);
       default:  return (uchar(*p) == c);
     }
   }
@@ -449,8 +479,8 @@ static const char *match (MatchState *ms, const char *s, const char *p) {
                                  LUA_QL("%%f") " in pattern");
             ep = classend(ms, p);  /* points to what is next */
             previous = (s == ms->src_init) ? '\0' : *(s - 1);
-            if (!matchbracketclass(uchar(previous), p, ep - 1) &&
-               matchbracketclass(uchar(*s), p, ep - 1)) {
+            if (!matchbracketclass(ms->L, uchar(previous), p, ep - 1) &&
+               matchbracketclass(ms->L, uchar(*s), p, ep - 1)) {
               p = ep; goto init;  /* return match(ms, s, ep); */
             }
             s = NULL;  /* match failed */
@@ -952,6 +982,48 @@ static void addlenmod (char *form, const char *lenmod) {
 }
 
 
+/*
+** craftos-agent: %a/%A without a precision as Cobalt 0.8+ prints it (DoubleToStringConverter.toHex): the shortest
+** hex digits ("0x1p+0", "0x1.ep+1", not C's "0x1.0000000000000p+0"), a zero without its sign (Cobalt keeps whole
+** numbers as integers), "inf"/"nan", then the width and the '-', '+' and ' ' flags of form ("%-12a").
+*/
+static int hexfloat (char *buff, const char *form, lua_Number n) {
+  char digits[64];
+  char spec[MAX_FORMAT];
+  const int upper = form[strlen(form) - 1] == 'A';
+  size_t i, j = 0;
+  if (n != n) strcpy(digits, upper ? "NAN" : "nan");
+  else if (n == HUGE_VAL) strcpy(digits, upper ? "INF" : "inf");
+  else if (n == -HUGE_VAL) strcpy(digits, upper ? "-INF" : "-inf");
+  else {
+    char *p, *q;
+    if (n == 0) n = 0;  /* no -0 */
+    sprintf(digits, upper ? "%A" : "%a", (double)n);
+    p = strchr(digits, upper ? 'P' : 'p');
+    if (p != NULL && strchr(digits, '.') != NULL) {
+      q = p;
+      while (q[-1] == '0') q--;
+      if (q[-1] == '.') q--;
+      memmove(q, p, strlen(p) + 1);
+    }
+  }
+  if (digits[0] != '-' && (strchr(form, '+') != NULL || strchr(form, ' ') != NULL)) {
+    memmove(digits + 1, digits, strlen(digits) + 1);
+    digits[0] = strchr(form, '+') != NULL ? '+' : ' ';
+  }
+  /* the same width and '-' flag, as a %s */
+  spec[j++] = '%';
+  for (i = 1; form[i] != '\0' && form[i + 1] != '\0'; i++)
+    if (form[i] == '-' || isdigit(uchar(form[i]))) {
+      if (form[i] == '0' && (j == 1 || spec[j - 1] == '-')) continue;  /* a '0' flag, not part of the width */
+      spec[j++] = form[i];
+    }
+  spec[j++] = 's';
+  spec[j] = '\0';
+  return sprintf(buff, spec, digits);
+}
+
+
 static int str_format (lua_State *L) {
   int top = lua_gettop(L);
   int arg = 1;
@@ -969,6 +1041,16 @@ static int str_format (lua_State *L) {
       char form[MAX_FORMAT];  /* to store the format (`%...') */
       char *buff = luaL_prepbuffsize(&b, MAX_ITEM);  /* to put formatted item */
       int nb = 0;  /* number of bytes in added item */
+      const int newer = lua_ccatleast(L, 1, 109, 0);
+      if (newer) {
+        /* Cobalt 0.8+ (StringFormat.format): the conversion is checked before its argument */
+        const char *conv;
+        if (strfrmt >= strfrmt_end) return luaL_error(L, "invalid conversion '%%' to 'format'");
+        conv = scanformat(L, strfrmt, form);
+        if (*conv == '\0' || strchr("cdiuoxXeEfgGaAqs", *conv) == NULL)
+          return luaL_error(L, "invalid conversion '%s' to 'format'", form);
+        if (*conv == 'q' && conv != strfrmt) return luaL_error(L, "specifier '%%q' cannot have modifiers");
+      }
       if (++arg > top)
         luaL_argerror(L, arg, "no value");
       strfrmt = scanformat(L, strfrmt, form);
@@ -1002,6 +1084,10 @@ static int str_format (lua_State *L) {
         case 'a': case 'A':
 #endif
         case 'g': case 'G': {
+          if (newer && (strfrmt[-1] == 'a' || strfrmt[-1] == 'A') && strchr(form, '.') == NULL) {
+            nb = hexfloat(buff, form, luaL_checknumber(L, arg));
+            break;
+          }
           addlenmod(form, LUA_FLTFRMLEN);
           nb = sprintf(buff, form, (LUA_FLTFRM_T)luaL_checknumber(L, arg));
           break;

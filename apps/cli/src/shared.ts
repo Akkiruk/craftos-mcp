@@ -8,6 +8,7 @@ import {
   type WorldConfig,
   loadConfig,
   loadNamedWorld,
+  resolveVersion,
 } from "@craftos-mcp/runner";
 
 type OptionSet = NonNullable<Parameters<typeof parseArgs>[0]>["options"];
@@ -17,6 +18,8 @@ const COMMON_OPTIONS = {
   dir: { type: "string" },
   world: { type: "string" },
   addons: { type: "string" },
+  // the Minecraft version (world.version): not --version, which reads as "print this tool's version"
+  mc: { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -28,6 +31,7 @@ export interface Parsed {
     dir?: string;
     world?: string;
     addons?: string;
+    mc?: string;
     help?: boolean;
     timescale?: string;
     timeout?: string;
@@ -69,8 +73,29 @@ export function workspacePath(config: RunnerConfig, typed: string): string {
   return typed;
 }
 
-/** --world: a JSON file (relative to the current folder or the workspace) or the name of a world in worlds/. --addons overrides its mod list. */
+/**
+ * --world: a JSON file (relative to the current folder or the workspace) or the name of a world in worlds/. --addons
+ * overrides its mod list and --mc its Minecraft version (world.version).
+ */
 export function loadWorld(
+  config: RunnerConfig,
+  world: string | undefined,
+  addons: string | undefined,
+  mc?: string,
+): WorldConfig | undefined {
+  const loaded = loadWorldAddons(config, world, addons);
+  if (mc === undefined) return loaded;
+  try {
+    resolveVersion(mc);
+  } catch (error) {
+    throw new UsageError(
+      `--mc: ${(error as Error).message.replace(/^world\.version: /, "")}`,
+    );
+  }
+  return { ...loaded, version: mc };
+}
+
+function loadWorldAddons(
   config: RunnerConfig,
   world: string | undefined,
   addons: string | undefined,

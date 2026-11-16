@@ -1,8 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Akkiruk/craftos-mcp",
-  "description": "Headless CC:Tweaked 1.101.3 emulator: run, test and screenshot ComputerCraft Lua programs.",
-  "version": "0.1.0",
+  "title": "craftos-mcp",
+  "description": "CC:Tweaked (ComputerCraft) emulator: run, test and screenshot Lua programs, monitors and turtles.",
+  "version": "0.2.0",
   "repository": {
     "url": "https://github.com/Akkiruk/craftos-mcp",
     "source": "github"
@@ -13,19 +14,28 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "craftos-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "runtimeHint": "npx",
+      "runtimeArguments": [{ "type": "positional", "value": "-y" }],
       "transport": { "type": "stdio" },
       "packageArguments": [{ "type": "positional", "value": "serve" }],
       "environmentVariables": [
         {
           "name": "CRAFTOS_WORKSPACE",
-          "description": "Folder with your Lua project (default: the server's own workspace folder).",
+          "description": "Folder with your Lua project, copied onto every emulated computer (default: the current folder).",
+          "format": "filepath",
           "isRequired": false
         },
         {
           "name": "CRAFTOS_ADDONS",
-          "description": "Mods to simulate besides CC:Tweaked: all, none, or comma-separated ids such as create,mekanism.",
+          "description": "Mods to simulate besides CC:Tweaked: all, none, or ids separated by commas such as create,mekanism.",
+          "placeholder": "all",
+          "isRequired": false
+        },
+        {
+          "name": "CRAFTOS_VERSION",
+          "description": "Minecraft version new computers start on: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1.",
+          "choices": ["1.18.2", "1.20.1", "1.21.1"],
           "isRequired": false
         }
       ]

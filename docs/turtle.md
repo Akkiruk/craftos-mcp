@@ -183,3 +183,66 @@ environment variables. A missing jar or directory stops the run with the flag to
 To run the emulator on the vanilla set, copy `rom/cc-1.101.3` somewhere, replace its `rom/ccsim/turtle/data` with the
 vanilla set, and point `CRAFTOS_ROM` at the copy. The turtle suites (`turtle`, `turtle-build`, `turtle-host`,
 `turtle-living` integration tests) pass on both sets.
+
+### One set per Minecraft version
+
+Each Minecraft version has its own set, picked by the world's version (`core.version.blockData`, from
+`packages/runner/src/versions.ts`):
+
+| Version | Folder                           | Made from                                                           | Size                       |
+| ------- | -------------------------------- | ------------------------------------------------------------------- | -------------------------- |
+| 1.18.2  | `turtle/data/`                   | the pack (private) or vanilla, Forge 40.2.21, CC 1.101.3            | 20 MB pack, 1.1 MB vanilla |
+| 1.20.1  | `turtle/data/1.20.1/`            | vanilla only: Minecraft 1.20.1, Forge 47.4.28, CC 1.121.0 (forge)   | 1.4 MB                     |
+| 1.21.1  | none yet: falls back to 1.18.2's | (1.21 renames the data folders and gives recipe results components) |                            |
+
+1.18.2's folder and paths are what they always were. `extract.py --mc 1.20.1` makes the 1.20.1 set; there is no 1.20.1
+pack instance, so it is vanilla (`--vanilla` is implied) and the same set ships in the public copy
+(`.public-data/turtle-data/1.20.1/`):
+
+```sh
+python -I tools/turtledata/extract.py --mc 1.20.1 --jars <scratch dir> --download
+python -I tools/turtledata/extract.py --mc 1.20.1 --jars <scratch dir> --out .public-data/turtle-data/1.20.1
+```
+
+`--download` fetches into `--jars` (once; each is hash-checked): the client and server jars and the server mappings from
+Mojang's version manifest, Forge's universal jar from its maven, CC:Tweaked from Modrinth (the pin in `versions.ts`).
+The jars are only read as data. The block report comes from the server jar's bundler, so no launcher libraries are
+needed. The 1.20.1 set has two things the 1.18.2 sets do not, read from the game's own code with Mojang's mappings:
+`mapColours` in each namespace file (every block state's `MapColor`, compacted to the properties that change it) and
+`_compostables.lua` (`ComposterBlock.COMPOSTABLES`). CC:Tweaked's own blocks take their map colour from its
+`ModRegistry` (a table in `extract.py`). 1.20.1's data folders and JSON are 1.18.2's (`loot_tables`, `recipes`,
+`tags/blocks`, `tags/items`); its recipes add `category` and `show_notification`, which are ignored, and its smithing
+recipes are not crafting recipes. Every loot function, condition and entry type in the 1.20.1 block loot tables is
+one `loot.lua` already knows.
+
+## Minecraft versions
+
+A world's `version` (or `CRAFTOS_VERSION`) picks Minecraft 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or
+1.21.1 (both CC:Tweaked 1.121.0). Everything 1.121.0 does differently is behind `core.cc121`, so 1.18.2 is untouched.
+Each is from CC:Tweaked's 1.121.0 source (tag `v1.20.1-1.121.0`) and tested in
+`packages/runner/src/turtle-cc121.integration.test.ts`; the turtle suites also run whole on 1.20.1
+(`turtle-1.20.1.integration.test.ts`).
+
+- `turtle.getEquippedLeft()` / `getEquippedRight()` (1.116.0): the full item details of the upgrade, or nil. They
+  wait for a server tick, like `getItemDetail(slot, true)`.
+- **Upgrades keep their item.** `equipLeft`/`Right` store the very item and give it back unequipped (name, NBT).
+  `TurtleTool.isItemSuitable` with the vanilla tools' defaults refuses a damaged or enchanted tool but takes a renamed
+  one (1.101.3 refuses renamed tools too). An old upgrade that does not fit goes behind the turtle
+  (`TurtleUtil.storeItemOrDrop`), as do `turtle.craft` results that do not fit; 1.101.3 dropped both in front.
+- **`turtle.suck` from an inventory** goes slot by slot (`ForgeItemContainer.moveTo`): the first slot whose items fit
+  moves, at most a stack and only from that slot. A slot that cannot fit is passed over, so a full turtle still takes
+  what it has room for; "No space for items" only when nothing fits. 1.101.3 took the first stack's item from every
+  slot holding it, and failed when that item had no room.
+- **`turtle.place` right-clicks** the block straight in front first when it is in `#computercraft:turtle_can_use`
+  (`turtle/canuse.lua`): a composter takes compostables (`ComposterBlock.addItem` with the jar's chances; level 7 waits
+  20 ticks for 8) and gives bone meal at 8; cauldrons take and give water, lava and powder snow buckets and water
+  bottles (`CauldronInteraction`); a full beehive gives honey to a glass bottle or honeycomb to shears.
+- **Item and block details** (`turtle.getItemDetail(slot, true)`, `getEquipped*`, `inspect`, an inventory's
+  `getItemDetail`) gain `mapColour` and `mapColor` (RGB, from the item's block for items; none for `MapColor.NONE`),
+  and `itemGroups` is always empty. `potionEffects` shows when the world gives it on the item.
+- **`redstone_relay`** (1.114.0) is a peripheral: CC's `RedstoneMethods` on its own sides. Its inputs come from the
+  world (`blockEntity.inputs`, `bundledInputs`, or `inputs` on a `peripherals` entry); its outputs land in state.json.
+- **Speaker `playSound`**: one sound per server tick (a second returns false), music disc sounds return false, names
+  over 512 characters and malformed names raise `bad argument #1 (...)`.
+
+What is not matched is in `docs/conformance/emulator-vs-real-deviations.md`.

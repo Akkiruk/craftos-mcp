@@ -531,16 +531,27 @@ static const char *getupvalname (CallInfo *ci, const TValue *o,
 }
 
 
+/*
+** craftos-agent: the type an error message names. CC 1.104+ (Cobalt's ErrorFactory.typeName) reads a string
+** __name from the metatable of a table or userdata; CC 1.101.3 always says the plain type.
+*/
+static const char *errtypename (lua_State *L, const TValue *o) {
+  if (luaG_ccatleast(L, 1, 104, 0) && (ttistable(o) || ttisuserdata(o))) {
+    const TValue *tn = luaT_gettmbyobj(L, o, TM_NAME);
+    if (ttisstring(tn)) return svalue(tn);
+  }
+  return objtypename(o);
+}
+
+
 l_noret luaG_typeerror (lua_State *L, const TValue *o, const char *op) {
   CallInfo *ci = L->ci;
   const char *name = NULL;
-  const char *t = objtypename(o);
+  const char *t = errtypename(L, o);
   const char *kind = NULL;
-  const TValue *tn = luaT_gettmbyobj(L, o, TM_NAME);
-  if (tn != luaO_nilobject && tostring(L, tn))
-    t = svalue(tn);
   if (isLua(ci)) {
-    kind = getupvalname(ci, o, &name);  /* check whether 'o' is an upvalue */
+    /* check whether 'o' is an upvalue (indexing one in place); Cobalt 0.8+ (CC 1.109+) does not name those */
+    if (!luaG_ccatleast(L, 1, 109, 0)) kind = getupvalname(ci, o, &name);
     if (!kind && isinstack(ci, o))  /* no? try a register */
       kind = getobjname(ci_func(ci)->p, currentpc(ci),
                         cast_int(o - ci->u.l.base), &name);
@@ -569,15 +580,9 @@ l_noret luaG_aritherror (lua_State *L, const TValue *p1, const TValue *p2) {
 
 
 l_noret luaG_ordererror (lua_State *L, const TValue *p1, const TValue *p2) {
-  const char *t1 = objtypename(p1);
-  const char *t2 = objtypename(p2);
-  const TValue *tn1 = luaT_gettmbyobj(L, p1, TM_NAME), *tn2;
-  if (tn1 != luaO_nilobject && tostring(L, tn1))
-    t1 = svalue(tn1);
-  tn2 = luaT_gettmbyobj(L, p2, TM_NAME);
-  if (tn2 != luaO_nilobject && tostring(L, tn2))
-    t2 = svalue(tn2);
-  if (t1 == t2)
+  const char *t1 = errtypename(L, p1);
+  const char *t2 = errtypename(L, p2);
+  if (strcmp(t1, t2) == 0)
     luaG_runerror(L, "attempt to compare two %s values", t1);
   else
     luaG_runerror(L, "attempt to compare %s with %s", t1, t2);

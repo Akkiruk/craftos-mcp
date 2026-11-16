@@ -35,6 +35,19 @@ extern "C" {
 using path_t = std::filesystem::path;
 namespace fs = std::filesystem;
 
+// craftos-agent: the CC:Tweaked version the engine behaves as. CRAFTOSPC_CC_VERSION (1.101.3) is the default;
+// --cc-version x.y.z picks another (the runner passes it from packages/runner/src/versions.ts). Every place the fork
+// pinned behaviour to 1.101.3 asks ccAtLeast(...) and keeps the 1.101.3 behaviour below that version.
+constexpr int ccVersionOf(int major, int minor, int patch) { return major * 1000000 + minor * 1000 + patch; }
+extern std::string ccVersionString;  // "1.101.3", or what --cc-version gave
+extern int ccVersionCode;            // ccVersionOf(...) of ccVersionString
+/** Parse "x.y.z" into ccVersionOf(x, y, z); false when it is not three numbers. */
+extern bool parseCCVersion(const std::string& text, int * code);
+/** Whether the computer (or the engine, for NULL) behaves as CC:Tweaked major.minor.patch or newer. */
+inline bool ccAtLeast(const Computer * comp, int major, int minor, int patch) {
+    return (comp != NULL ? comp->ccVersion : ccVersionCode) >= ccVersionOf(major, minor, patch);
+}
+
 // for some reason Clang complains if this isn't present
 #ifdef __clang__
 template<> class std::hash<SDL_EventType>: public std::hash<unsigned short> {};
@@ -206,6 +219,8 @@ extern std::vector<std::wstring> split(const std::wstring& strToSplit, const wch
 extern std::vector<path_t> split(const path_t& strToSplit, const path_t::value_type * delimeter);
 extern void load_library(Computer *comp, lua_State *L, const library_t& lib);
 extern void HTTPDownload(const std::string& url, const std::function<void(std::istream*, Poco::Exception*, Poco::Net::HTTPResponse*)>& callback);
+/** craftos-agent: clean one path part as CC's FileSystem.sanitizePath does (trim spaces; ". ." is "." from 1.117); false to drop it. */
+extern bool ccPathPart(const Computer * comp, std::string& part);
 extern path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt = true, std::string * mountPath = NULL, bool * isRoot = NULL);
 extern bool fixpath_ro(Computer *comp, std::string path);
 extern path_t fixpath_mkdir(Computer * comp, const std::string& path, bool md = true, std::string * mountPath = NULL);

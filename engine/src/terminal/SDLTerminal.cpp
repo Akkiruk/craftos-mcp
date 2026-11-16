@@ -57,7 +57,12 @@ SDL_Surface* SDLTerminal::origfont = NULL;
 std::unordered_multimap<SDL_EventType, std::pair<sdl_event_handler, void*> > SDLTerminal::eventHandlers;
 SDL_Window* SDLTerminal::singleWin = NULL;
 static int nextWindowID = 1;
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && defined(CRAFTOS_WEB)
+// the browser build (engine/web/web.cmake) never opens an SDL window: raw renderer only
+extern "C" void emsyncfs();
+static void onWindowCreate(int id, const char * title) {}
+static void onWindowDestroy(int id) {}
+#elif defined(__EMSCRIPTEN__)
 
 extern "C" {
     void EMSCRIPTEN_KEEPALIVE nextRenderTarget() {

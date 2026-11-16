@@ -41,6 +41,10 @@
 #include <libgen.h>
 #include <unistd.h>
 #endif
+#ifdef CRAFTOS_WEB
+// web/web_io.cpp: the page pauses every computer while its tab is hidden
+extern "C" void craftos_web_wait_while_paused();
+#endif
 
 #define termHasEvent(computer) ((computer)->running == 1 && (!(computer)->event_provider_queue.empty() || (computer)->lastResizeEvent || !(computer)->termEventQueue.empty()))
 #define QUEUE_LIMIT 256
@@ -166,13 +170,13 @@ void defaultPollEvents() {
 
 void mainLoop() {
     TerminalFactory * factory = selectedRenderer >= terminalFactories.size() ? NULL : terminalFactories[selectedRenderer];
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) || defined(CRAFTOS_WEB)
     while (!listenerMode && (rawClient ? !exiting : !computers->empty() || !orphanedTerminals.empty())) {
 #endif
         if (factory) factory->pollEvents();
         else defaultPollEvents();
         std::this_thread::yield();
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && !defined(CRAFTOS_WEB)
         if (!rawClient && computers->size() == 0) exiting = true;
 #else
     }
@@ -241,6 +245,10 @@ int getNextEvent(lua_State *L, const std::string& filter) {
     computer->timeoutCheckCount = 0;
     std::string ev;
     computer->getting_event = true;
+#ifdef CRAFTOS_WEB
+    // Paused: the program stops at its next yield (getting_event keeps the yield timeout away meanwhile)
+    craftos_web_wait_while_paused();
+#endif
     lua_State *param;
     if (computer->eventQueue.size() > QUEUE_LIMIT) fprintf(stderr, "Warning: Queue overflow on computer %d!\n", computer->id);
     do {

@@ -51,6 +51,21 @@ return function(core)
 
   local function typeName(v) return v == nil and "nil" or type(v) end
 
+  --- CC:Tweaked 1.121.0's ItemDetails.fill on top: itemGroups always empty, and the map colour of the item's block
+  --- from the version's block data (ccsim/turtle/data.lua; the turtle's own when there is one)
+  local gameData, gameRules
+  local function itemDetail121(detail, item)
+    detail.itemGroups = {}
+    if not gameData then
+      gameData = core.gameData or dofile("/rom/ccsim/turtle/data.lua")(core.world.gameData, core.version.blockData)
+      gameRules = dofile("/rom/ccsim/turtle/rules.lua")(gameData, core.world.gameData)
+    end
+    local name = gameData.id(item.name)
+    local block = name ~= "minecraft:wheat" and gameRules.blockFor(name, "up") or nil
+    local colour = block and gameData.mapColour(block, gameData.defaultState(block))
+    if colour then detail.mapColor, detail.mapColour = colour, colour end
+  end
+
   --- What getItemDetail says about an item (also what 2.2.36's getPlayerEquipment says about worn ones).
   local function itemDetail(item)
     local detail = {
@@ -60,6 +75,7 @@ return function(core)
       maxCount = 64,
       tags = {},
     }
+    if core.cc121 then itemDetail121(detail, item) end
     for k, v in pairs(item) do -- fixtures add enchantments, vaultData, ...; "__" fields are the sim's own
       if type(k) ~= "string" or k:sub(1, 2) ~= "__" then detail[k] = v end
     end
@@ -637,7 +653,11 @@ return function(core)
   local apFactories = {}
   for _, module in ipairs({ "simple", "environment", "bridges", "ar", "extra" }) do
     for typeName, factory in pairs(dofile("/rom/ccsim/ap/" .. module .. ".lua")(core, ap)) do
-      if typeName == "speaker" or core.addonOn("advanced-peripherals") then apFactories[typeName] = factory end
+      if typeName == "redstone_relay" then
+        if core.cc121 then apFactories[typeName] = factory end -- CC's own, from 1.114.0
+      elseif typeName == "speaker" or core.addonOn("advanced-peripherals") then
+        apFactories[typeName] = factory
+      end
     end
   end
 
@@ -1109,7 +1129,8 @@ return function(core)
   }
   -- No modem or computer method asks for the server thread (ModemPeripheral, ComputerPeripheral)
   -- A turtle's crafting table queues a turtle command, which waits for its own turtle_response (CraftingTablePeripheral)
-  local COMPUTER_THREAD_TYPES = { modem = true, computer = true, workbench = true, turtle = true }
+  -- RedstoneMethods (the 1.121.0 redstone relay) has no main-thread method either
+  local COMPUTER_THREAD_TYPES = { modem = true, computer = true, workbench = true, turtle = true, redstone_relay = true }
   -- A linked computer's engine peripherals: no monitor, drive or printer method waits for the server thread
   local REMOTE_COMPUTER_THREAD_TYPES = { monitor = true, drive = true, printer = true }
 
@@ -1154,6 +1175,7 @@ return function(core)
     local timer = os.startTimer(0.05)
     local keep = {}
     while true do
+      if core.flushHost then core.flushHost() end -- block changes held back (ccsim/modem.lua)
       local ev = table.pack(coroutine.yield())
       if ev[1] == "terminate" then
         error("Terminated", 0)
@@ -1175,6 +1197,7 @@ return function(core)
       os.queueEvent("task_complete", id, false, tostring(results[2]))
     end
     while true do
+      if core.flushHost then core.flushHost() end
       local ev = table.pack(coroutine.yield())
       if ev[1] == "task_complete" and ev[2] == id then
         break

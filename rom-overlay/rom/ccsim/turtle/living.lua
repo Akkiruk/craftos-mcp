@@ -135,11 +135,16 @@ return function(core, ctx)
   end
 
   -- Blocks a fluid cannot flow into even though they have no collision (doors, signs, ladders, reeds, kelp ...)
+  local blocksFluidOf = {} -- by name: asked for every block a flow looks at
   local function blocksFluid(b)
     local n = b.name
-    return n:find("_door$") ~= nil or n:find("_sign$") ~= nil or n == "minecraft:ladder" or n == "minecraft:sugar_cane"
+    local known = blocksFluidOf[n]
+    if known ~= nil then return known end
+    known = n:find("_door$") ~= nil or n:find("_sign$") ~= nil or n == "minecraft:ladder" or n == "minecraft:sugar_cane"
       or n == "minecraft:kelp" or n == "minecraft:kelp_plant" or n == "minecraft:seagrass" or n == "minecraft:tall_seagrass"
       or n == "minecraft:bubble_column" or n:find("_portal$") ~= nil
+    blocksFluidOf[n] = known
+    return known
   end
 
   --- canHoldFluid: air, another fluid, or a block without a collision shape that is not one of the exceptions
@@ -205,15 +210,31 @@ return function(core, ctx)
     return canHold(b)
   end
 
-  local function slopeDistance(kind, x, y, z, depth, fromIdx)
+  -- FlowingFluid.getSpread keeps a cache of the blocks it looked at (stateCache) and of which hold a hole below them
+  -- (holeCache), keyed by the position relative to the spreading block, for the one spread: nothing changes during
+  -- it, so each block is read once however often the slope search passes it
+  local function cached(c, kind, ox, oz, x, y, z)
+    local k = (x - ox) * 64 + (z - oz)
+    local v = c.pass[k]
+    if v == nil then v = passable(kind, x, y, z); c.pass[k] = v end
+    return v, k
+  end
+  local function cachedHole(c, kind, k, x, y, z)
+    local v = c.hole[k]
+    if v == nil then v = isHole(kind, x, y - 1, z); c.hole[k] = v end
+    return v
+  end
+
+  local function slopeDistance(kind, x, y, z, depth, fromIdx, c, ox, oz)
     local best = 1000
     for i, d in ipairs(HORIZ) do
       if i ~= fromIdx then
         local nx, nz = x + d[1], z + d[2]
-        if passable(kind, nx, y, nz) then
-          if isHole(kind, nx, y - 1, nz) then return depth end
+        local through, k = cached(c, kind, ox, oz, nx, y, nz)
+        if through then
+          if cachedHole(c, kind, k, nx, y, nz) then return depth end
           if depth < slopeFind(kind) then
-            local j = slopeDistance(kind, nx, y, nz, depth + 1, (i + 1) % 4 + 1)
+            local j = slopeDistance(kind, nx, y, nz, depth + 1, (i + 1) % 4 + 1, c, ox, oz)
             if j < best then best = j end
           end
         end
@@ -244,20 +265,37 @@ return function(core, ctx)
     local i = falling and 7 or (amount - dropOff(kind))
     if i <= 0 then return end
     local best, chosen = 1000, {}
+    local c = { pass = {}, hole = {} }
+    -- The slope search only ever ends early at a block it can pass with a hole under it, and it reaches no further
+    -- than slopeFind + 1 blocks from here. With no such block in that reach every side scores 1000, which is what
+    -- the full search would find, so it is skipped (on open flat ground it is most of the work of a flow).
+    local reach, anyHole = slopeFind(kind) + 1, false
+    for dx = -reach, reach do
+      local w = reach - math.abs(dx)
+      for dz = -w, w do
+        -- here too: a search that loops back may pass this block
+        local through, k = cached(c, kind, x, z, x + dx, y, z + dz)
+        if through and cachedHole(c, kind, k, x + dx, y, z + dz) then anyHole = true break end
+      end
+      if anyHole then break end
+    end
     for idx, d in ipairs(HORIZ) do
       local nx, nz = x + d[1], z + d[2]
-      if passable(kind, nx, y, nz) then
+      local through, k = cached(c, kind, x, z, nx, y, nz)
+      if through then
         local f = newLiquid(kind, nx, y, nz)
         if f then
           local j
-          if isHole(kind, nx, y - 1, nz) then j = 0 else j = slopeDistance(kind, nx, y, nz, 1, (idx + 1) % 4 + 1) end
+          if cachedHole(c, kind, k, nx, y, nz) then j = 0
+          elseif anyHole then j = slopeDistance(kind, nx, y, nz, 1, (idx + 1) % 4 + 1, c, x, z)
+          else j = 1000 end
           if j < best then best = j chosen = {} end
           if j <= best then chosen[#chosen + 1] = { nx, nz, f } end
         end
       end
     end
-    for _, c in ipairs(chosen) do
-      if canSpread(kind, c[1], y, c[2], false) then spreadTo(kind, c[1], y, c[2], c[3], false) end
+    for _, to in ipairs(chosen) do
+      if canSpread(kind, to[1], y, to[2], false) then spreadTo(kind, to[1], y, to[2], to[3], false) end
     end
   end
 
@@ -661,7 +699,7 @@ return function(core, ctx)
   local function loadCooking()
     cooking = { smelting = { byItem = {}, byTag = {} }, blasting = { byItem = {}, byTag = {} },
       smoking = { byItem = {}, byTag = {} }, campfire_cooking = { byItem = {}, byTag = {} } }
-    local fn = loadfile("/rom/ccsim/turtle/data/_cooking.lua", "t", {})
+    local fn = loadfile((data.dir or "/rom/ccsim/turtle/data/") .. "_cooking.lua", "t", {})
     local all = fn and fn().cooking or {}
     for id, r in pairs(((core.world.gameData or {}).cooking) or {}) do all[id] = r ~= false and r or nil end
     local ids = {}
@@ -1043,11 +1081,33 @@ return function(core, ctx)
     return best
   end
 
+  -- ===== scheduled block ticks (Level.scheduleTick) =====
+
+  local BLOCK_TICK = {
+    -- ComposterBlock.tick: a composter that reached level 7 is ready (8) 20 ticks later
+    ["minecraft:composter"] = function(x, y, z, b)
+      if tostring(b.state and b.state.level) ~= "7" then return end
+      local ready = world.newBlock({ name = b.name, state = b.state })
+      ready.state.level = "8"
+      world.set(x, y, z, ready)
+    end,
+  }
+
+  --- Schedule the block at x,y,z to tick `delay` ticks from now (only the blocks in BLOCK_TICK do anything)
+  function M.scheduleTick(x, y, z, delay)
+    if not enabled then return end
+    push(max(cur, nowTick()) + delay, "b", x, y, z)
+  end
+
   -- ===== the clock =====
 
   local function dispatch(e)
     local kind = e[3]
-    if kind == "f" then
+    if kind == "b" then
+      local b = blockAt(e[4], e[5], e[6])
+      local tick = b and BLOCK_TICK[b.name]
+      if tick then tick(e[4], e[5], e[6], b) end
+    elseif kind == "f" then
       local x, y, z = e[4], e[5], e[6]
       pendingFluid[key(x, y, z)] = nil
       fluidTick(x, y, z)
@@ -1106,6 +1166,8 @@ return function(core, ctx)
         activeNext = runTick(nxt)
         steps = steps + 1
         if steps > MAX_STEPS then break end
+        -- the server's work, not the computer's (ccsim/core.lua serverWork)
+        if steps % 512 == 0 and core.serverWork then core.serverWork() end
       end
       last = now
     end)
@@ -1151,10 +1213,16 @@ return function(core, ctx)
         or name == "minecraft:farmland" or name == "minecraft:nether_wart" or name == "minecraft:sugar_cane"
         or name == "minecraft:melon_stem" or name == "minecraft:pumpkin_stem"
         or data.blockHasTag(name, "minecraft:crops") or data.blockHasTag(name, "minecraft:saplings")
+        or (core.cc121 and name == "minecraft:composter")
     end
     world.eachBlock(function(x, y, z, b)
       registerRandom(x, y, z, b)
       registerActor(x, y, z, b)
+      -- a composter saved at level 7 has its tick still coming (the tick queue is not saved): it comes again
+      -- (only CC:Tweaked 1.121.0 turtles fill composters, so only there)
+      if core.cc121 and b.name == "minecraft:composter" and tostring(b.state and b.state.level) == "7" then
+        M.scheduleTick(x, y, z, 20)
+      end
     end, wants)
     for _, e in ipairs(world.itemEntities) do e.born = e.born or last end
   end

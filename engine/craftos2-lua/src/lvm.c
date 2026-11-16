@@ -5,6 +5,7 @@
 */
 
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +42,7 @@ const TValue *luaV_tonumber (lua_State *L, const TValue *obj, TValue *n) {
   if (ttisnumber(obj)) return obj;
   resolverope(L, obj);
   resolvesubstr(L, obj);
-  if (ttisstring(obj) && luaO_str2d(svalue(obj), tsvalue(obj)->len, &num)) {
+  if (ttisstring(obj) && luaO_str2d(svalue(obj), tsvalue(obj)->len, &num, luaG_ccatleast(L, 1, 109, 0))) {
     setnvalue(n, num);
     return n;
   }
@@ -61,8 +62,20 @@ int luaV_tostring (lua_State *L, StkId obj) {
     char s[LUAI_MAXNUMBER2STR];
     lua_Number n = nvalue(obj);
     int l;
+    if (luaG_ccatleast(L, 1, 119, 0)) {
+      /* CC 1.119+ (Cobalt 0.9.9, as Lua 5.5): %.15g when that reads back as the same number, else %.17g. Whole
+         numbers in Java int range are Cobalt integers ("%d", -0 as 0); nan and inf as Java's Lua prints them. */
+      if (n != n) l = sprintf(s, "nan");
+      else if (n == HUGE_VAL) l = sprintf(s, "inf");
+      else if (n == -HUGE_VAL) l = sprintf(s, "-inf");
+      else if (n >= -2147483648.0 && n <= 2147483647.0 && n == (lua_Number)(int)n) l = sprintf(s, "%d", (int)n);
+      else {
+        l = sprintf(s, "%.15g", n);
+        if (strtod(s, NULL) != n) l = sprintf(s, "%.17g", n);
+      }
+    }
     /* CC's Cobalt prints whole numbers as integers (saturating at 2^63, -0 as 0) and NaN as "nan" */
-    if (n != n) l = sprintf(s, "nan");
+    else if (n != n) l = sprintf(s, "nan");
     else if (n == 9223372036854775808.0) l = sprintf(s, "9223372036854775807");
     else if (n >= -9223372036854775808.0 && n < 9223372036854775808.0 && n == (lua_Number)(long long)n)
       l = sprintf(s, "%lld", (long long)n);
@@ -1122,7 +1135,10 @@ void luaV_execute (lua_State *L) {
       )
       vmcase(OP_CLOSURE,
         Proto *p = cl->p->p[GETARG_Bx(i)];
-        Closure *ncl = getcached(p, cl->upvals, base);  /* cached closure */
+        /* craftos-agent: no closure cache. Cobalt (every CC version) makes a new function each time a function
+           expression runs, so `function() end` in a loop gives distinct functions (keys, setfenv targets) */
+        Closure *ncl = NULL;
+        (void)getcached;
         if (ncl == NULL)  /* no match? */
           pushclosure(L, p, cl->upvals, base, ra);  /* create a new one */
         else

@@ -12,9 +12,10 @@ import {
 import { type TestRunResult, runTests } from "@craftos-mcp/runner";
 
 const USAGE = [
-  "usage: craftos-mcp test [paths...] [--world x.json] [--addons a,b] [--timescale n]",
+  "usage: craftos-mcp test [paths...] [--world x.json] [--mc 1.20.1] [--addons a,b] [--timescale n]",
   "                        [--monitor name:WxH] [--timeout seconds] [--dir folder]",
   "",
+  "--mc picks the Minecraft version: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1 (CC:Tweaked 1.121.0).",
   "Runs every *.test.lua under the paths (default: the current folder) with the ccunit harness, each file in",
   "its own fresh computer. Exits 0 when everything passes, 1 when a test fails, 2 on a usage error.",
 ].join("\n");
@@ -74,7 +75,7 @@ const test: Command = {
       const result = await runTests(config, {
         paths: positionals.map((p) => workspacePath(config, p)),
         monitors: (values.monitor ?? []).map(parseMonitor),
-        world: loadWorld(config, values.world, values.addons),
+        world: loadWorld(config, values.world, values.addons, values.mc),
         timeScale: number("timescale", values.timescale),
         ...(timeout ? { timeoutMs: timeout * 1000 } : {}),
       });

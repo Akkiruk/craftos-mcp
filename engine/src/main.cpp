@@ -82,6 +82,8 @@ std::string updateAtQuit;
 int returnValue = 0;
 double timeScale = 1.0;
 double cobaltSlowdown = 1.0; // --cobalt-speed: run Lua this many times slower, as Cobalt does
+std::string ccVersionString = CRAFTOSPC_CC_VERSION; // --cc-version: the CC:Tweaked version computers behave as
+int ccVersionCode = ccVersionOf(1, 101, 3);
 std::unordered_map<path_t, std::string> globalPluginErrors;
 static std::string rawWebSocketURL;
 
@@ -609,6 +611,16 @@ int parseArguments(const std::vector<std::string>& argv) {
         else if (arg == "--args") script_args = argv[++i];
         else if (arg == "--time-scale") {timeScale = std::stod(argv[++i]); if (timeScale <= 0) timeScale = 1.0;}
         else if (arg == "--cobalt-speed") {cobaltSlowdown = std::stod(argv[++i]); if (cobaltSlowdown < 1) cobaltSlowdown = 1.0;}
+        else if (arg == "--cc-version") {
+            const std::string v = i + 1 < argv.size() ? argv[++i] : "";
+            int code = 0;
+            if (!parseCCVersion(v, &code)) {
+                std::cerr << "Error: --cc-version needs a CC:Tweaked version like 1.121.0, got '" << v << "'\n";
+                return 1;
+            }
+            ccVersionString = v;
+            ccVersionCode = code;
+        }
         else if (arg == "--plugin") customPlugins.push_back(argv[++i]);
         else if (arg == "--directory" || arg == "-d" || arg == "--data-dir") setBasePath(argv[++i]);
         else if (arg.substr(0, 3) == "-d=") setBasePath(arg.substr(3));
@@ -755,7 +767,7 @@ int parseArguments(const std::vector<std::string>& argv) {
 
 int main(int argc, char*argv[]) {
     lualib_debug_ccpc_functions(setcompmask_, db_debug, db_breakpoint, db_unsetbreakpoint);
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && !defined(CRAFTOS_WEB)
     while (EM_ASM_INT(return window.waitingForFilesystemSynchronization ? 1 : 0;)) emscripten_sleep(100);
 #endif
     std::vector<std::string> args;
@@ -780,6 +792,11 @@ int main(int argc, char*argv[]) {
     }
     if (selectedRenderer == -1) selectedRenderer = config.useHardwareRenderer ? 5 : 0;
     if (rawClient) {
+#ifdef CRAFTOS_WEB
+        // the browser build (engine/web/web.cmake) is a raw server only: no client, no websockets
+        std::cerr << "--raw-client is not available in the browser build\n";
+        return 6;
+#else
         if (!rawWebSocketURL.empty()) {
             Poco::URI uri;
             try {
@@ -872,6 +889,7 @@ int main(int argc, char*argv[]) {
             std::cout << str;
             std::cout.flush();
         });
+#endif
     }
     preloadPlugins();
     TerminalFactory * factory = selectedRenderer >= terminalFactories.size() ? NULL : terminalFactories[selectedRenderer];
@@ -914,10 +932,11 @@ int main(int argc, char*argv[]) {
     uploadCrashDumps();
 #endif
     startComputer(manualID ? id : config.initialComputer);
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && !defined(CRAFTOS_WEB)
     emscripten_set_main_loop(mainLoop, 0, false);
     return 0;
 #else
+    // CRAFTOS_WEB: main() runs on a worker (PROXY_TO_PTHREAD), so it keeps the native blocking main loop
     try {
         mainLoop();
     } catch (Poco::Exception &e) {

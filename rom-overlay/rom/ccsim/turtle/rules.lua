@@ -54,16 +54,23 @@ return function(data, extra)
 
   -- Collision (spec 3.2: only snow with 2+ layers stops a mob from being pushed aside). Blocks with no collision
   -- shape can hold an item entity falling through them.
+  -- by block name: everything but snow decides by name alone, and the living world asks on every fluid tick
+  local collisionOf = {}
   function M.hasCollision(block)
-    if block == nil or M.isAir(block) or M.isLiquid(block) then return false end
-    if block.name == "minecraft:snow" then return tonumber(block.state.layers or 1) >= 2 end
-    if M.REPLACEABLE[block.name] or M.isInstabreak(block) then return false end
+    if block == nil then return false end
     local n = block.name
-    if n:find("_sign$") or n:find("_banner$") or n:find("_button$") or n:find("_pressure_plate$") or n:find("rail$")
+    if n == "minecraft:snow" then return tonumber(block.state.layers or 1) >= 2 end
+    local known = collisionOf[n]
+    if known ~= nil then return known end
+    local solid = true
+    if M.isAir(block) or M.isLiquid(block) or M.REPLACEABLE[n] or M.isInstabreak(block) then
+      solid = false
+    elseif n:find("_sign$") or n:find("_banner$") or n:find("_button$") or n:find("_pressure_plate$") or n:find("rail$")
       or n == "minecraft:lever" or n == "minecraft:cobweb" or n:find("torch") then
-      return false
+      solid = false
     end
-    return true
+    collisionOf[n] = solid
+    return solid
   end
 
   -- ===== tools (spec 4) =====

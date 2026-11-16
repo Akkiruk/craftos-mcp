@@ -161,12 +161,13 @@ static lua_Number lua_strx2number (const char *s, char **endptr) {
 #endif
 
 
-int luaO_str2d (const char *s, size_t len, lua_Number *result) {
+/* craftos-agent: hexfloat is whether hexadecimal floats (0x1p4, 0xA.8) are numbers: CC 1.109+ (Lua 5.2), not 1.101.3 */
+int luaO_str2d (const char *s, size_t len, lua_Number *result, int hexfloat) {
   char *endptr;
   if (strpbrk(s, "nN"))  /* reject 'inf' and 'nan' */
     return 0;
   else if (strpbrk(s, "xX")) {  /* hexa? */
-    if (strpbrk(s, "pP."))  /* Lua 5.1 has no hexadecimal floats */
+    if (!hexfloat && strpbrk(s, "pP."))  /* Lua 5.1 has no hexadecimal floats */
       return 0;
     *result = lua_strx2number(s, &endptr);
   }

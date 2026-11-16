@@ -13,6 +13,9 @@ program itself against that world and checks what it does.
 | [`extreme-reactors/rod_controller.lua`](extreme-reactors/rod_controller.lua) | Control rods for a passively cooled Extreme Reactors reactor: keeps the energy buffer around the middle, with a monitor dashboard                   | `extreme-reactors`                | 3x2      |
 | [`advanced-peripherals/greeter.lua`](advanced-peripherals/greeter.lua)       | Greets players who walk into range of a player detector through a chat box, and answers `!players` and `!where`                                     | `advanced-peripherals`            | none     |
 | [`rednet/chat.lua`](rednet/chat.lua)                                         | Chat between two or more computers over rednet, with `/who` and `/quit` (the test runs two computers)                                               | none (vanilla rednet)             | none     |
+| [`games/board/arcade.lua`](games/board/arcade.lua)                           | A touch-screen cabinet of eight board games for two players or one against the computer ([README](games/board/README.md))                           | none (CC's own)                   | 2 x 6x6  |
+| [`games/action/action.lua`](games/action/action.lua)                         | A touch-screen cabinet of Snake, Blocks, Bricks, Lander and Mines, for the high score ([README](games/action/README.md))                            | none (CC's own)                   | 6x6      |
+| [`games/versus/versus.lua`](games/versus/versus.lua)                         | Paddle, Trails and Artillery head to head across two computers, each with its own wall (the tests run both) ([README](games/versus/README.md))      | none (vanilla rednet)             | 6x6 each |
 
 Each folder also holds the world and test of its program. The test is the best documentation of what the program
 promises: the reactor test lets the reactor heat on the emulator's clock and checks it is scrammed before any damage,

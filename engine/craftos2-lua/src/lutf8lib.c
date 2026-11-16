@@ -188,6 +188,17 @@ static int byteoffset (lua_State *L) {
        }
      }
   }
+  if (n == 0 && lua_ccatleast(L, 1, 119, 0)) {
+    /* CC 1.119+ (Cobalt 0.9.9, Lua 5.5): the character's first and last byte */
+    lua_Integer posf = posi;
+    if (iscont(s + posi))
+      return luaL_error(L, "initial position is a continuation byte");
+    if (posi < (lua_Integer)len && (((unsigned char)s[posi]) & 0x80) != 0)
+      while (iscont(s + posf + 1)) posf++;
+    lua_pushinteger(L, posi + 1);
+    lua_pushinteger(L, posf + 1);
+    return 2;
+  }
   if (n == 0)  /* did it find given character? */
     lua_pushinteger(L, posi + 1);
   else  /* no such character */

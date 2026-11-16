@@ -178,9 +178,16 @@ export function fontsLua(jarBytes) {
   return `${lines.join("\r\n")}\r\n`;
 }
 
-/** Build fonts.lua (default: the overlay's) from a local jar, or the pinned one from Modrinth. */
-export async function buildTomsFonts({ jar, out = FONTS_LUA } = {}) {
-  const path = jar ? resolve(jar) : await downloadJar(join(repoRoot, ".cache"));
+/**
+ * Build fonts.lua (default: the overlay's) from a local jar, or the pinned one from Modrinth, cached in cacheDir
+ * (default .cache/).
+ */
+export async function buildTomsFonts({
+  jar,
+  out = FONTS_LUA,
+  cacheDir = join(repoRoot, ".cache"),
+} = {}) {
+  const path = jar ? resolve(jar) : await downloadJar(cacheDir);
   const bytes = readFileSync(path);
   if (sha512(bytes) !== JAR_SHA512)
     console.warn(`warning: ${path} is not the pinned ${JAR_NAME}`);

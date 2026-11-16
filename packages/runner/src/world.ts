@@ -1,6 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { checkWorldAddons, resolveAddons } from "./addons.js";
+import {
+  type ResolvedVersion,
+  type VersionSpec,
+  DEFAULT_MC,
+  resolveVersion,
+  versionForSim,
+} from "./versions.js";
 import { luaString } from "./lua.js";
 import { resolveWired, withResolvedModems } from "./wired.js";
 
@@ -316,6 +323,13 @@ export interface WorldConfig {
    */
   addons?: string | string[];
   /**
+   * The Minecraft version the computer is on (versions.ts): "1.18.2" (CC:Tweaked 1.101.3), "1.20.1" or "1.21.1"
+   * (CC:Tweaked 1.121.0), or { mc, cc?, loader? }. Default: the CRAFTOS_VERSION environment variable, else 1.18.2.
+   * It picks the ROM, the engine's CC:Tweaked behaviour and the mod versions; an addon with no release for that
+   * Minecraft cannot be switched on.
+   */
+  version?: VersionSpec;
+  /**
    * Give the computer the emulator's `sim` shell program, so a person can change the world by typing (`sim join
    * Alice`). Not CC:Tweaked's, so off unless a person drives the computer (`craftos-mcp window` and `app` turn it on).
    */
@@ -508,6 +522,11 @@ export function terminalSize(
   return undefined;
 }
 
+/** The Minecraft / CC:Tweaked version a world runs as: world.version, else CRAFTOS_VERSION, else 1.18.2. */
+export function worldVersion(world: WorldConfig | undefined): ResolvedVersion {
+  return resolveVersion(world?.version);
+}
+
 /** The world as the Lua sim reads it (engine peripherals are created separately). */
 export function worldJson(world: WorldConfig | undefined): string {
   // A computer alone is a network of one; linked computers arrive already resolved
@@ -516,9 +535,12 @@ export function worldJson(world: WorldConfig | undefined): string {
       ? withResolvedModems(world, resolveWired([{ world }])[0]!)
       : world;
   const copy: Record<string, unknown> = { ...(resolved ?? {}) };
+  // The Minecraft / CC:Tweaked version (versions.ts): ccsim reads it as core.version
+  const version = worldVersion(resolved);
+  copy["version"] = versionForSim(version);
   // The mods this world runs with (addons.ts): a world using one that is off fails here, before the computer boots
-  const addons = resolveAddons(resolved?.addons);
-  checkWorldAddons(copy, addons);
+  const addons = resolveAddons(resolved?.addons, process.env, version.mc);
+  checkWorldAddons(copy, addons, version.mc);
   copy["addons"] = addons;
   delete copy["deploy"];
   copy["peripherals"] = (resolved?.peripherals ?? []).filter(

@@ -25,7 +25,10 @@ import {
   enginePeripheralLua,
   terminalSize,
   worldJson,
+  worldVersion,
 } from "./world.js";
+import { engineVersionArgs, isDefaultVersion, romDirFor } from "./versions.js";
+import { missingRomProblem } from "./config.js";
 import { resolveInWorkspace } from "./workspace.js";
 
 export interface EngineHandle {
@@ -92,6 +95,14 @@ export interface StartOptions {
    * conformance run (scripts/run-cct-conformance.mjs) asks for here.
    */
   readonly computerSpaceLimit?: number;
+  /**
+   * The http address rules (the engine's http_whitelist / http_blacklist). Default: everything allowed except
+   * `$private`, as CC:Tweaked's own default. Tests that talk to a local server pass `deny: []`.
+   */
+  readonly httpRules?: {
+    readonly allow?: readonly string[];
+    readonly deny?: readonly string[];
+  };
 }
 
 /** A directory link that needs no rights on Windows (a junction). */
@@ -114,6 +125,7 @@ export function startEngine(
     shared,
     economyDir,
     computerSpaceLimit = COMPUTER_SPACE_LIMIT,
+    httpRules,
   } = options;
   const dir = mkdtempSync(join(config.runtimeDir, `${label}-`));
   const resultsDir = join(dir, "results");
@@ -145,6 +157,13 @@ export function startEngine(
   mkdirSync(resultsDir, { recursive: true });
   if (economyDir) linkDir(economyDir, join(resultsDir, "economy"));
 
+  // The Minecraft / CC:Tweaked version (versions.ts) picks the ROM and the engine's --cc-version
+  const version = worldVersion(world);
+  const romDir = romDirFor(config, version);
+  if (!isDefaultVersion(version)) {
+    const missing = missingRomProblem(romDir, version.mc);
+    if (missing) throw new Error(missing);
+  }
   writeFileSync(join(resultsDir, "world.json"), worldJson(world));
 
   const size = terminalSize(world);
@@ -154,6 +173,8 @@ export function startEngine(
     JSON.stringify({
       computerSpaceLimit,
       ...(size && { defaultWidth: size.width, defaultHeight: size.height }),
+      ...(httpRules?.allow && { http_whitelist: httpRules.allow }),
+      ...(httpRules?.deny && { http_blacklist: httpRules.deny }),
     }),
   );
   // A normal turtle or computer has no colour (ServerComputer: family != NORMAL); an advanced one does
@@ -183,7 +204,8 @@ export function startEngine(
         "--directory",
         dir,
         "--rom",
-        config.romDir,
+        romDir,
+        ...engineVersionArgs(version),
         ...(computerId !== 0 ? ["--id", String(computerId)] : []),
         "--mount-ro",
         `ccunit=${config.luaLibDir}`,

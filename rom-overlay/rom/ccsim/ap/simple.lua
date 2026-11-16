@@ -388,6 +388,63 @@ return function(core, B)
     return self
   end
 
+  -- ===== redstone_relay (CC:Tweaked 1.114.0+, so only on 1.121.0 worlds) =====
+  -- RedstoneRelayPeripheral: CC's RedstoneMethods on its own six sides. What reaches it from the world is not
+  -- simulated: the inputs come from the world file (`inputs`, side -> level, `bundledInputs`, side -> mask) and the
+  -- outputs land in state.json.
+
+  local RELAY_SIDES = { top = true, bottom = true, left = true, right = true, front = true, back = true }
+
+  function F.redstone_relay(def)
+    local self = B.new(def)
+    local m = self.methods
+    local output, bundledOut, input, bundledIn = {}, {}, {}, {}
+    for side, level in pairs(def.inputs or {}) do input[side] = level end
+    for side, mask in pairs(def.bundledInputs or {}) do bundledIn[side] = mask end
+
+    -- IArguments.getEnum(ComputerSide): any case, else "unknown option"
+    local function side(v)
+      v = B.string(1, v)
+      local s = v:lower()
+      if not RELAY_SIDES[s] then error(("bad argument #1 (unknown option %s)"):format(v), 0) end
+      return s
+    end
+
+    function m.setOutput(s, on)
+      s = side(s)
+      output[s] = B.boolean(2, on) and 15 or 0
+    end
+    function m.getOutput(s) return (output[side(s)] or 0) > 0 end
+    function m.getInput(s) return (input[side(s)] or 0) > 0 end
+    function m.setAnalogOutput(s, value)
+      s = side(s)
+      value = B.int(2, value)
+      if value < 0 or value > 15 then error("Expected number in range 0-15", 0) end
+      output[s] = value
+    end
+    function m.getAnalogOutput(s) return output[side(s)] or 0 end
+    function m.getAnalogInput(s) return input[side(s)] or 0 end
+    m.setAnalogueOutput, m.getAnalogueOutput, m.getAnalogueInput = m.setAnalogOutput, m.getAnalogOutput, m.getAnalogInput
+    function m.setBundledOutput(s, mask)
+      s = side(s)
+      bundledOut[s] = B.int(2, mask)
+    end
+    function m.getBundledOutput(s) return bundledOut[side(s)] or 0 end
+    function m.getBundledInput(s) return bundledIn[side(s)] or 0 end
+    function m.testBundledInput(s, mask)
+      s = side(s)
+      mask = B.int(2, mask)
+      local have = bundledIn[s] or 0
+      return bit32.band(have, mask) == bit32.band(mask, 0xFFFFFFFF)
+    end
+
+    self.setters = {
+      input = function(s, level) input[s] = level end,
+    }
+    function self.state() return { outputs = output, bundledOutputs = bundledOut, inputs = input } end
+    return self
+  end
+
   -- ===== nbtStorage =====
 
   function F.nbtStorage(def)
@@ -424,6 +481,13 @@ return function(core, B)
     pling = true,
   }
 
+  -- The sound events of the music discs (RecordItem.getBySound), which a 1.121.0 speaker refuses: Minecraft 1.20.1
+  local MUSIC_DISCS = {}
+  for _, disc in ipairs({ "13", "cat", "blocks", "chirp", "far", "mall", "mellohi", "stal", "strad", "ward", "11", "wait",
+    "otherside", "5", "pigstep", "relic" }) do
+    MUSIC_DISCS["minecraft:music_disc." .. disc] = true
+  end
+
   function F.speaker(def)
     local self = { methods = {} }
     local m = self.methods
@@ -431,6 +495,7 @@ return function(core, B)
     local KEEP = 300
     local log, total, refused = {}, 0, 0
     local noteTick, notesThisTick = -1, 0
+    local soundTick = -1 -- 1.121.0: the server tick the pending sound was played in
 
     local function number(index, v, default)
       if v == nil then return default end
@@ -562,6 +627,21 @@ return function(core, B)
       name = B.string(1, name)
       volume = math.max(0, math.min(3, number(2, volume, 1)))
       pitch = math.max(0, math.min(2, number(3, pitch, 1)))
+      if core.cc121 then
+        -- CC:Tweaked 1.121.0 SpeakerPeripheral.playSound: a length limit, its own messages, no music discs, and
+        -- one sound per server tick (pendingSound is only sent, and cleared, on the next tick)
+        if #name > 512 then error("bad argument #1 (sound name is too long)", 0) end
+        if not validLocation(name) then error("bad argument #1 (malformed sound name)", 0) end
+        local id = name:find(":", 1, true) and name or ("minecraft:" .. name)
+        if MUSIC_DISCS[id] then return record({ kind = "sound", name = name, volume = volume, pitch = pitch }, false) end
+        local tick = math.floor(core.nowMs() / 50)
+        if soundTick == tick or (audio and isPlaying(audio)) then
+          return record({ kind = "sound", name = name, volume = volume, pitch = pitch }, false)
+        end
+        soundTick = tick
+        audio = nil
+        return record({ kind = "sound", name = name, volume = volume, pitch = pitch }, true)
+      end
       if not validLocation(name) then error("Malformed sound name '" .. name .. "' ", 0) end
       -- refused while a DFPWM stream is playing; otherwise it ends the stream
       if audio and isPlaying(audio) then

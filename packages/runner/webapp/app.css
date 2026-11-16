@@ -566,6 +566,9 @@ legend {
 .addons .ver {
   color: var(--gray);
 }
+.addons label.off {
+  opacity: 0.5;
+}
 .mon-row {
   display: flex;
   gap: 4px;

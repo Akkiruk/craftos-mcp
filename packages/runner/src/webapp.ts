@@ -31,7 +31,8 @@ import {
   type WindowState,
   renderPng,
 } from "@craftos-mcp/rawterm";
-import { ADDONS, resolveAddons } from "./addons.js";
+import { ADDONS, addonVersion, resolveAddons } from "./addons.js";
+import { DEFAULT_MC, VERSIONS, resolveVersion } from "./versions.js";
 import { type RunnerConfig, checkConfig } from "./config.js";
 import {
   TERMINATE_HOLD_MS,
@@ -80,6 +81,8 @@ interface ComputerForm {
   world?: WorldConfig;
   worldFile?: string;
   addons?: string[];
+  /** Minecraft version (versions.ts): "1.18.2", "1.20.1", "1.21.1". */
+  version?: string;
   monitors?: MonitorSpec[];
   program?: string;
   timeScale?: number;
@@ -335,6 +338,7 @@ export function startWebApp(options: WebAppOptions): Server {
       simProgram: true,
     };
     if (form.addons) world.addons = form.addons;
+    if (form.version) world.version = form.version;
     const kind = form.kind ?? "computer";
     const advanced = form.advanced !== false;
     if (kind === "turtle") {
@@ -508,9 +512,15 @@ export function startWebApp(options: WebAppOptions): Server {
     }
 
     if (method === "GET" && path === "/api/meta") {
+      let defaultMc = DEFAULT_MC;
+      try {
+        defaultMc = resolveVersion(undefined).mc;
+      } catch {
+        // CRAFTOS_VERSION is invalid: offer the default
+      }
       let defaults: string[] = [];
       try {
-        defaults = resolveAddons(undefined);
+        defaults = resolveAddons(undefined, process.env, defaultMc);
       } catch {
         defaults = ADDONS.map((a) => a.id);
       }
@@ -532,10 +542,13 @@ export function startWebApp(options: WebAppOptions): Server {
         addons: ADDONS.map((a) => ({
           id: a.id,
           name: a.name,
-          version: a.version,
+          version: addonVersion(a, defaultMc) ?? "",
+          versions: a.versions,
           requires: a.requires ?? [],
           on: defaults.includes(a.id),
         })),
+        versions: VERSIONS.map((v) => ({ mc: v.mc, cc: v.cc })),
+        version: defaultMc,
         worlds: listWorlds(),
         programs,
         monitorLimit: MONITOR_LIMIT,

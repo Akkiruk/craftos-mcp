@@ -89,6 +89,20 @@ static int luaB_tonumber (lua_State *L) {
 static int luaB_error (lua_State *L) {
   int level = luaL_optint(L, 2, 1);
   lua_settop(L, 1);
+  if (lua_ccatleast(L, 1, 109, 0)) {
+    /* Cobalt 0.8+: only a real string gets a position (error(42) stays 42), and only from a Lua function at that
+       level (pcall(error, "s") throws "s", not "pcall: s") */
+    lua_Debug ar;
+    if (lua_type(L, 1) == LUA_TSTRING && level > 0 && lua_getstack(L, level, &ar)) {
+      lua_getinfo(L, "Sl", &ar);
+      if (ar.currentline > 0) {
+        lua_pushfstring(L, "%s:%d: ", ar.short_src, ar.currentline);
+        lua_pushvalue(L, 1);
+        lua_concat(L, 2);
+      }
+    }
+    return lua_error(L);
+  }
   if (lua_isstring(L, 1) && level > 0) {  /* add extra information? */
     luaL_where(L, level);
     lua_pushvalue(L, 1);
@@ -394,7 +408,23 @@ static int luaB_dofile (lua_State *L) {
 }
 
 
+static void pushluawhere (lua_State *L);
+
 static int luaB_assert (lua_State *L) {
+  if (lua_ccatleast(L, 1, 109, 0)) {
+    /* Cobalt 0.8+: a missing value is an argument error; the message is thrown as it is (a table stays a table,
+       an explicit nil stays nil), and only a string gets the nearest Lua caller's position */
+    if (lua_toboolean(L, 1)) return lua_gettop(L);
+    luaL_checkany(L, 1);
+    if (lua_gettop(L) < 2) lua_pushliteral(L, "assertion failed!");
+    else lua_settop(L, 2);
+    if (lua_type(L, -1) == LUA_TSTRING) {
+      pushluawhere(L);
+      lua_insert(L, -2);
+      lua_concat(L, 2);
+    }
+    return lua_error(L);
+  }
   if (!lua_toboolean(L, 1))
     return luaL_error(L, "%s", luaL_optstring(L, 2, "assertion failed!"));
   return lua_gettop(L);
@@ -455,6 +485,10 @@ static int luaB_xpcall (lua_State *L) {
   lua_pushvalue(L, 1);  /* exchange function... */
   lua_copy(L, 2, 1);  /* ...and error handler */
   lua_replace(L, 2);
+  if (lua_ccatleast(L, 1, 109, 0)) {  /* Lua 5.2 (CC 1.109+): extra arguments go to the function */
+    status = lua_pcallk(L, n - 2, LUA_MULTRET, 1, 0, pcallcont);
+    return finishpcall(L, (status == LUA_OK));
+  }
   lua_settop(L, 2);  /* Lua 5.1: extra arguments are not forwarded */
   status = lua_pcallk(L, 0, LUA_MULTRET, 1, 0, pcallcont);
   return finishpcall(L, (status == LUA_OK));
@@ -492,7 +526,69 @@ static int aux_fenv(lua_State *L, int idx, int setidx) {
 }
 
 
+/*
+** craftos-agent: getfenv/setfenv as Cobalt 0.8+ (CC 1.109+) has them (BaseLib.getfenvobj, LegacyEnv): a function, or a
+** stack level (0 is the running coroutine, which has no environment). Only a Lua function's _ENV upvalue is an
+** environment; anything else reads as the global table and cannot be set. Pushes the function, or nothing for level 0.
+*/
+static int fenvobj52 (lua_State *L, int optional) {
+  lua_Debug ar;
+  int level;
+  if (lua_type(L, 1) == LUA_TFUNCTION) {
+    lua_pushvalue(L, 1);
+    return 1;
+  }
+  level = optional ? luaL_optint(L, 1, 1) : luaL_checkint(L, 1);
+  luaL_argcheck(L, level >= 0, 1, "level must be non-negative");
+  if (level == 0) return 0;
+  if (!lua_getstack(L, level, &ar)) luaL_argerror(L, 1, "invalid level");
+  lua_getinfo(L, "f", &ar);
+  return 1;
+}
+
+/* index of fn's _ENV upvalue, or 0 (a C function's upvalues have no names) */
+static int envupvalue52 (lua_State *L, int fn) {
+  int i;
+  const char *name;
+  if (lua_iscfunction(L, fn)) return 0;
+  for (i = 1; (name = lua_getupvalue(L, fn, i)) != NULL; i++) {
+    lua_pop(L, 1);
+    if (strcmp(name, "_ENV") == 0) return i;
+  }
+  return 0;
+}
+
+static int luaB_getfenv52 (lua_State *L) {
+  int up;
+  if (fenvobj52(L, 1) && (up = envupvalue52(L, lua_gettop(L))) != 0) {
+    lua_getupvalue(L, -1, up);
+    if (lua_istable(L, -1)) return 1;
+  }
+  lua_pushglobaltable(L);
+  return 1;
+}
+
+static int luaB_setfenv52 (lua_State *L) {
+  int fn, up;
+  luaL_checktype(L, 2, LUA_TTABLE);
+  if (!fenvobj52(L, 0) || lua_iscfunction(L, -1))
+    return luaL_error(L, "'setfenv' cannot change environment of given object");
+  fn = lua_gettop(L);
+  up = envupvalue52(L, fn);
+  if (up != 0) {
+    /* a new upvalue, so the change is this function's alone (Cobalt's LegacyEnv.setEnv) */
+    luaL_loadstring(L, "return _ENV");
+    lua_pushvalue(L, 2);
+    lua_setupvalue(L, -2, 1);
+    lua_upvaluejoin(L, fn, up, -1, 1);
+    lua_pop(L, 1);
+  }
+  lua_pushvalue(L, fn);
+  return 1;
+}
+
 static int luaB_getfenv (lua_State *L) {
+  if (lua_ccatleast(L, 1, 109, 0)) return luaB_getfenv52(L);
   switch (lua_type(L, 1)) {
     case LUA_TNUMBER: {
       lua_Debug ar;
@@ -511,6 +607,7 @@ static int luaB_getfenv (lua_State *L) {
 }
 
 static int luaB_setfenv (lua_State *L) {
+  if (lua_ccatleast(L, 1, 109, 0)) return luaB_setfenv52(L);
   luaL_checkany(L, 2);
   switch (lua_type(L, 1)) {
     case LUA_TNUMBER: {
@@ -569,7 +666,8 @@ LUAMOD_API int luaopen_base (lua_State *L) {
   lua_setfield(L, -2, "_G");
   /* open lib into global table */
   luaL_setfuncs(L, base_funcs, 0);
-  lua_pushliteral(L, "Lua 5.1");  /* what CC:Tweaked reports */
+  if (lua_ccatleast(L, 1, 109, 0)) lua_pushliteral(L, "Lua 5.2");  /* Cobalt 0.8+ (CC 1.109+) */
+  else lua_pushliteral(L, "Lua 5.1");  /* what CC:Tweaked 1.101.3 reports */
   lua_setfield(L, -2, "_VERSION");  /* set global _VERSION */
   return 1;
 }

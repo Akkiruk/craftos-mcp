@@ -21,6 +21,8 @@
     "setup": "node scripts/setup.mjs",
     "start": "npm run start --workspace=@craftos-mcp/mcp-server",
     "test": "vitest run",
+    "build:web": "node web/build-runtime.mjs && node web/build-carts.mjs",
+    "test:web": "node web/test.mjs",
     "typecheck": "tsc -b --pretty false"
   },
   "devDependencies": {

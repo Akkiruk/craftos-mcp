@@ -1,8 +1,8 @@
 # craftos-mcp
 
-> **Minecraft 1.18.2 and CC:Tweaked 1.101.3 only, for now.** Programs for newer versions (1.19, 1.20, 1.21) mostly
-> run, but where CC:Tweaked or a mod changed since, this emulator answers the way 1.18.2 does. Support for newer
-> versions is planned.
+> **Minecraft 1.18.2 is complete. 1.20.1 is partly there:** pick it and you get CC:Tweaked 1.121.0's behaviour and
+> 1.20.1 turtle data, but the mods' peripherals still behave like their 1.18.2 versions for now. 1.21.1 is next. See
+> [Choose your Minecraft version](#choose-your-minecraft-version).
 
 A CC:Tweaked emulator built for testing, with the world around the computer: other computers on modems, turtles in a
 block world, and peripherals from Create, Mekanism, Advanced Peripherals and more. Write a ComputerCraft program, run
@@ -16,13 +16,15 @@ Use it the way you like:
 - **With an AI agent**: it speaks [MCP](https://modelcontextprotocol.io), so Claude Code, VS Code, Cursor and others
   can write, run and test your programs for you.
 
-The engine passes 1189 of 1191 of CC:Tweaked's own tests at 1.101.3, and the ROM is built from the real CC:Tweaked
-jar. [How exact is it](docs/accuracy.md) says, area by area, what was measured in game and what was written from
-source.
+The engine passes 1190 of 1191 of CC:Tweaked's own tests at 1.101.3 (and 1362 of 1363 at 1.121.0), and the ROM is
+built from the real CC:Tweaked jar. [How exact is it](docs/accuracy.md) says, area by area, what was measured in game
+and what was written from source.
 
-![A Mekanism fission reactor controller on a monitor: the temperature climbs until the program scrams the reactor, then a RESET touch restarts it once it has cooled](docs/media/demo.gif)
+![The board game arcade on a touch monitor wall: the menu, then a game of Reversi against the computer, each tap marked with a ring](docs/media/showcase/board-arcade.gif)
 
-_The [reactor controller example](workspace/examples/mekanism/reactor.lua) running in the emulator on a simulated Mekanism reactor, with the clock sped up: it scrams the reactor before it is damaged, and RESET restarts it once it has cooled. The [test](workspace/examples/mekanism/reactor.test.lua) checks exactly that._
+**[Play these in your browser](https://rogiedoji.com/craftos)**, no install, or watch the
+[highlight reel](docs/media/showcase/sizzle.mp4) (47 s, ten games). Everything in it is plain CC:Tweaked Lua from
+[the examples](#games), running in this emulator.
 
 ## What it does
 
@@ -53,13 +55,44 @@ _The [reactor controller example](workspace/examples/mekanism/reactor.lua) runni
 - **Your way in**: a desktop window, a browser app (also the MCP server's live viewer at <http://127.0.0.1:7878>),
   a command line, and an in-computer `sim` command to change the world by typing (`sim join Alice`).
 
+## Games
+
+Three game cabinets in plain CC:Tweaked Lua, each with a world file and tests that play real games through taps on
+the monitors. They're examples of what you can build and test here, and they use nothing but CC:Tweaked's own APIs.
+
+| Cabinet                                             | Games                                                                                                                      | Shows off                                    |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| [Board](workspace/examples/games/board/README.md)   | Ultimate Tic-Tac-Toe, Four in a Row, Reversi, Checkers, Dots and Boxes, Mancala, Fleet, Codebreaker; three computer levels | touch monitor walls, two players at one wall |
+| [Action](workspace/examples/games/action/README.md) | Snake, Blocks, Bricks, Lander, Mines                                                                                       | fast redraws, real-time touch                |
+| [Versus](workspace/examples/games/versus/README.md) | Paddle, Trails, Artillery                                                                                                  | two computers in one match over rednet       |
+
+|                                                                                                  |                                                                                                                           |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| ![Blocks: falling pieces steered by taps, lines clearing](docs/media/showcase/action-blocks.gif) | ![Paddle on two computers, each with its own monitor wall, the same match on both](docs/media/showcase/versus-paddle.gif) |
+| Blocks, steered by tapping the wall                                                              | Paddle across two computers on rednet (3x speed)                                                                          |
+
+Each cabinet's README says how to open it. The board games, for example:
+
+```sh
+craftos-mcp window workspace/examples/games/board/arcade.world.json --dir workspace --monitor left:6x6 --monitor right:6x6
+# then, in the computer: examples/games/board/arcade
+```
+
+`node scripts/make-showcase.mjs` records the videos again from real runs.
+
 ## Examples
 
-[`workspace/examples/`](workspace/examples/README.md) has complete programs for the mods above, each with a world and
-a test that proves it works: the reactor controller, a Create train departure board, an energy monitor for any
-modded battery, a Tom's Peripherals GPU demo, an Extreme Reactors rod controller, an Advanced Peripherals player
+[`workspace/examples/`](workspace/examples/README.md) also has complete programs for the mods above, each with a world
+and a test that proves it works: a Mekanism reactor controller, a Create train departure board, an energy monitor for
+any modded battery, a Tom's Peripherals GPU demo, an Extreme Reactors rod controller, an Advanced Peripherals player
 greeter and a rednet chat between two computers. These pictures are rendered from real runs (`node
 scripts/make-demo-gif.mjs` makes them again).
+
+![A Mekanism fission reactor controller on a monitor: the temperature climbs until the program scrams the reactor, then a RESET touch restarts it once it has cooled](docs/media/demo.gif)
+
+_The [reactor controller](workspace/examples/mekanism/reactor.lua) on a simulated Mekanism reactor, with the clock sped
+up: it scrams the reactor before it is damaged, and RESET restarts it once it has cooled. The
+[test](workspace/examples/mekanism/reactor.test.lua) checks exactly that._
 
 |                                                                                 |                                                                            |
 | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -72,7 +105,21 @@ scripts/make-demo-gif.mjs` makes them again).
 
 You need Node.js 22 or newer.
 
-### Quick start
+### From npm (Windows and Linux x64)
+
+```sh
+npx -y craftos-mcp serve                        # the MCP server, for any agent
+claude mcp add craftos -- npx -y craftos-mcp serve
+npx craftos-mcp test                            # or window, app, run, info: see the command line below
+```
+
+The package holds no engine or ROM. The first command fetches the engine from this repository's release, builds the
+ROMs from the real CC:Tweaked jars and the GPU fonts, and keeps them in `%LOCALAPPDATA%\craftos-mcp` or
+`~/.cache/craftos-mcp` (`CRAFTOS_HOME` moves it); that takes a few seconds to a minute, once per version. `serve`
+answers its client straight away and lets the tools that run computers wait for it. The workspace is the folder you
+run it in. `craftos-mcp setup --force` does the setup again.
+
+### Quick start from a clone
 
 ```sh
 git clone https://github.com/Akkiruk/craftos-mcp
@@ -212,6 +259,19 @@ and the computer's files, which you can edit, or copy your project in again, and
 It listens on 127.0.0.1 only. The MCP server's live viewer (<http://127.0.0.1:7878>) is the same page, so you can
 watch and help while an agent works.
 
+## Choose your Minecraft version
+
+| Version            | CC:Tweaked | State                                                                                                |
+| ------------------ | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `1.18.2` (default) | 1.101.3    | Complete: CC itself, turtles, modems and every mod below                                             |
+| `1.20.1`           | 1.121.0    | CC itself and turtles (1.20.1 block data) as in 1.121.0; the mods still act as their 1.18.2 versions |
+| `1.21.1`           | 1.121.0    | CC itself as in 1.121.0; turtle data and mods not done yet                                           |
+
+Pick one per world with `"version": "1.20.1"`, for the MCP server with `CRAFTOS_VERSION`, or on the command line with
+`--mc 1.20.1`. Each CC:Tweaked version needs its ROM: `node scripts/build-rom.mjs --download 1.20.1`, or
+`npm run setup -- --mc all` for every version. A mod that does not exist on the chosen version (Bigger Reactors on
+1.21.1) is refused with a message.
+
 ## Choose your mods
 
 Every mod besides CC:Tweaked is an addon. Switch on only the ones your pack has, so a program cannot come to rely on
@@ -271,7 +331,8 @@ engine/        Forked CraftOS-PC 2 (MIT, see engine/UPSTREAM.md)
 packages/      rawterm (engine protocol, PNG renderer), runner (runs, tests, sessions, networks, browser app), protocol
 apps/          The craftos-mcp command line (window, app, test, run, info, serve) and the MCP server
 rom-overlay/   The simulation layered over the CC:Tweaked ROM (peripherals, modems, turtles)
-scripts/       ROM builder and CC:Tweaked conformance runner
+web/           The browser build: the engine as WebAssembly and a player for pages (web/README.md)
+scripts/       Setup, ROM builder, CC:Tweaked conformance runner, the video recorder
 tools/         Data extraction for turtles
 worlds/        Example worlds
 docs/          Architecture, security model, peripherals, turtles, conformance
@@ -279,7 +340,8 @@ docs/          Architecture, security model, peripherals, turtles, conformance
 
 ## Known limits
 
-- One CC:Tweaked version: 1.101.3 (Minecraft 1.18.2). Newer versions changed APIs this emulator measures exactly.
+- Minecraft 1.18.2 is complete; on 1.20.1 and 1.21.1 the mods are still their 1.18.2 versions (see
+  [Choose your Minecraft version](#choose-your-minecraft-version)). Older versions (1.16.5, 1.12.2) are not supported.
 - Only the mods listed above are simulated, and each from its source: where a mechanic is too large to copy (Create's
   stress network and track graph, multiblock formation) it is a fixture instead. Each mod's doc ends with what is not
   simulated or not confirmed. Pocket computer upgrades and most of Advanced Peripherals' turtle upgrades are not simulated (the geo scanner and chunky turtle are).
@@ -292,8 +354,8 @@ docs/          Architecture, security model, peripherals, turtles, conformance
 ## Credits
 
 The engine is a fork of [CraftOS-PC 2](https://github.com/MCJack123/craftos2) by JackMacWindows (MIT).
-[CC:Tweaked](https://github.com/cc-tweaked/CC-Tweaked) is by SquidDev and contributors; this project does not
-include it. Not affiliated with Mojang or Microsoft.
+[CC:Tweaked](https://tweaked.cc) is by SquidDev and contributors; this project does not include it, and builds its ROM
+on your machine from the official jar. Not affiliated with Mojang or Microsoft.
 
 ## License
 

@@ -216,7 +216,9 @@ static int tinsert (lua_State *L) {
       break;
     }
     default: {
-      return 0;  /* CC's Cobalt silently ignores extra arguments */
+      /* Cobalt 0.8+ (CC 1.109+) refuses anything but 2 or 3 arguments; CC 1.101.3's Cobalt silently does nothing */
+      if (lua_ccatleast(L, 1, 109, 0)) return luaL_error(L, "wrong number of arguments to \"insert\"");
+      return 0;
     }
   }
   //luaL_setn(L, 1, e);  /* new size */
@@ -681,8 +683,29 @@ static const luaL_Reg tab_funcs[] = {
 };
 
 
+/*
+** craftos-agent: table.create(narray [, nhash]) from Lua 5.5, in CC 1.119+ (Cobalt 0.9.9's TableLib.create): an
+** empty table with room reserved. Either size outside [0, 2^31 - 2) is "bad argument #1 (out of range)". The room
+** actually reserved is capped, since it only changes speed and a huge request would exhaust the host's memory.
+*/
+static int tcreate (lua_State *L) {
+  const lua_Number seqn = luaL_checknumber(L, 1);
+  const lua_Number restn = luaL_optnumber(L, 2, 0);
+  const int seq = (seqn >= -2147483648.0 && seqn < 2147483648.0) ? (int)seqn : -1;
+  const int rest = (restn >= -2147483648.0 && restn < 2147483648.0) ? (int)restn : -1;
+  luaL_argcheck(L, seq >= 0 && seq < 2147483647 - 1, 1, "out of range");
+  luaL_argcheck(L, rest >= 0 && rest < 2147483647 - 1, 1, "out of range");
+  lua_createtable(L, seq < (1 << 16) ? seq : (1 << 16), rest < (1 << 16) ? rest : (1 << 16));
+  return 1;
+}
+
+
 LUALIB_API int luaopen_table (lua_State *L) {
   luaL_newlib(L, tab_funcs);
+  if (lua_ccatleast(L, 1, 119, 0)) {
+    lua_pushcfunction(L, tcreate);
+    lua_setfield(L, -2, "create");
+  }
   return 1;
 }
 

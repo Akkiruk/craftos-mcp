@@ -166,7 +166,11 @@ typedef struct global_State {
   lua_ObjAlloc fobjalloc;  /* allocator for objects (if desired) */
   void *fobjalloc_ud;  /* auxiliary data to `fobjalloc` */
   functable *allowedcfuncs[256];  /* "hash map" storing allowed C functions */
+  int ccversion;  /* craftos-agent: CC:Tweaked version the computer behaves as, major*1000000+minor*1000+patch */
 } global_State;
+
+/* craftos-agent: whether this state behaves as CC:Tweaked major.minor.patch or newer (1.101.3 by default) */
+#define luaG_ccatleast(L,ma,mi,pa)	(G(L)->ccversion >= (ma) * 1000000 + (mi) * 1000 + (pa))
 
 
 /*

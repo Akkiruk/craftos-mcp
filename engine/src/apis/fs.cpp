@@ -107,13 +107,11 @@ static std::vector<path_t> fixpath_multiple(Computer *comp, std::string path) {
     std::vector<std::string> elems = split(path, "/\\");
     std::list<std::string> pathc;
     for (std::string s : elems) {
+        if (!ccPathPart(comp, s)) continue;  // trim spaces as fixpath does (fs.list(" rom ") is fs.list("rom"))
         if (s == "..") {
             if (pathc.empty()) return retval;
-            else if (pathc.empty()) pathc.push_back("..");
             else pathc.pop_back();
-        } else if (!s.empty() && !std::all_of(s.begin(), s.end(), [](const char c)->bool{return c == '.';})) {
-            pathc.push_back(s);
-        }
+        } else pathc.push_back(s);
     }
     while (!pathc.empty() && pathc.front().empty()) pathc.pop_front();
     if (comp->isDebugger && pathc.size() == 1 && pathc.front() == "bios.lua")
@@ -190,8 +188,8 @@ static int fs_list(lua_State *L) {
     lastCFunction = __func__;
     std::string str = checkstring(L, 1);
     const std::vector<path_t> possible_paths = fixpath_multiple(get_comp(L), str);
-    // CC:Tweaked 1.101.3 reports missing nodes the same way as files.
-    if (possible_paths.empty()) err(L, 1, "Not a directory");
+    // CC:Tweaked 1.101.3 reports missing nodes the same way as files; 1.121.0 says "No such file".
+    if (possible_paths.empty()) err(L, 1, ccAtLeast(get_comp(L), 1, 109, 0) ? "No such file" : "Not a directory");
     bool gotdir = false;
     std::set<std::string> entries;
     for (const path_t& path : possible_paths) {
@@ -281,8 +279,54 @@ static int fs_isReadOnly(lua_State *L) {
     return 1;
 }
 
+/**
+ * CC:Tweaked 1.121.0's FileSystem.sanitizePath: drop control and special characters, trim spaces around each part,
+ * skip empty parts and any part made of dots and spaces (". .", "..." count as "."), and keep a ".." that has
+ * nothing left to cancel. 1.101.3 computers use normalizePath above.
+ */
+static std::string ccSanitizePath(const std::string& path, bool allowWildcards) {
+    std::string clean;
+    for (char ch : path) {
+        const unsigned char c = (unsigned char)(ch == '\\' ? '/' : ch);
+        if (c < 32 || c == '"' || c == ':' || c == '<' || c == '>' || c == '|') continue;
+        if (!allowWildcards && (c == '*' || c == '?')) continue;
+        clean += (char)c;
+    }
+    std::vector<std::string> parts;
+    size_t start = 0;
+    for (;;) {
+        const size_t slash = clean.find('/', start);
+        std::string part = clean.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+        const size_t first = part.find_first_not_of(' ');
+        part = first == std::string::npos ? "" : part.substr(first, part.find_last_not_of(' ') - first + 1);
+        if (part.size() > 255) {
+            part = part.substr(0, 255);
+            const size_t last = part.find_last_not_of(' ');
+            part = last == std::string::npos ? "" : part.substr(0, last + 1);
+        }
+        if (part == "..") {
+            if (parts.empty() || parts.back() == "..") parts.push_back("..");
+            else parts.pop_back();
+        } else if (!part.empty() && !(part[0] == '.' && part.find_first_not_of(". ") == std::string::npos)) {
+            parts.push_back(part);
+        }
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+    }
+    std::string out;
+    for (const std::string& p : parts) { if (!out.empty()) out += '/'; out += p; }
+    return out;
+}
+
 static int fs_getName(lua_State *L) {
     lastCFunction = __func__;
+    if (ccAtLeast(get_comp(L), 1, 117, 0)) {
+        const std::string path = ccSanitizePath(checkstring(L, 1), true);
+        if (path.empty()) { lua_pushliteral(L, "root"); return 1; }
+        const size_t slash = path.find_last_of('/');
+        pushstring(L, slash == std::string::npos ? path : path.substr(slash + 1));
+        return 1;
+    }
     std::string retval = path_t(normalizePath(checkstring(L, 1), true)).filename().string();
     if (retval.empty()) lua_pushliteral(L, "root");
     else pushstring(L, retval);
@@ -573,6 +617,17 @@ static int fs_delete(lua_State *L) {
 
 static int fs_combine(lua_State *L) {
     lastCFunction = __func__;
+    if (ccAtLeast(get_comp(L), 1, 117, 0)) {
+        // FSAPI.combine: sanitise each part, join with "/", sanitise the whole
+        std::string result = ccSanitizePath(checkstring(L, 1), true);
+        for (int i = 2; i <= lua_gettop(L); i++) {
+            const std::string part = ccSanitizePath(checkstring(L, i), true);
+            if (!result.empty() && !part.empty()) result += '/';
+            result += part;
+        }
+        pushstring(L, ccSanitizePath(result, true));
+        return 1;
+    }
     path_t basePath = path_t(checkstring(L, 1), path_t::format::generic_format);
     for (int i = 2; i <= lua_gettop(L); i++) if (!checkstring(L, i).empty()) {
         std::string str = tostring(L, i);
@@ -588,10 +643,20 @@ static int fs_open(lua_State *L) {
     Computer * computer = get_comp(L);
     const char * mode = luaL_checkstring(L, 2);
     // CC:Tweaked 1.101.3 knows r, w, a and their binary forms only ("w+" and friends are "Unsupported mode").
-    if (
+    // 1.109.0 adds r+ and w+ (and r+b, w+b), and its handles read and write raw bytes in every mode.
+    const bool raw = ccAtLeast(computer, 1, 109, 0);
+    if (raw) {
+        if (strcmp(mode, "r") && strcmp(mode, "rb") && strcmp(mode, "w") && strcmp(mode, "wb") && strcmp(mode, "a") &&
+            strcmp(mode, "ab") && strcmp(mode, "r+") && strcmp(mode, "r+b") && strcmp(mode, "w+") && strcmp(mode, "w+b"))
+            luaL_error(L, "Unsupported mode");
+    } else if (
         (mode[0] != 'r' && mode[0] != 'w' && mode[0] != 'a') ||
         !(mode[1] == '\0' || (mode[1] == 'b' && mode[2] == '\0'))
         ) luaL_error(L, "Unsupported mode");
+    const bool plus = strchr(mode, '+') != NULL;
+    const bool writable = mode[0] != 'r' || plus;
+    // where 1.101.3 said "No such file" for a directory opened to read, 1.109.0+ says "Not a file"
+    const char * dirReadMessage = raw ? "Not a file" : "No such file";
     std::string str = checkstring(L, 1);
     // Too many open files is a normal failure (nil, message) in CC, not an error.
     if (computer->files_open >= config.maximumFilesOpen) {
@@ -618,7 +683,7 @@ static int fs_open(lua_State *L) {
 #endif
     const path_t path = mode[0] == 'r' ? fixpath(get_comp(L), str, true) : fixpath_mkdir(get_comp(L), str);
     if (path.empty()) {
-        if (mode[0] != 'r' && fixpath_ro(computer, str)) {
+        if (writable && fixpath_ro(computer, str)) {
             lua_pushnil(L);
             lua_pushfstring(L, "/%s: Access denied", fixpath(computer, str, false, false).string().c_str());
             return 2;
@@ -651,11 +716,17 @@ static int fs_open(lua_State *L) {
                 if (d.isDir) {
                     lua_remove(L, fpid);
                     lua_pushnil(L);
-                    if (strchr(mode, 'r') != NULL) lua_pushfstring(L, "/%s: No such file", fixpath(computer, str, false, false).string().c_str()); // CC:Tweaked 1.101.3 reports directories this way
+                    if (strchr(mode, 'r') != NULL) lua_pushfstring(L, "/%s: %s", fixpath(computer, str, false, false).string().c_str(), dirReadMessage); // CC:Tweaked 1.101.3 reports directories as "No such file"
                     else lua_pushfstring(L, "/%s: Cannot write to directory", fixpath(computer, str, false, false).string().c_str());
-                    return 2; 
+                    return 2;
                 }
-                *fp = new std::stringstream(mode[0] == 'r' && !strchr(mode, 'b') ? decodeTextFile(d.data) : d.data);
+                if (raw && writable) {  // virtual mounts are read-only
+                    lua_remove(L, fpid);
+                    lua_pushnil(L);
+                    lua_pushfstring(L, "/%s: Access denied", fixpath(computer, str, false, false).string().c_str());
+                    return 2;
+                }
+                *fp = new std::stringstream(mode[0] == 'r' && !strchr(mode, 'b') && !raw ? decodeTextFile(d.data) : d.data);
             } catch (...) {
                 lua_remove(L, fpid);
                 lua_pushnil(L);
@@ -669,25 +740,25 @@ static int fs_open(lua_State *L) {
         std::error_code e;
         if (fs::is_directory(path, e)) { 
             lua_pushnil(L);
-            if (strchr(mode, 'r') != NULL) lua_pushfstring(L, "/%s: No such file", fixpath(computer, str, false, false).string().c_str()); // CC:Tweaked 1.101.3 reports directories this way
+            if (strchr(mode, 'r') != NULL) lua_pushfstring(L, "/%s: %s", fixpath(computer, str, false, false).string().c_str(), dirReadMessage); // CC:Tweaked 1.101.3 reports directories as "No such file"
             else lua_pushfstring(L, "/%s: Cannot write to directory", fixpath(computer, str, false, false).string().c_str());
-            return 2; 
+            return 2;
         }
-        if (strcmp(mode, "w") == 0 || strcmp(mode, "a") == 0 || strcmp(mode, "wb") == 0 || strcmp(mode, "ab") == 0) {
+        if (writable) {
             if (fixpath_ro(computer, str)) {
                 lua_pushnil(L);
                 lua_pushfstring(L, "/%s: Access denied", fixpath(computer, str, false, false).string().c_str());
-                return 2; 
+                return 2;
             }
             e.clear();
             fs::create_directories(path.parent_path(), e);
             if (e) {
                 lua_pushnil(L);
                 lua_pushfstring(L, "/%s: Cannot create directory", fixpath(computer, str, false, false).string().c_str());
-                return 2; 
+                return 2;
             }
         }
-        if (mode[0] == 'r' && !strchr(mode, 'b')) {
+        if (mode[0] == 'r' && !strchr(mode, 'b') && !raw) {
             // Text-mode reads see the file as UTF-8 decoded to 8-bit characters (CC's behaviour), so decode up front.
             std::ifstream in(path, std::ios::binary);
             if (!in.is_open()) {
@@ -695,18 +766,20 @@ static int fs_open(lua_State *L) {
                 lua_pushfstring(L, "/%s: No such file", fixpath(computer, str, false, false).native().c_str());
                 return 2;
             }
-            const std::string raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            const std::string rawBytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             std::stringstream ** sp = (std::stringstream**)lua_newuserdata(L, sizeof(std::stringstream*));
             fpid = lua_gettop(L);
-            *sp = new std::stringstream(decodeTextFile(raw));
+            *sp = new std::stringstream(decodeTextFile(rawBytes));
         } else {
         std::fstream ** fp = (std::fstream**)lua_newuserdata(L, sizeof(std::fstream*));
         fpid = lua_gettop(L);
         std::ios::openmode flags = std::ios::binary;
         if (strchr(mode, 'r')) {
             flags |= std::ios::in;
+            if (plus) flags |= std::ios::out;  // r+: read and write, the file must exist
         } else if (strchr(mode, 'w')) {
             flags |= std::ios::out | std::ios::trunc;
+            if (plus) flags |= std::ios::in;  // w+: read and write a new, empty file
         } else if (strchr(mode, 'a')) {
             flags |= std::ios::in | std::ios::out | std::ios::ate;
         }
@@ -730,7 +803,7 @@ static int fs_open(lua_State *L) {
                 return 2;
             }
         }
-        if (!strchr(mode, 'r')) spaceTouched(L, path, true);
+        if (writable) spaceTouched(L, path, true);
         }
     }
     lua_createtable(L, 0, 1);
@@ -744,6 +817,30 @@ static int fs_open(lua_State *L) {
     lua_pushvalue(L, fpid);
     lua_pushcclosure(L, fs_handle_close, 1);
     lua_settable(L, -3);
+
+    if (raw) {
+        // CC:Tweaked 1.109.0+: one kind of handle for every mode (ReadHandle, WriteHandle, ReadWriteHandle)
+        const bool binary = strchr(mode, 'b') != NULL;
+        const bool readable = mode[0] == 'r' || plus;
+        const std::pair<const char *, lua_CFunction> methods[] = {
+            {"read", readable ? (binary ? fs_handle_readByteRaw : fs_handle_readCharRaw) : NULL},
+            {"readAll", readable ? fs_handle_readAllRaw : NULL},
+            {"readLine", readable ? fs_handle_readLineRaw : NULL},
+            {"write", writable ? (binary ? fs_handle_writeByteRaw : fs_handle_writeStringRaw) : NULL},
+            {"writeLine", writable ? fs_handle_writeLineRaw : NULL},
+            {"flush", writable ? fs_handle_flush : NULL},
+            {"seek", mode[0] != 'a' ? fs_handle_seek : NULL},  // append handles cannot seek
+        };
+        for (const auto& m : methods) {
+            if (m.second == NULL) continue;
+            lua_pushstring(L, m.first);
+            lua_pushvalue(L, fpid);
+            lua_pushcclosure(L, m.second, 1);
+            lua_settable(L, -3);
+        }
+        computer->files_open++;
+        return 1;
+    }
 
     if (strchr(mode, 'b')) {  // only binary handles can seek in CC
         lua_pushstring(L, "seek");
@@ -883,6 +980,15 @@ static int fs_find(lua_State *L) {
 
 static int fs_getDir(lua_State *L) {
     lastCFunction = __func__;
+    if (ccAtLeast(get_comp(L), 1, 117, 0)) {
+        // FileSystem.getDirectory: a trailing ".." gets another one ("../.." for "..")
+        const std::string p = ccSanitizePath(checkstring(L, 1), true);
+        if (p.empty()) { lua_pushliteral(L, ".."); return 1; }
+        const size_t slash = p.find_last_of('/');
+        if (p.substr(slash == std::string::npos ? 0 : slash + 1) == "..") pushstring(L, p + "/..");
+        else pushstring(L, slash == std::string::npos ? std::string() : p.substr(0, slash));
+        return 1;
+    }
     path_t path = path_t(normalizePath(checkstring(L, 1), true));
     if (path.empty() || path.string() == "/") {
         lua_pushliteral(L, "..");

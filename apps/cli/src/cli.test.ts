@@ -148,6 +148,12 @@ describe("usage errors", () => {
     expect(c.code).toBe(2);
   });
 
+  it("--mc refuses an unknown Minecraft version", async () => {
+    const r = await call(test, "--dir", scratch, "--mc", "1.12.2");
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--mc: unknown Minecraft version "1.12.2"');
+  });
+
   it("help prints usage and exits 0", async () => {
     const r = await call(test, "--help");
     expect(r.code).toBe(0);
@@ -169,6 +175,32 @@ describe.skipIf(!ready)("against the real engine", () => {
     expect(r.out).toContain("advanced-peripherals");
     expect(r.out).toContain("Ready.");
   });
+
+  it("info --mc shows that version's mods", async () => {
+    const r = await call(info, "--dir", scratch, "--mc", "1.21.1");
+    expect(r.out).toContain("CC:Tweaked 1.121.0 (Minecraft 1.21.1, neoforge)");
+    expect(r.out).toMatch(
+      /bigger-reactors\s+Bigger Reactors \(no release for 1\.21\.1\)/,
+    );
+  });
+
+  it("test --mc runs the computer on that version", async () => {
+    // its own folder: the other tests here run every file in theirs
+    const dir = mkdtempSync(join(tmpdir(), "cli-mc-"));
+    writeFileSync(
+      join(dir, "host.test.lua"),
+      'ccunit.test("host", function() ccunit.truthy(_HOST:find("1.121.0", 1, true), _HOST) end)',
+    );
+    const r = await call(test, "--dir", dir, "--mc", "1.20.1", "host.test.lua");
+    rmSync(dir, { recursive: true, force: true });
+    // without the 1.121.0 ROM (build-rom.mjs --download 1.20.1) the run says how to build it
+    if (r.code === 2)
+      expect(r.err).toContain("build-rom.mjs --download 1.20.1");
+    else {
+      expect(r.out).toContain("PASS host.test.lua");
+      expect(r.code).toBe(0);
+    }
+  }, 60000);
 
   it("test passes, then fails with a non-zero exit code", async () => {
     put(

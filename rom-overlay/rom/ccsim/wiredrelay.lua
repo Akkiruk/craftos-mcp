@@ -29,6 +29,7 @@ return function(core, host, modems)
 
   local function send(line)
     if not core.world.modemLink then return end
+    if core.flushHost then core.flushHost() end -- block changes held back go first (ccsim/modem.lua)
     local h = fsOpen(OUTBOX, "a")
     if h then
       h.write(line .. "\n")

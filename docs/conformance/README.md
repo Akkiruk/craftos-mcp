@@ -1,7 +1,8 @@
 # CC:Tweaked conformance
 
 The engine is checked against CC:Tweaked's own test suite (`mcfly` + `spec/`)
-at the exact version in the modpack, tag `v1.18.2-1.101.3`.
+at the exact version in the modpack, tag `v1.18.2-1.101.3`, and, for Minecraft 1.20.1 and 1.21.1
+(`world.version`, `packages/runner/src/versions.ts`), at tag `v1.20.1-1.121.0`.
 
 ```text
 git clone --depth 1 --branch v1.18.2-1.101.3 https://github.com/cc-tweaked/CC-Tweaked <dir>
@@ -9,6 +10,18 @@ git clone --depth 1 --branch v1.18.2-1.101.3 https://github.com/cc-tweaked/CC-Tw
 MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs <dir> docs/conformance/cct-1.101.3.log /test-rom/spec 200 lua
 MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs <dir> docs/conformance/cct-1.101.3-lua.log /test-rom/spec 120 apis,modules,programs,lua/timeout_spec.lua
 ```
+
+CC:Tweaked 1.121.0 (needs its ROM: `node scripts/build-rom.mjs --download 1.20.1`). A full checkout of the newer tags
+fails on Windows (long paths), so export just the suite, which moved to `projects/core/src/test/resources/test-rom`:
+
+```text
+git clone --bare --filter=blob:none https://github.com/cc-tweaked/CC-Tweaked <clone>
+mkdir <dir> && git -C <clone> archive v1.20.1-1.121.0 projects/core/src/test/resources/test-rom | tar -x -C <dir>
+MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs --mc 1.20.1 <dir> docs/conformance/cct-1.121.0.log /test-rom/spec 200 lua
+MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs --mc 1.20.1 <dir> docs/conformance/cct-1.121.0-lua.log /test-rom/spec 120 apis,modules,programs,lua/timeout_spec.lua
+```
+
+The 1.20.1 and 1.21.1 suites are identical, so one run covers both. The logs stay on the machine (`*.log` is ignored).
 
 ## Result (2026-11-16)
 
@@ -24,6 +37,24 @@ server's 25 MB.
 `timeout_spec.lua` is run separately by hand: an infinite `while true do end`
 is aborted after 7 s with CC's exact "Too long without yielding" message, but a
 pathological pattern inside `string.find` is not interruptible (see below).
+
+## Result for CC:Tweaked 1.121.0 (2026-11-16)
+
+`--mc 1.20.1`: the engine runs with `--cc-version 1.121.0`, which switches every place it was pinned to 1.101.3.
+
+| Group                                  | Before the switch (1.121.0 ROM, 1.101.3 engine) | Now         |
+| -------------------------------------- | ----------------------------------------------- | ----------- |
+| apis + modules + programs (whole spec) | 1333 / 1363                                     | 1362 / 1363 |
+| `spec/lua` without `timeout_spec.lua`  | 27 / 27                                         | 27 / 27     |
+
+The 29 cleared: file handles (raw bytes in every mode, `r+`/`w+`, seek on every handle but append, `readAll` returns
+`""` at the end, `readLine(true)` keeps `\r\n`, writes coerce like Lua's `tostring`) and messages ("Not a file",
+`fs.list` "No such file"), `fs.combine` with `". ."` and `fs.getDir("..")` (1.117 path rules), the `io` library on
+top of them, http (`[::1]` is private, websocket "Invalid protocol") and `os.queueEvent` copying its arguments. The one
+failure left is `os.date` on Windows, the same as on 1.101.3. The suite hardly tests the Lua VM. Its 1.121.0 behaviour
+(Cobalt 0.9.9) is checked against Cobalt itself instead: `packages/runner/src/versions-vm.integration.test.ts` and
+`tools/conformance/cobalt-oracle/`, which also runs Cobalt 0.9.9's own spec suite in the engine (268 of 303 on 1.20.1;
+the rest are mostly tests for later Lua versions). See rows 99, 108 and 115 of the deviations list.
 
 ## The one remaining failure
 

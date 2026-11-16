@@ -91,6 +91,7 @@ library_t * libraries[] = {
 // Constructor
 Computer::Computer(int i, bool debug): isDebugger(debug) {
     id = i;
+    ccVersion = ccVersionCode;
     // Load config
     const computer_configuration _config = getComputerConfig(id);
     // Create the terminal
@@ -475,6 +476,7 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         lua_State *L = self->L = lua_newstate(memAllocator, self);
         lua_atpanic(L, errfunc);
         lua_setobjallocf(L, objAllocator, self);
+        lua_setccversion(L, self->ccVersion);  // the VM's own version pins read this (global_State)
         uncache_state(L);
 
         self->coro = lua_newthread(L);
@@ -647,10 +649,11 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         lua_setglobal(L, "_CC_DEFAULT_SETTINGS");
         lua_pushboolean(L, ::config.disable_lua51_features);
         lua_setglobal(L, "_CC_DISABLE_LUA51_FEATURES");
+        // the CC:Tweaked version is the one this computer behaves as (--cc-version), not a build-time constant
 #if CRAFTOSPC_INDEV == true && defined(CRAFTOSPC_COMMIT)
-        lua_pushstring(L, "ComputerCraft " CRAFTOSPC_CC_VERSION " (CraftOS-PC " CRAFTOSPC_VERSION "@" CRAFTOSPC_COMMIT ")");
+        lua_pushstring(L, ("ComputerCraft " + ccVersionString + " (CraftOS-PC " CRAFTOSPC_VERSION "@" CRAFTOSPC_COMMIT ")").c_str());
 #else
-        lua_pushstring(L, "ComputerCraft " CRAFTOSPC_CC_VERSION " (CraftOS-PC " CRAFTOSPC_VERSION ")");
+        lua_pushstring(L, ("ComputerCraft " + ccVersionString + " (CraftOS-PC " CRAFTOSPC_VERSION ")").c_str());
 #endif
         lua_setglobal(L, "_HOST");
         if (selectedRenderer == 1) {

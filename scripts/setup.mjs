@@ -4,7 +4,11 @@
 // Peripherals' fonts), and gets the engine: it downloads the prebuilt engine for this OS from the latest GitHub
 // release. Every step is skipped when its result is already there, so running it again takes a second or two.
 //
-//   node scripts/setup.mjs [--force-engine]
+//   node scripts/setup.mjs [--force-engine] [--mc <versions>]
+//
+// --mc picks the Minecraft versions to build ROMs for, separated by commas, or "all" (default 1.18.2, CC:Tweaked
+// 1.101.3). 1.20.1 and 1.21.1 share one ROM (CC:Tweaked 1.121.0). The CRAFTOS_SETUP_MC environment variable does
+// the same.
 //
 // Environment (for forks and for testing):
 //   CRAFTOS_RELEASE_REPO  owner/name of the repository whose latest release holds the engine zips
@@ -29,7 +33,6 @@ const RELEASE_REPO = process.env.CRAFTOS_RELEASE_REPO ?? "Akkiruk/craftos-mcp";
 const WINDOWS = process.platform === "win32";
 const ENGINE_DIR = join(REPO, "engine", "build");
 const ENGINE_EXE = join(ENGINE_DIR, WINDOWS ? "craftos.exe" : "craftos");
-const ROM_DIR = join(REPO, "rom", "cc-1.101.3");
 const FONTS = "rom/ccsim/addons/toms-peripherals/fonts.lua";
 
 /** The release asset suffix for this machine, or undefined where there is no prebuilt engine. */
@@ -263,6 +266,26 @@ async function getEngine(force) {
   return true;
 }
 
+/** The Minecraft versions to build ROMs for: --mc a,b (or "all"), else CRAFTOS_SETUP_MC, else 1.18.2. */
+export function romVersions(argv, versions, env = process.env) {
+  const at = argv.indexOf("--mc");
+  const spec =
+    at >= 0 ? (argv[at + 1] ?? "") : (env.CRAFTOS_SETUP_MC ?? "1.18.2");
+  const list =
+    spec.trim().toLowerCase() === "all"
+      ? versions.map((v) => v.mc)
+      : spec
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+  const unknown = list.filter((mc) => !versions.some((v) => v.mc === mc));
+  if (list.length === 0 || unknown.length > 0)
+    throw new Error(
+      `--mc ${JSON.stringify(spec)}: use Minecraft versions separated by commas, or "all"; known: ${versions.map((v) => v.mc).join(", ")}`,
+    );
+  return list;
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const force = argv.includes("--force-engine");
   const total = 5;
@@ -286,14 +309,29 @@ export async function main(argv = process.argv.slice(2)) {
   step(2, total, "build the TypeScript");
   run("npm", ["run", "build"]);
 
-  step(3, total, "ROM (CC:Tweaked 1.101.3) and Tom's Peripherals fonts");
-  if (existsSync(join(ROM_DIR, "bios.lua")) && existsSync(join(ROM_DIR, FONTS)))
-    console.log(`  already built: ${relative(REPO, ROM_DIR)}`);
-  else
-    run(process.execPath, [
-      join(REPO, "scripts", "build-rom.mjs"),
-      "--download",
-    ]);
+  const { VERSIONS } = await import(
+    pathToFileURL(join(REPO, "packages", "runner", "dist", "versions.js")).href
+  );
+  const mcList = romVersions(argv, VERSIONS);
+  step(
+    3,
+    total,
+    `ROMs (${mcList.map((mc) => `${mc}: CC:Tweaked ${VERSIONS.find((v) => v.mc === mc).cc}`).join(", ")}) and Tom's Peripherals fonts`,
+  );
+  const built = new Set();
+  for (const mc of mcList) {
+    const romDir = join(REPO, "rom", VERSIONS.find((v) => v.mc === mc).romDir);
+    if (built.has(romDir)) continue;
+    built.add(romDir);
+    if (existsSync(join(romDir, "bios.lua")) && existsSync(join(romDir, FONTS)))
+      console.log(`  already built: ${relative(REPO, romDir)}`);
+    else
+      run(process.execPath, [
+        join(REPO, "scripts", "build-rom.mjs"),
+        "--download",
+        mc,
+      ]);
+  }
 
   step(4, total, "engine");
   const haveEngine = await getEngine(force);

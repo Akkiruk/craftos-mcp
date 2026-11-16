@@ -700,6 +700,15 @@ struct SParser {  /* data to `f_parser' */
 };
 
 static void checkmode (lua_State *L, const char *mode, const char *x) {
+  if (luaG_ccatleast(L, 1, 109, 0)) {
+    /* Cobalt 0.8+ (CC 1.109+) loads no binary chunks at all, and quotes no mode */
+    if (mode && strchr(mode, x[0]) == NULL)
+      luaO_pushfstring(L, "attempt to load a %s chunk (mode is %s)", x, mode);
+    else if (x[0] == 'b')
+      luaO_pushfstring(L, "attempt to load a binary chunk");
+    else return;
+    luaD_throw(L, LUA_ERRSYNTAX);
+  }
   if ((mode && strchr(mode, x[0]) == NULL) || ((G(L)->disabled & 1) && x[0] == 'b')) {
     luaO_pushfstring(L,
        "attempt to load a %s chunk (mode is " LUA_QS ")", x, mode);

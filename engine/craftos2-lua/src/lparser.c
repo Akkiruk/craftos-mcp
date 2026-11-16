@@ -461,8 +461,9 @@ static void breaklabel (LexState *ls) {
 ** message when label name is a reserved word (which can only be 'break')
 */
 static l_noret undefgoto (LexState *ls, Labeldesc *gt) {
+  /* craftos-agent: Cobalt 0.8+ (CC 1.109+) words a stray break "break outside loop at line N" */
   const char *msg = isreserved(gt->name)
-                    ? "<%s> at line %d not inside a loop"
+                    ? (luaG_ccatleast(ls->L, 1, 109, 0) ? "%s outside loop at line %d" : "<%s> at line %d not inside a loop")
                     : "no visible label " LUA_QS " for <goto> at line %d";
   msg = luaO_pushfstring(ls->L, msg, getstr(gt->name), gt->line);
   semerror(ls, msg);
@@ -1193,8 +1194,14 @@ static void gotostat (LexState *ls, int pc) {
 
 /* check for repeated labels on the same block */
 static void checkrepeated (FuncState *fs, Labellist *ll, TString *label) {
-  int i;
-  for (i = fs->bl->firstlabel; i < ll->n; i++) {
+  int i, first = fs->bl->firstlabel;
+  if (luaG_ccatleast(fs->ls->L, 1, 109, 0)) {
+    /* Cobalt 0.8+ (as Lua 5.4): a label may not reuse the name of one visible from an enclosing block either */
+    BlockCnt *bl = fs->bl;
+    while (bl->previous) bl = bl->previous;
+    first = bl->firstlabel;
+  }
+  for (i = first; i < ll->n; i++) {
     if (luaS_eqstr(label, ll->arr[i].name)) {
       const char *msg = luaO_pushfstring(fs->ls->L,
                           "label " LUA_QS " already defined on line %d",
@@ -1220,7 +1227,9 @@ static void labelstat (LexState *ls, TString *label, int line) {
   checkrepeated(fs, ll, label);  /* check for repeated labels */
   checknext(ls, TK_DBCOLON);  /* skip double colon */
   /* create new entry for this label */
-  l = newlabelentry(ls, ll, label, line, fs->pc);
+  /* luaK_getlabel (Lua 5.3's fix, as Cobalt): a jump target, so a LOADNIL after the label is not merged into one
+     before it (goto_spec "Regression #1": `local y` after a label jumped back to kept its old value) */
+  l = newlabelentry(ls, ll, label, line, luaK_getlabel(fs));
   skipnoopstat(ls);  /* skip other no-op statements */
   if (block_follow(ls, 0)) {  /* label is last no-op statement in the block? */
     /* assume that locals are already out of scope */
@@ -1487,7 +1496,11 @@ static void exprstat (LexState *ls) {
     assignment(ls, &v, 1);
   }
   else {  /* stat -> func */
-    if (v.v.k != VCALL) error_expected(ls, '=');  /* CC's Cobalt: `goto x` says "'=' expected near 'x'" */
+    /* CC 1.101.3's Cobalt: `goto x` says "'=' expected near 'x'"; 1.109+ says "syntax error near 'x'" */
+    if (v.v.k != VCALL) {
+      if (luaG_ccatleast(ls->L, 1, 109, 0)) luaX_syntaxerror(ls, "syntax error");
+      else error_expected(ls, '=');
+    }
     SETARG_C(getcode(fs, &v.v), 1);  /* call statement uses no results */
   }
 }
@@ -1529,7 +1542,11 @@ static void retstat (LexState *ls) {
 static void statement (LexState *ls) {
   int line = ls->linenumber;  /* may be needed for error messages */
   enterlevel(ls);
-  /* CC:Tweaked runs Lua 5.1, which has no goto: `goto` stays an ordinary name here (see llex.c for `::`). */
+  /* CC:Tweaked 1.101.3 runs Lua 5.1, which has no goto: `goto` stays an ordinary name there (see llex.c for `::`).
+     From 1.109 (Cobalt 0.8) `goto` followed by a name is a goto, and `goto` alone is still a name (Cobalt's tryGoto). */
+  if (luaG_ccatleast(ls->L, 1, 109, 0) && ls->t.token == TK_NAME &&
+      strcmp(getstr(ls->t.seminfo.ts), "goto") == 0 && luaX_lookahead(ls) == TK_NAME)
+    ls->t.token = TK_GOTO;
   switch (ls->t.token) {
     case ';': {  /* stat -> ';' (empty statement) */
       luaX_next(ls);  /* skip ';' */

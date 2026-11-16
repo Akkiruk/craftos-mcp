@@ -1,11 +1,14 @@
 // Compose a ROM directory from a CC:Tweaked jar plus our overlay.
 // usage: node scripts/build-rom.mjs <cc-tweaked.jar> <outDir>
-//        node scripts/build-rom.mjs --download [outDir]
-// --download fetches the pinned CC:Tweaked jar from Modrinth (checked against the sha512 Modrinth publishes), caches it
-// under .cache/ and builds from it. outDir defaults to rom/cc-1.101.3.
+//        node scripts/build-rom.mjs --download [mc] [outDir]
+// --download fetches the CC:Tweaked jar pinned for Minecraft <mc> (default 1.18.2, CC:Tweaked 1.101.3) from Modrinth,
+// checks it against the pinned sha512 (packages/runner/src/versions.ts, so `npm run build` first), caches it under
+// .cache/ and builds from it. outDir defaults to that version's ROM: rom/cc-1.101.3 for 1.18.2, rom/cc-1.121.0 for
+// 1.20.1 and 1.21.1 (one ROM serves both).
 // The jar is read with a small built-in zip reader, so no tar/unzip is needed on any OS.
 // No CC:Tweaked file is kept in this repo: bios.lua and rom/startup.lua are patched in place from the jar's own copies
 // (our startup additions live in scripts/rom-patches/). A missing Tom's Peripherals fonts.lua is generated first.
+// Imported (the npm package's first run, scripts/npm/first-run.mjs) it only exports pinnedJar, downloadJar and buildRom.
 import { createHash } from "node:crypto";
 import {
   cpSync,
@@ -17,72 +20,92 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-const JAR_NAME = "cc-tweaked-1.18.2-1.101.3.jar";
-const MODRINTH_PROJECT = "cc-tweaked";
+const DEFAULT_MC = "1.18.2";
 const LUA_PREFIX = "data/computercraft/lua/";
 
 const usage = [
   "usage: node scripts/build-rom.mjs <cc-tweaked.jar> <outDir>",
-  "       node scripts/build-rom.mjs --download [outDir]",
+  "       node scripts/build-rom.mjs --download [mc] [outDir]   (mc: 1.18.2, 1.20.1 or 1.21.1; default 1.18.2)",
 ].join("\n");
 
-const args = process.argv.slice(2);
-let jar;
-let out;
-if (args[0] === "--download") {
-  if (args.length > 2) fail(usage);
-  out = args[1] ?? join(repoRoot, "rom", "cc-1.101.3");
-  jar = await downloadJar(join(repoRoot, ".cache"));
-} else {
-  [jar, out] = args;
-  if (!jar || !out || args.length > 2) fail(usage);
-}
-// Tom's Peripherals' GPU fonts are generated from that mod's jar, not kept in the public copy: make them before the
-// overlay is copied into the ROM (scripts/build-toms-fonts.mjs)
-const toms = await import("./build-toms-fonts.mjs");
-if (!existsSync(toms.FONTS_LUA)) await toms.buildTomsFonts();
-buildRom(resolve(jar), resolve(out));
-
-function fail(message) {
-  console.error(message);
-  process.exit(2);
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  try {
+    await main(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    process.exit(2);
+  }
 }
 
-/** Fetch the pinned jar from Modrinth into cacheDir (once), verifying the sha512 the API reports. */
-async function downloadJar(cacheDir) {
-  const headers = { "User-Agent": "craftos-agent-build-rom" };
-  const url = `https://api.modrinth.com/v2/project/${MODRINTH_PROJECT}/version`;
-  const res = await fetch(url, { headers });
-  if (!res.ok) throw new Error(`Modrinth API ${url}: HTTP ${res.status}`);
-  const versions = await res.json();
-  const file = versions
-    .flatMap((v) => v.files ?? [])
-    .find((f) => f.filename === JAR_NAME);
-  if (!file)
+async function main(args) {
+  let jar;
+  let out;
+  if (args[0] === "--download") {
+    const rest = args.slice(1);
+    // a Minecraft version first is the version; anything else is the output folder (the old form)
+    const mc = /^\d+\.\d+(\.\d+)?$/.test(rest[0] ?? "")
+      ? rest.shift()
+      : DEFAULT_MC;
+    if (rest.length > 1) throw new Error(usage);
+    const pinned = await pinnedJar(mc);
+    out = rest[0] ?? join(repoRoot, "rom", pinned.romDir);
+    jar = await downloadJar(join(repoRoot, ".cache"), pinned.jar);
+  } else {
+    [jar, out] = args;
+    if (!jar || !out || args.length > 2) throw new Error(usage);
+  }
+  // Tom's Peripherals' GPU fonts are generated from that mod's jar, not kept in the public copy: make them before the
+  // overlay is copied into the ROM (scripts/build-toms-fonts.mjs)
+  const toms = await import("./build-toms-fonts.mjs");
+  if (!existsSync(toms.FONTS_LUA)) await toms.buildTomsFonts();
+  buildRom(resolve(jar), resolve(out));
+}
+
+/** The jar pinned for a Minecraft version (packages/runner/src/versions.ts) and the ROM folder it builds. */
+export async function pinnedJar(mc) {
+  const versionsJs = join(
+    repoRoot,
+    "packages",
+    "runner",
+    "dist",
+    "versions.js",
+  );
+  if (!existsSync(versionsJs))
+    throw new Error(`${versionsJs} is missing: run  npm run build  first`);
+  const { VERSIONS } = await import(pathToFileURL(versionsJs).href);
+  const info = VERSIONS.find((v) => v.mc === mc);
+  if (!info)
     throw new Error(
-      `Modrinth has no file named ${JAR_NAME} in project ${MODRINTH_PROJECT}`,
+      `unknown Minecraft version ${mc}; known: ${VERSIONS.map((v) => v.mc).join(", ")}`,
     );
-  const want = file.hashes?.sha512;
-  if (!want) throw new Error(`Modrinth gave no sha512 for ${JAR_NAME}`);
+  return { jar: info.jars[0], romDir: info.romDir };
+}
 
-  const dest = join(cacheDir, JAR_NAME);
+/** Fetch a pinned jar from Modrinth into cacheDir (once), verifying its pinned sha512. */
+export async function downloadJar(cacheDir, pinned) {
+  const headers = { "User-Agent": "craftos-agent-build-rom" };
+  const want = pinned.sha512;
+  const dest = join(cacheDir, pinned.file);
   const sha512 = (buf) => createHash("sha512").update(buf).digest("hex");
   if (existsSync(dest) && sha512(readFileSync(dest)) === want) {
     console.log(`Using cached ${dest}`);
     return dest;
   }
-  console.log(`Downloading ${file.url}`);
-  const dl = await fetch(file.url, { headers });
-  if (!dl.ok) throw new Error(`download ${file.url}: HTTP ${dl.status}`);
+  console.log(`Downloading ${pinned.url}`);
+  const dl = await fetch(pinned.url, { headers });
+  if (!dl.ok) throw new Error(`download ${pinned.url}: HTTP ${dl.status}`);
   const body = Buffer.from(await dl.arrayBuffer());
   const got = sha512(body);
   if (got !== want)
     throw new Error(
-      `${JAR_NAME}: sha512 mismatch (expected ${want}, got ${got})`,
+      `${pinned.file}: sha512 mismatch (expected ${want}, got ${got})`,
     );
   mkdirSync(cacheDir, { recursive: true });
   writeFileSync(`${dest}.part`, body);
@@ -155,7 +178,7 @@ function patchFile(path, find, replace, what) {
   );
 }
 
-function buildRom(jarPath, outDir) {
+export function buildRom(jarPath, outDir) {
   const zip = readFileSync(jarPath);
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });

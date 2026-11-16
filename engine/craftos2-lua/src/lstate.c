@@ -343,6 +343,7 @@ LUA_API lua_State *lua_newstate (lua_Alloc f, void *ud) {
   g->lockstate = 0;
   g->haltstate = 0;
   g->disabled = 0;
+  g->ccversion = 1101003;  /* craftos-agent: CC:Tweaked 1.101.3 until lua_setccversion says otherwise */
   g->ropestacksize = 8;
   g->fobjalloc = NULL;
   g->fobjalloc_ud = NULL;

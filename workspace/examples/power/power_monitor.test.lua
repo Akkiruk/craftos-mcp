@@ -25,14 +25,25 @@ end
 
 local seen = {}
 
+-- The dashboard sets the alarm output right after each drawing, so that call is the moment to look: the screen and the
+-- alarm as one reading. Polling on a timer instead raced a busy machine, which runs the clock far ahead of the
+-- program (the first rates come a second in, the alarm 14 s in) and could look past either.
+local setOutput = redstone.setOutput
+redstone.setOutput = function(side, value)
+  setOutput(side, value)
+  if side ~= "top" then return end
+  local text = screenText()
+  if not seen.early and text:find("FE/t", 1, true) then
+    seen.early, seen.earlyAlarm = text, value
+  end
+  if value and not seen.late then
+    seen.late, seen.alarm = text, value
+  end
+end
+
 local function scenario()
-  waitFor(function() return screenText():find("FE/t", 1, true) end, 20)
-  seen.early = screenText()
-  seen.earlyAlarm = redstone.getOutput("top")
-  -- 105k of 250k at -150 FE/t: under 25% after about 14 s
-  waitFor(function() return redstone.getOutput("top") end, 120)
-  seen.alarm = redstone.getOutput("top")
-  seen.late = screenText()
+  -- 105k of 250k at -150 FE/t: under 25% after about 14 s; the limit is generous because it is clock time
+  waitFor(function() return seen.late end, 600)
 end
 
 parallel.waitForAny(function() shell.run("examples/power/power_monitor.lua") end, scenario)

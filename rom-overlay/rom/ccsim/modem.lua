@@ -243,8 +243,27 @@ return function(core, host)
     if modem.kind == "wired" then receiveWired(modem, packet) else receiveWireless(modem, packet) end
   end
 
+  -- Block changes come in bursts (a flow sets a few dozen blocks a tick), and opening the outbox for each one cost
+  -- milliseconds of file work, on the computer's own time: they are held here and written together when the
+  -- computer next waits for an event, or before anything else this computer sends, so the outbox keeps its order.
+  local heldLines = {}
+  local function flush()
+    if #heldLines == 0 then return end
+    local text = table.concat(heldLines, "\n") .. "\n"
+    heldLines = {}
+    local h = fsOpen(OUTBOX, "a")
+    if h then
+      h.write(text)
+      h.close()
+    end
+  end
+
   local function send(line)
     if not core.world.modemLink then return end
+    if #heldLines > 0 then
+      heldLines[#heldLines + 1] = line
+      return flush()
+    end
     local h = fsOpen(OUTBOX, "a")
     if h then
       h.write(line .. "\n")
@@ -254,6 +273,12 @@ return function(core, host)
 
   -- Block worlds (ccsim/turtle) share their changes and ask the runner to start computers through the same outbox
   core.sendHost = send
+  --- A block change for the outbox: written at the next flushHost (the event hook calls it before every wait)
+  function core.sendHostLater(line)
+    if not core.world.modemLink then return end
+    heldLines[#heldLines + 1] = line
+  end
+  core.flushHost = flush
 
   local function transmit(modem, channel, reply, message)
     local at = positionOf(modem)

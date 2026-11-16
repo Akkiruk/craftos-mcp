@@ -566,6 +566,7 @@ return function(core, host)
       local t = lastTick + 1
       local changed = tickAll(t)
       lastTick = t
+      if t % 512 == 0 and core.serverWork then core.serverWork() end -- the server's work (mekanism-machines/engine.lua)
       if not changed and not anyBusy() and lastTick < target then
         -- nothing moves: jump, letting the blocks that count ticks catch up at once
         for _, o in ipairs(tickers) do

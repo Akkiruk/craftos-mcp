@@ -19,7 +19,12 @@ import {
   touchMonitorAs,
   checkConfig,
   ADDONS,
+  DEFAULT_MC,
+  VERSIONS,
   addonReport,
+  resolveVersion,
+  romDirFor,
+  versionReport,
   clearLabels,
   compactScreen,
   compareSnapshot,
@@ -41,6 +46,7 @@ import {
   uiDelta,
   listWorkspace,
   loadConfig,
+  packageVersion,
   loadNamedWorld,
   readWorkspaceFile,
   resolveInWorkspace,
@@ -56,7 +62,10 @@ const sessions = new SessionManager(config);
 
 let lastRun: { label: string; screens: ScreenCapture[] } | undefined;
 
-const server = new McpServer({ name: "craftos-mcp", version: "0.1.0" });
+const server = new McpServer({
+  name: "craftos-mcp",
+  version: packageVersion() ?? "0.1.0",
+});
 
 type Content =
   | { type: "text"; text: string }
@@ -135,6 +144,22 @@ const peripheralSchema = z
 
 const worldSchema = z
   .object({
+    version: z
+      .union([
+        z.enum(VERSIONS.map((v) => v.mc) as [string, ...string[]]),
+        z
+          .object({
+            mc: z.string(),
+            cc: z.string().optional(),
+            loader: z.string().optional(),
+          })
+          .strict(),
+      ])
+      .optional()
+      .describe(
+        `The Minecraft version the computer is on: ${VERSIONS.map((v) => `"${v.mc}" (CC:Tweaked ${v.cc})`).join(", ")}, or { mc, cc?, loader? }. ` +
+          `Default: the server's CRAFTOS_VERSION, else ${DEFAULT_MC} (see craftos_info). It picks the ROM, CC:Tweaked's behaviour (file handles, messages) and the mod versions; an addon with no release for that Minecraft is refused.`,
+      ),
     addons: z
       .union([z.string(), z.array(z.string())])
       .optional()
@@ -347,6 +372,31 @@ const timeScaleSchema = z
     "Virtual clock speed. 10 makes sleep(), os.clock() and os.epoch() run 10x faster than real time, so slow scripts finish quickly. timeoutMs stays in real time.",
   );
 
+/** craftos_info's version part: the default version (CRAFTOS_VERSION, else 1.18.2), its ROM and addons, and every version. */
+function infoVersion(): Record<string, unknown> {
+  const report = versionReport();
+  let rom = config.romDir;
+  let mc = DEFAULT_MC;
+  let computercraft = "CC:Tweaked 1.101.3 (Minecraft 1.18.2)";
+  try {
+    const v = resolveVersion(undefined);
+    rom = romDirFor(config, v);
+    mc = v.mc;
+    computercraft = `CC:Tweaked ${v.cc} (Minecraft ${v.mc}, ${v.loader})`;
+  } catch {
+    // CRAFTOS_VERSION is invalid: report says so
+  }
+  return {
+    computercraft,
+    rom,
+    versions: {
+      ...report,
+      note: "world.version picks another per computer; a version's ROM is built with node scripts/build-rom.mjs --download <mc>",
+    },
+    addons: addonReport(process.env, mc),
+  };
+}
+
 server.registerTool(
   "craftos_info",
   {
@@ -357,12 +407,10 @@ server.registerTool(
     content: [
       text({
         protocolVersion,
-        computercraft: "CC:Tweaked 1.101.3 (pinned ROM)",
+        ...infoVersion(),
         engine: config.engineExe,
-        rom: config.romDir,
         workspace: config.workspaceDir,
         problems: checkConfig(config),
-        addons: addonReport(),
         sessions: sessions.list(),
       }),
     ],

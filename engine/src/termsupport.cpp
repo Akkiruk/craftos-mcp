@@ -282,7 +282,7 @@ std::list<Terminal*> renderTargets;
 std::mutex renderTargetsLock;
 std::list<Terminal*>::iterator renderTarget = renderTargets.end();
 std::set<unsigned> currentWindowIDs;
-#if defined(__EMSCRIPTEN__) || defined(__IPHONEOS__) || defined(__ANDROID__)
+#if (defined(__EMSCRIPTEN__) && !defined(CRAFTOS_WEB)) || defined(__IPHONEOS__) || defined(__ANDROID__)
 bool singleWindowMode = true;
 #else
 bool singleWindowMode = false;

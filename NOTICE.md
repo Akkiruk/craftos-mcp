@@ -6,8 +6,10 @@
 - **CC:Tweaked**: not included. `scripts/build-rom.mjs` builds the ROM on your machine from the CC:Tweaked jar,
   which is under the ComputerCraft Public License, and adds a five-line hook to its `startup.lua` there.
 - **Minecraft and Forge data** (`rom-overlay/rom/ccsim/turtle/data/`): block, item, tag, recipe and loot-table
-  identifiers and values extracted from Minecraft 1.18.2, Forge 40.2.21 and CC:Tweaked 1.101.3 by
-  `tools/turtledata/extract.py`, for interoperability. Minecraft is a trademark of Mojang. Not an official
+  identifiers and values extracted from Minecraft 1.18.2, Forge 40.2.21 and CC:Tweaked 1.101.3, and (in `data/1.20.1/`)
+  from Minecraft 1.20.1, Forge 47.4.28 and CC:Tweaked 1.121.0, by `tools/turtledata/extract.py`, for
+  interoperability. The 1.20.1 set also has each block's map colour and the composter's chances, read from the game
+  with Mojang's published mappings. Minecraft is a trademark of Mojang. Not an official
   Minecraft product, not approved by or associated with Mojang or Microsoft.
 - **Advanced Peripherals**, **Mekanism**, **Mekanism Generators**, **Create**, **Create Crafts & Additions**,
   **Bigger Reactors** and **Extreme Reactors**: not included. Their computer peripherals are reimplemented in Lua from

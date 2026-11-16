@@ -1,0 +1,52 @@
+-- games/snake/plugin.lua
+-- Part of the craftos-mcp examples (MIT).
+-- Snake on the wall. Tap a side of the wall, or use the arrow keys, and the snake turns that way.
+
+local base = require("lib.base")
+local rules = require("games.snake.rules")
+local ui = require("lib.ui")
+
+local C = ui.C
+local COLS, ROWS = rules.COLS, rules.ROWS
+local CELL_W, CELL_H = 3, 2 -- 3 by 2 monitor cells look square
+
+local view = {}
+
+function view.layout(W, H)
+  return base.actionLayout(W, H, COLS * CELL_W, ROWS * CELL_H)
+end
+
+function view.draw(L, s)
+  ui.fill(L.x0, L.y0, L.bw, L.bh, C.panel)
+  local function cell(x, y, color)
+    ui.fill(L.x0 + (x - 1) * CELL_W, L.y0 + (y - 1) * CELL_H, CELL_W, CELL_H, color)
+  end
+  cell(s.food[1], s.food[2], C.red)
+  for i, part in ipairs(s.snake) do
+    cell(part[1], part[2], i == 1 and C.hi or C.ok)
+  end
+end
+
+--- The whole wall steers: tap the side you want.
+function view.actionAt(L, _, px, py)
+  return base.splitAction(L, px, py)
+end
+
+-- What each event sounds like (names in lib/sound.lua).
+local SFX = { eat = "pickup", level = "level_up", crash = "death" }
+
+function view.onEvents(app, _, events)
+  base.sfx(app, events, SFX)
+end
+
+return base.fill({
+  id = "snake", title = "Snake", blurb = "Eat, grow, don't crash", color = "ok", accent = 0x35D07F,
+  split = true, tickMs = 100, rules = rules, view = view,
+  help = {
+    "Steer the snake to the red food. Each one makes it longer.",
+    "",
+    "Tap the side of the wall you want to go: the top goes up, the bottom down, the left side left and the right side right. The wall is split corner to corner, so you never have to look away. At the computer, the arrow keys steer too.",
+    "",
+    "Hitting a wall or yourself ends the game. Every five foods the snake speeds up and food is worth more.",
+  },
+})

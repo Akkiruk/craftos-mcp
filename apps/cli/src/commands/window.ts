@@ -12,11 +12,15 @@ import {
   type MonitorSpec,
   type WorldConfig,
   checkConfig,
+  engineVersionArgs,
   isBlockWorld,
   luaString,
+  missingRomProblem,
   monitorSetupLua,
+  romDirFor,
   terminalSize,
   worldJson,
+  worldVersion,
 } from "@craftos-mcp/runner";
 import type { Command } from "../command.js";
 import {
@@ -29,11 +33,13 @@ import {
 } from "../shared.js";
 
 const USAGE = `
-  craftos-mcp window [world] [--addons <ids>] [--dir <folder>] [--monitor <name>:<w>x<h>[@<scale>]]... [--keep]
+  craftos-mcp window [world] [--mc <version>] [--addons <ids>] [--dir <folder>] [--monitor <name>:<w>x<h>[@<scale>]]... [--keep]
 
   Opens the emulated computer in a desktop window, with the same simulated world as craftos_run.
   world           a world JSON file or the name of one in worlds/ (also --world): players, peripherals, addons,
                   and for this command "monitors": [{ name, blocksWide, blocksHigh, textScale }]. Default: none.
+  --mc            the Minecraft version: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1 (CC:Tweaked 1.121.0)
+                  (overrides the world's version and CRAFTOS_VERSION)
   --addons        all, none, or addon ids separated by commas (overrides the world's and CRAFTOS_ADDONS)
   --dir           the computer's files, live: edit them in your editor, hold Ctrl+R in the window to reboot.
                   Default: the current folder.
@@ -84,6 +90,7 @@ async function openWindow(args: string[]): Promise<number> {
     config,
     values.world ?? positionals[0],
     values.addons,
+    values.mc,
   ) ?? {}) as WorldConfig & { monitors?: MonitorSpec[] };
   if (isBlockWorld(world)) {
     console.error(
@@ -104,6 +111,15 @@ async function openWindow(args: string[]): Promise<number> {
     worldText = worldJson({ ...world, simProgram: true });
   } catch (error) {
     throw new UsageError((error as Error).message);
+  }
+
+  // the Minecraft / CC:Tweaked version (world.version, --mc or CRAFTOS_VERSION) picks the ROM and --cc-version
+  const version = worldVersion(world);
+  const romDir = romDirFor(config, version);
+  const missingRom = missingRomProblem(romDir, version.mc);
+  if (missingRom) {
+    console.error(missingRom);
+    return 1;
   }
 
   const dir = mkdtempSync(join(config.runtimeDir, "window-"));
@@ -144,7 +160,8 @@ async function openWindow(args: string[]): Promise<number> {
     "--directory",
     dir,
     "--rom",
-    config.romDir,
+    romDir,
+    ...engineVersionArgs(version),
     "--start-dir",
     filesDir,
     ...(id !== 0 ? ["--id", String(id)] : []),

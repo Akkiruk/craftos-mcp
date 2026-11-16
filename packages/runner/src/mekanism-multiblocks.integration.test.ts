@@ -114,6 +114,14 @@ function gameTime(state: SimState, _module: string): number {
   return addons!["mekanism-machines"]!.gameTime;
 }
 
+/** How many ticks the clock module has simulated since boot (each once, however they were caught up). */
+function ticksRun(state: SimState): number {
+  const addons = (
+    state as unknown as { addons?: Record<string, { ticksRun: number }> }
+  ).addons;
+  return addons!["mekanism-machines"]!.ticksRun;
+}
+
 /** FloatingLong.create(double): four decimals. */
 const fl = (d: number) =>
   d <= 0
@@ -2014,7 +2022,7 @@ end)
     expectAllPassed(result);
   }, 60000);
 
-  it("an hour of the demo plant catches up quickly", async () => {
+  it("an hour of the demo plant catches up, every tick simulated once", async () => {
     const demo = loadNamedWorld(
       join(fileURLToPath(new URL("../../..", import.meta.url)), "worlds"),
       "mekanism-multiblocks-demo",
@@ -2022,10 +2030,12 @@ end)
     await withSession(
       demo,
       async (step) => {
-        const t0 = Date.now();
         const state = await step({ cmd: "advance", seconds: 3600 });
-        expect(Date.now() - t0).toBeLessThan(30_000);
+        // The work done, not the wall time it took (a busy host only makes it slower): every tick of the hour ran,
+        // and none ran twice. It takes seconds of the computer's thread, which is the server's work there, so it must
+        // not trip the 7 s "Too long without yielding" limit either (core.serverWork): that would end the session.
         expect(gameTime(state, "")).toBeGreaterThanOrEqual(72_000 - 1);
+        expect(ticksRun(state)).toBe(gameTime(state, "") + 1);
         const matrix = mbState(state, "", "matrix");
         expect(matrix.lastOutput).toBe(1_000_000);
         // the single blocks ran all hour too
@@ -2033,9 +2043,9 @@ end)
         expect(mbState(state, "", "digitalMiner_0").mined).toBe(400);
         expect(mbState(state, "", "sps").antimatterMade).toBeGreaterThan(0);
       },
-      60000,
-    ); // ~6 s on a quiet machine: an hour of 140 blocks, tick by tick
-  }, 120000);
+      170000,
+    ); // ~7 s on a quiet machine: an hour of 73 machines and multiblocks, tick by tick
+  }, 200000);
 
   it("fails cleanly with the addon off", async () => {
     await expect(

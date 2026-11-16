@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>craftos-mcp carts (local)</title>
+    <style>
+      body {
+        margin: 0;
+        background: #101014;
+        color: #ddd;
+        font:
+          14px system-ui,
+          sans-serif;
+      }
+      header {
+        padding: 8px 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      header button {
+        background: #2a2a30;
+        color: #ddd;
+        border: 1px solid #444;
+        border-radius: 4px;
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+      header button.on {
+        background: #d6b54a;
+        color: #111;
+      }
+      #player {
+        margin: 0 12px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header id="library">Loading carts&hellip;</header>
+    <div id="player"></div>
+    <script type="module">
+      // The local library page (web/serve.mjs serves it at /): pick a cart, play it. ?cart=<id> opens one directly.
+      // Tests drive it through window.dev.
+      import {
+        mountPlayer,
+        runtimeStats,
+        loadRuntime,
+      } from "/runtime/player.js";
+      const lib = document.getElementById("library");
+      const host = document.getElementById("player");
+      const events = [];
+      const dev = {
+        player: null,
+        events,
+        runtimeStats,
+        loadRuntime,
+        index: null,
+      };
+      window.dev = dev;
+      dev.open = (cart, options = {}) => {
+        dev.player?.destroy();
+        events.length = 0;
+        const source = typeof cart === "string" ? `/carts/${cart}.json` : cart;
+        dev.player = mountPlayer(host, {
+          cart: source,
+          runtimeBase: "/runtime/",
+          onEvent: (e) => events.push(e),
+          ...options,
+        });
+        for (const b of lib.querySelectorAll("button"))
+          b.classList.toggle("on", b.dataset.id === cart);
+        if (typeof cart === "string")
+          history.replaceState(null, "", `?cart=${cart}`);
+        return dev.player;
+      };
+      try {
+        dev.index = await fetch("/carts/index.json").then((r) => r.json());
+        lib.replaceChildren(
+          ...dev.index.carts.map((c) => {
+            const b = document.createElement("button");
+            b.textContent = c.title;
+            b.title = `${c.kind}: ${c.description}`;
+            b.dataset.id = c.id;
+            b.onclick = () => dev.open(c.id);
+            return b;
+          }),
+        );
+      } catch (e) {
+        lib.textContent = "no carts yet (node web/build-carts.mjs)";
+      }
+      const first = new URLSearchParams(location.search).get("cart");
+      if (first) dev.open(first);
+      dev.loaded = true;
+    </script>
+  </body>
+</html>

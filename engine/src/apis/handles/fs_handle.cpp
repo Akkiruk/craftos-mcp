@@ -24,7 +24,10 @@
 #include "../../runtime.hpp"
 #endif
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && defined(CRAFTOS_WEB)
+// the browser build keeps files in MEMFS for the page's lifetime: nothing to sync (and no window on a worker)
+extern "C" void emsyncfs() {}
+#elif defined(__EMSCRIPTEN__)
 EM_JS(void, emsyncfs, (), {
     if (window.fsIsSyncing) return;
     window.fsIsSyncing = true;
@@ -379,6 +382,135 @@ int fs_handle_flush(lua_State *L) {
 #endif
     return 0;
 }
+
+/*
+ * craftos-agent: CC:Tweaked 1.109.0+ file handles (ccAtLeast(comp, 1, 109, 0)). Every mode reads and writes raw
+ * bytes (no UTF-8 decoding, no line-ending changes), r+ and w+ read and write the same handle, readAll returns ""
+ * at the end of the file, and everything written is coerced to a string first (AbstractHandle in 1.121.0).
+ * They work on the stream buffer directly and re-sync its position before each call, so reads and writes can be
+ * mixed on one handle.
+ */
+static std::iostream * rawHandle(lua_State *L) {
+    std::iostream * fp = *(std::iostream**)lua_touserdata(L, lua_upvalueindex(1));
+    if (fp == NULL) { luaL_error(L, "attempt to use a closed file"); return NULL; }
+    fp->clear();
+    // a file stream must seek between reading and writing; seeking to where it already is does that
+    // (an absolute seek: MSVC's filebuf skips the C-level seek for a zero relative one)
+    if (dynamic_cast<std::fstream*>(fp) != NULL) {
+        const std::streampos pos = fp->rdbuf()->pubseekoff(0, std::ios::cur, std::ios::in | std::ios::out);
+        if (pos != std::streampos(-1)) fp->rdbuf()->pubseekpos(pos, std::ios::in | std::ios::out);
+    }
+    return fp;
+}
+
+/** What CC writes for a value: a string's own bytes, else Lua's tostring without __tostring ("nil" for none). */
+static std::string coercedBytes(lua_State *L, int idx) {
+    switch (lua_type(L, idx)) {
+        case LUA_TSTRING: case LUA_TNUMBER: {
+            lua_pushvalue(L, idx);  // a copy: lua_tolstring turns a number into a string in place
+            size_t sz = 0;
+            const char * s = lua_tolstring(L, -1, &sz);
+            std::string out(s, sz);
+            lua_pop(L, 1);
+            return out;
+        }
+        case LUA_TBOOLEAN: return lua_toboolean(L, idx) ? "true" : "false";
+        case LUA_TNIL: case LUA_TNONE: return "nil";
+        default: {
+            char buf[64];
+            snprintf(buf, sizeof buf, "%s: %p", lua_typename(L, lua_type(L, idx)), lua_topointer(L, idx));
+            return buf;
+        }
+    }
+}
+
+static int readRaw(lua_State *L, bool binary) {
+    std::iostream * fp = rawHandle(L);
+    std::streambuf * buf = fp->rdbuf();
+    if (binary && lua_isnoneornil(L, 1)) {
+        const int c = buf->sbumpc();
+        if (c == EOF) return 0;
+        lua_pushinteger(L, (unsigned char)c);
+        return 1;
+    }
+    const lua_Integer count = lua_isnoneornil(L, 1) ? 1 : luaL_checkinteger(L, 1);
+    if (count < 0) return luaL_error(L, "Cannot read a negative number of bytes");
+    if (count == 0) {
+        if (buf->sgetc() == EOF) return 0;
+        lua_pushliteral(L, "");
+        return 1;
+    }
+    std::string out;
+    char chunk[8192];
+    while ((lua_Integer)out.size() < count) {
+        const std::streamsize want = (std::streamsize)std::min<lua_Integer>((lua_Integer)sizeof chunk, count - (lua_Integer)out.size());
+        const std::streamsize got = buf->sgetn(chunk, want);
+        if (got <= 0) break;
+        out.append(chunk, (size_t)got);
+        if (got < want) break;
+    }
+    if (out.empty()) return 0;
+    lua_pushlstring(L, out.c_str(), out.size());
+    return 1;
+}
+
+int fs_handle_readCharRaw(lua_State *L) { lastCFunction = __func__; return readRaw(L, false); }
+int fs_handle_readByteRaw(lua_State *L) { lastCFunction = __func__; return readRaw(L, true); }
+
+int fs_handle_readAllRaw(lua_State *L) {
+    lastCFunction = __func__;
+    std::streambuf * buf = rawHandle(L)->rdbuf();
+    std::string out;
+    char chunk[8192];
+    std::streamsize got;
+    while ((got = buf->sgetn(chunk, sizeof chunk)) > 0) out.append(chunk, (size_t)got);
+    lua_pushlstring(L, out.c_str(), out.size());
+    return 1;
+}
+
+/** AbstractHandle.readLine: ends at "\n" (a "\r" before it is dropped unless the separator is kept); a lone "\r" is text. */
+int fs_handle_readLineRaw(lua_State *L) {
+    lastCFunction = __func__;
+    const bool withTrailing = lua_toboolean(L, 1);
+    std::streambuf * buf = rawHandle(L)->rdbuf();
+    std::string line;
+    bool readAnything = false, readRc = false;
+    for (;;) {
+        const int c = buf->sbumpc();
+        if (c == EOF) {
+            if (readRc) line += '\r';
+            if (!readAnything) return 0;
+            break;
+        }
+        readAnything = true;
+        if (c == '\n') {
+            if (withTrailing) { if (readRc) line += '\r'; line += '\n'; }
+            break;
+        }
+        if (readRc) line += '\r';
+        readRc = c == '\r';
+        if (!readRc) line += (char)c;
+    }
+    lua_pushlstring(L, line.c_str(), line.size());
+    return 1;
+}
+
+static int writeRaw(lua_State *L, bool binary, bool newline) {
+    std::iostream * fp = rawHandle(L);
+    std::streambuf * buf = fp->rdbuf();
+    if (binary && !newline && lua_type(L, 1) == LUA_TNUMBER) {
+        if (buf->sputc((char)(unsigned char)(lua_tointeger(L, 1) & 0xFF)) == EOF) return luaL_error(L, "Could not write file");
+        return 0;
+    }
+    std::string text = coercedBytes(L, 1);
+    if (newline) text += '\n';
+    if (buf->sputn(text.c_str(), (std::streamsize)text.size()) != (std::streamsize)text.size()) return luaL_error(L, "Could not write file");
+    return 0;
+}
+
+int fs_handle_writeStringRaw(lua_State *L) { lastCFunction = __func__; return writeRaw(L, false, false); }
+int fs_handle_writeByteRaw(lua_State *L) { lastCFunction = __func__; return writeRaw(L, true, false); }
+int fs_handle_writeLineRaw(lua_State *L) { lastCFunction = __func__; return writeRaw(L, false, true); }
 
 int fs_handle_seek(lua_State *L) {
     lastCFunction = __func__;

@@ -311,9 +311,13 @@ return function(core, host)
   function E.catchUp(target)
     target = target or currentTick()
     local last = target - 1
+    E.ticksRun = E.ticksRun or 0
     while lastTick < last do
       lastTick = lastTick + 1
       tickAll(lastTick)
+      E.ticksRun = E.ticksRun + 1
+      -- the server's work, not the computer's: an hour of ticks must not trip the 7 s limit (core.serverWork)
+      if lastTick % 512 == 0 and core.serverWork then core.serverWork() end
     end
   end
   function E.gameTime() return lastTick end
@@ -676,7 +680,8 @@ return function(core, host)
   --- Sim state of every multiblock.
   function E.state()
     E.catchUp()
-    local out = { gameTime = lastTick, dayTime = E.sky.dayTime, multiblocks = {} }
+    -- ticksRun: how many ticks this boot has simulated, each one once however they were caught up
+    local out = { gameTime = lastTick, ticksRun = E.ticksRun or 0, dayTime = E.sky.dayTime, multiblocks = {} }
     local any = false
     for _, mb in ipairs(multiblocks) do
       do

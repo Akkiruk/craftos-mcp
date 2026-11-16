@@ -51,6 +51,49 @@ static int os_setComputerLabel(lua_State *L) {
     return 0;
 }
 
+/*
+ * craftos-agent: copy the value at `idx` of `from` onto `to` the way CC's event arguments travel through Java
+ * (CobaltLuaMachine.toObject, then toValue), on every CC:Tweaked version: booleans, numbers and strings as they are;
+ * a table as a new table, the same table reached twice within one argument (or a cycle) staying one table (`memo`, a
+ * table on `to` keyed by the source table). Functions, coroutines and userdata have no Java form: they become nil, and
+ * a table entry whose key or value is one of them (or nil) is left out. Pushes nothing and returns false for those.
+ */
+static bool copyThroughJava(lua_State *from, int idx, lua_State *to, int memo) {
+    idx = lua_absindex(from, idx);
+    switch (lua_type(from, idx)) {
+        case LUA_TBOOLEAN: lua_pushboolean(to, lua_toboolean(from, idx)); return true;
+        case LUA_TNUMBER: lua_pushnumber(to, lua_tonumber(from, idx)); return true;
+        case LUA_TSTRING: {
+            size_t len = 0;
+            const char * str = lua_tolstring(from, idx, &len);
+            lua_pushlstring(to, str, len);
+            return true;
+        }
+        case LUA_TTABLE: {
+            void * key = const_cast<void*>(lua_topointer(from, idx));
+            if (!lua_checkstack(to, 4) || !lua_checkstack(from, 3)) luaL_error(from, "stack overflow");
+            lua_pushlightuserdata(to, key);
+            lua_rawget(to, memo);
+            if (!lua_isnil(to, -1)) return true;
+            lua_pop(to, 1);
+            lua_newtable(to);
+            lua_pushlightuserdata(to, key);
+            lua_pushvalue(to, -2);
+            lua_rawset(to, memo);
+            lua_pushnil(from);
+            while (lua_next(from, idx) != 0) {
+                if (copyThroughJava(from, -2, to, memo)) {
+                    if (copyThroughJava(from, -1, to, memo)) lua_rawset(to, -3);
+                    else lua_pop(to, 1);
+                }
+                lua_pop(from, 1);
+            }
+            return true;
+        }
+        default: return false;  // nil, function, thread, userdata
+    }
+}
+
 static int os_queueEvent(lua_State *L) {
     lastCFunction = __func__;
     Computer * computer = get_comp(L);
@@ -64,9 +107,17 @@ static int os_queueEvent(lua_State *L) {
     lua_State *param = lua_newthread(computer->paramQueue);
     lua_remove(L, 1);
     const int count = lua_gettop(L);
-    lua_checkstack(param, count);
-    if (config.standardsMode) xcopy(L, param, count);
-    else lua_xmove(L, param, count);
+    lua_checkstack(param, count + 2);
+    // CC copies each argument through Java on every version (1.121.0's os_spec: "clones objects", "does not
+    // preserve references in separate args"): new tables, references shared inside one argument stay shared, across
+    // arguments they do not, and functions and other values Java cannot hold arrive as nil (copyThroughJava)
+    for (int i = 1; i <= count; i++) {
+        lua_newtable(param);
+        const int memo = lua_gettop(param);
+        if (!copyThroughJava(L, i, param, memo)) lua_pushnil(param);
+        lua_remove(param, memo);
+    }
+    lua_settop(L, 0);
     computer->eventQueue.push(name);
     computer->event_lock.notify_all();
     return 0;
@@ -230,6 +281,26 @@ static int os_advance(lua_State *L) {
     return 0;
 }
 
+// os.__ccsimServerWork(): the sim did the server's own work on this computer's thread (a machine catching up on the
+// ticks a jump of the clock skipped). In the game that work runs on the server thread and never counts towards the
+// computer's 7 s "Too long without yielding" limit, so it starts the computer's limit again from now, as getNextEvent
+// does. The overlay (ccsim.core) takes it out of the os table at boot.
+static int os_serverWork(lua_State *L) {
+    lastCFunction = __func__;
+    Computer * computer = get_comp(L);
+    computer->timeoutCheckCount = 0;
+    computer->last_event = std::chrono::high_resolution_clock::now();
+#ifdef __EMSCRIPTEN__
+    queueTask([computer](void*)->void*{
+#endif
+    if (computer->eventTimeout != 0) SDL_RemoveTimer(computer->eventTimeout);
+    if (config.abortTimeout > 0 || config.standardsMode) computer->eventTimeout = SDL_AddTimer(config.standardsMode ? 7000 : config.abortTimeout, eventTimeoutEvent, computer);
+#ifdef __EMSCRIPTEN__
+    return NULL;}, NULL);
+#endif
+    return 0;
+}
+
 // os.__ccsimNative(fn) wraps a Lua function in a C function, for the simulated Java APIs. A Lua function loses its
 // caller to a tail call (return peripheral.call(...)), but a Java function never does: a real error reads
 // "script:12: msg". So errors get the position of the caller here, and a C function keeps that caller on the stack.
@@ -292,8 +363,10 @@ static int os_time(lua_State *L) {
         ts.tm_year = getfield(L, "year", -1) - 1900;
         ts.tm_mon = getfield(L, "month", -1) - 1;
         ts.tm_mday = getfield(L, "day", -1);
-        ts.tm_sec = getfield(L, "sec", 0);
-        ts.tm_min = getfield(L, "min", 0);
+        // LuaDateTime.fromTable: a missing min or sec is 12 before CC 1.119 (a CC bug), 0 from 1.119 on
+        const int clockDefault = ccAtLeast(get_comp(L), 1, 119, 0) ? 0 : 12;
+        ts.tm_sec = getfield(L, "sec", clockDefault);
+        ts.tm_min = getfield(L, "min", clockDefault);
         ts.tm_hour = getfield(L, "hour", 12);
         ts.tm_isdst = getboolfield(L, "isdst");
         lua_pushinteger(L, mktime(&ts));
@@ -488,6 +561,7 @@ static luaL_Reg os_reg[] = {
     {"about", os_about},
     {"__ccsimAdvance", os_advance},
     {"__ccsimNative", os_native},
+    {"__ccsimServerWork", os_serverWork},
     {NULL, NULL}
 };
 

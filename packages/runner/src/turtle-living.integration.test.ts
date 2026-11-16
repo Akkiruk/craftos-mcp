@@ -93,7 +93,8 @@ describe.skipIf(!ready)("turtle living world", { timeout: 240000 }, () => {
     const w = await runLua(
       `
 ccunit.test("moves and water share one clock", function()
-  local stamp, before, wet = {}, {}, {}
+  local stamp, before, wet, looked = {}, {}, {}, {}
+  local asked = os.clock()
   ccunit.truthy(turtle.digDown())
   local dug = os.clock()
   local t0 = dug
@@ -102,6 +103,7 @@ ccunit.test("moves and water share one clock", function()
     ccunit.truthy(turtle.forward())
     stamp[k] = (os.clock() - t0) * 20
     local ok, b = turtle.inspectDown()
+    looked[k] = (os.clock() - asked) * 20
     wet[k] = ok and b.name == "minecraft:water"
   end
   -- Each move runs at least 8 ticks after the one before it ran. A return can reach the program late, so the gap
@@ -113,9 +115,12 @@ ccunit.test("moves and water share one clock", function()
   end
   -- 5 gaps of 8 ticks; late ticks on a busy host add some, a hold that drifted per move would add far more
   ccunit.truthy(stamp[6] - stamp[1] < 5 * 8 * 1.6, "6 moves took " .. (stamp[6] - stamp[1]) .. " ticks")
-  -- the dig freed the flow at clock 0, so cell k (k blocks east of the dug cell) is never wet before 5 * (k + 1) ticks
+  -- The dig freed the flow no earlier than it was asked for, so cell k (k blocks east of the dug cell) is never wet
+  -- before 5 * (k + 1) ticks after that; a look that saw water had returned by then. Both ends are ones no load can
+  -- move the wrong way: the dig cannot run before it is asked for, and the look cannot return before it ran (a
+  -- return can come late, and the look runs 8 ticks after its move, so the time a move returned says nothing).
   for k = 1, 6 do
-    if wet[k] then ccunit.truthy(stamp[k] >= 5 * (k + 1) - 2, "cell " .. k .. " wet at tick " .. stamp[k]) end
+    if wet[k] then ccunit.truthy(looked[k] >= 5 * (k + 1) - 0.5, "cell " .. k .. " seen wet " .. looked[k] .. " ticks after the dig was asked for") end
   end
   -- and by the last cell, 6 moves in (over 50 ticks) the whole 35-tick chain has certainly arrived
   ccunit.truthy(wet[6], "cell 6 still dry at tick " .. stamp[6] .. " wet " .. textutils.serialize(wet, {compact=true}))

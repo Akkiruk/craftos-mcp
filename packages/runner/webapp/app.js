@@ -951,8 +951,26 @@ function setAddons(list) {
         : Array.isArray(list)
           ? list
           : meta.addons.filter((a) => a.on).map((a) => a.id);
-  for (const box of $$("#addons input")) box.checked = on.includes(box.value);
+  for (const box of $$("#addons input"))
+    box.checked = on.includes(box.value) && !box.disabled;
 }
+// the Minecraft version: each mod shows its version there, and a mod with no release for it cannot be ticked
+function showVersion(mc) {
+  for (const a of meta.addons) {
+    const box = $(`#addons input[value="${a.id}"]`);
+    const ver = (a.versions || {})[mc];
+    box.disabled = !ver;
+    if (!ver) box.checked = false;
+    const label = box.closest("label");
+    label.classList.toggle("off", !ver);
+    $(".ver", label).textContent = ver
+      ? ` ${ver.split(" ")[0]}`
+      : ` (none for ${mc})`;
+  }
+}
+form.elements.version.addEventListener("change", () =>
+  showVersion(form.elements.version.value),
+);
 form.elements.worldFile.addEventListener("change", async () => {
   const name = form.elements.worldFile.value;
   let world = {};
@@ -961,6 +979,12 @@ form.elements.worldFile.addEventListener("change", async () => {
       () => ({}),
     );
   form.elements.world.value = JSON.stringify(world, null, 2);
+  const mc =
+    typeof world.version === "string" ? world.version : world.version?.mc;
+  if (mc && meta.versions.some((v) => v.mc === mc)) {
+    form.elements.version.value = mc;
+    showVersion(mc);
+  }
   setAddons(world.addons);
   const mons = world.monitors;
   if (Array.isArray(mons)) {
@@ -1011,6 +1035,7 @@ form.addEventListener("submit", async (e) => {
     advanced: form.elements.advanced.checked,
     world,
     addons: $$("#addons input:checked").map((i) => i.value),
+    version: form.elements.version.value || undefined,
     monitors,
     program: form.elements.program.value.trim() || undefined,
     timeScale: Number(form.elements.timeScale.value) || 1,
@@ -1081,6 +1106,13 @@ async function init() {
       ),
     ),
   );
+  form.elements.version.replaceChildren(
+    ...meta.versions.map((v) =>
+      el("option", { value: v.mc, text: `${v.mc} (CC:Tweaked ${v.cc})` }),
+    ),
+  );
+  form.elements.version.value = meta.version;
+  showVersion(meta.version);
   setAddons(undefined);
   await poll(true);
   setInterval(poll, 120);

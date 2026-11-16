@@ -137,6 +137,10 @@ struct Computer {
 
     struct allocators * allocator_ctx = NULL; // Private: context for allocators
 
+    // craftos-agent: the CC:Tweaked version this computer behaves as (--cc-version), as major*1000000 + minor*1000 +
+    // patch. 1.101.3 unless the runner asks for another; read through ccAtLeast() in util.hpp.
+    int ccVersion = 1101003;
+
 private:
     // The constructor is marked private to avoid having to implement it in this file.
     // It isn't necessary to construct a Computer directly; just use the startComputer function instead.

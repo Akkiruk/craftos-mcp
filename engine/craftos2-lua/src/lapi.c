@@ -1390,3 +1390,14 @@ LUA_API void lua_setdisableflags(lua_State *L, unsigned char flags) {
   lua_unlock(L);
 }
 
+/* craftos-agent: the CC:Tweaked version (major*1000000+minor*1000+patch) the VM's version pins follow */
+LUA_API void lua_setccversion(lua_State *L, int version) {
+  lua_lock(L);
+  G(L)->ccversion = version;
+  lua_unlock(L);
+}
+
+LUA_API int lua_getccversion(lua_State *L) {
+  return G(L)->ccversion;
+}
+

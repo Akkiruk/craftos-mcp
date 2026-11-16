@@ -26,7 +26,7 @@ return function(core, B)
   local gameData, gameItems
   local function data()
     if core.gameData then return core.gameData end
-    gameData = gameData or dofile("/rom/ccsim/turtle/data.lua")(core.world.gameData)
+    gameData = gameData or dofile("/rom/ccsim/turtle/data.lua")(core.world.gameData, core.version.blockData)
     return gameData
   end
   local function itemsData()

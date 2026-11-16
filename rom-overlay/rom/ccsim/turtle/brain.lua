@@ -13,7 +13,7 @@ return function(core)
   M.isTurtle = isTurtle
   local floor, min, max = math.floor, math.min, math.max
 
-  local data = dofile("/rom/ccsim/turtle/data.lua")(core.world.gameData)
+  local data = dofile("/rom/ccsim/turtle/data.lua")(core.world.gameData, core.version.blockData)
   local items = dofile("/rom/ccsim/turtle/items.lua")(data, core.world.gameData)
   local rules = dofile("/rom/ccsim/turtle/rules.lua")(data, core.world.gameData)
   local loot = dofile("/rom/ccsim/turtle/loot.lua")(data)
@@ -79,6 +79,7 @@ return function(core)
       local s = saved.turtle
       t.facing, t.fuel, t.selected = s.facing or t.facing, s.fuel or t.fuel, s.selected or t.selected
       t.left, t.right = s.left, s.right
+      t.leftItem, t.rightItem = s.leftItem, s.rightItem -- CC:Tweaked 1.121.0: the item each upgrade was equipped as
       t.slots = {}
       for key, def in pairs(s.slots or {}) do t.slots[tonumber(key)] = normItem(def) end
       pos.x, pos.y, pos.z = s.x or pos.x, s.y or pos.y, s.z or pos.z
@@ -94,6 +95,7 @@ return function(core)
     return {
       x = pos.x, y = pos.y, z = pos.z, dimension = pos.dimension, facing = t.facing,
       fuel = t.fuel, selected = t.selected, slots = slots, left = t.left, right = t.right,
+      leftItem = t.leftItem, rightItem = t.rightItem,
     }
   end
   core.blockState = world.state
@@ -439,7 +441,8 @@ return function(core)
     local text = textutils.serializeJSON(encode(blockAt(x, y, z)))
     if sent[k] == text then return end
     sent[k] = text
-    core.sendHost("W" .. k .. "\t" .. text)
+    -- held back to the next wait for an event, with the rest of this tick's changes (ccsim/modem.lua)
+    if core.sendHostLater then core.sendHostLater("W" .. k .. "\t" .. text) else core.sendHost("W" .. k .. "\t" .. text) end
   end
   M.share = share
 
@@ -807,6 +810,10 @@ return function(core)
       return { name = side, type = "modem", kind = n:find("advanced") and "ender" or "wireless", x = x, y = y, z = z }, nil, "w"
     end
     if n == "computercraft:speaker" then return { name = side, type = "speaker" }, nil, "s" end
+    if n == "computercraft:redstone_relay" and core.cc121 then
+      local be = block.blockEntity or {} -- what reaches the relay is not simulated: the world gives it
+      return { name = side, type = "redstone_relay", inputs = be.inputs, bundledInputs = be.bundledInputs }, nil, "r"
+    end
     local inv = inventoryOf(block)
     if inv then return { name = side, type = n }, inv, "i" end
     return nil
@@ -1453,6 +1460,13 @@ return function(core)
     return false
   end
 
+  -- CC:Tweaked 1.121.0 turtles right-click the blocks of #computercraft:turtle_can_use (ccsim/turtle/canuse.lua)
+  local canUse = core.cc121 and dofile("/rom/ccsim/turtle/canuse.lua")({
+    world = world, data = data, items = items, t = t, storeItems = storeItems, dropFromTurtle = dropFromTurtle,
+    nbtHash = nbtHash, living = living, behind = function() return OPP[t.facing] end,
+  }) or nil
+  M.canUse = canUse
+
   local function deploy(stack, slot, dir, text)
     local list, tx, ty, tz = attempts(dir)
     local isBlockItem = rules.blockFor(stack.name, "up") ~= nil or rules.blockFor(stack.name, "north") ~= nil
@@ -1469,6 +1483,10 @@ return function(core)
       end
       if editable and canDeployOn(a, isBlockItem) then
         local ok
+        if canUse and a.replace and canUse.use(stack, slot, a.x, a.y, a.z, blockAt(a.x, a.y, a.z)) then
+          -- 1.121.0: the block in front is right-clicked first when it is in #computercraft:turtle_can_use
+          return true
+        end
         if isBlockItem then
           ok = placeBlock(stack, a, tx, ty, tz, text)
           if ok then
@@ -1673,7 +1691,13 @@ return function(core)
     for k, v in pairs(b.state or {}) do state[k] = stateValue(tostring(v)) end
     local tags = {}
     for _, tag in ipairs(data.blockTags(b.name)) do tags[tag] = true end
-    return { name = b.name, state = state, tags = tags }
+    local d = { name = b.name, state = state, tags = tags }
+    if core.cc121 then
+      -- 1.121.0 BlockDetails.fill: DetailHelpers.fillMapColour, both spellings
+      local colour = data.mapColour(b.name, b.state)
+      if colour then d.mapColor, d.mapColour = colour, colour end
+    end
+    return d
   end
 
   local function inspect(interact)
@@ -1713,10 +1737,22 @@ return function(core)
     if item.lore then d.lore = item.lore end
     if item.enchantments then d.enchantments = item.enchantments end
     if item.unbreakable then d.unbreakable = true end
+    if core.cc121 then M.itemDetail121(d, item) end
     for k, v in pairs(item) do
       if d[k] == nil and type(k) == "string" and k:sub(1, 2) ~= "__" and k ~= "damage" and k ~= "maxCount" then d[k] = v end
     end
     return d
+  end
+
+  --- What CC:Tweaked 1.121.0's ItemDetails.fill adds or changes: itemGroups is always empty (deprecated), and the map
+  --- colour of the item's block (Block.byItem(item).defaultBlockState()). potionEffects comes from the item itself
+  --- (a world gives it; the potions' own effects are not in the data).
+  function M.itemDetail121(d, item)
+    d.itemGroups = {}
+    -- the standing block (Item.BY_BLOCK); wheat is an item of its own, not the crop's BlockItem
+    local block = item.name ~= "minecraft:wheat" and rules.blockFor(item.name, "up") or nil
+    local colour = block and data.mapColour(block, data.defaultState(block))
+    if colour then d.mapColor, d.mapColour = colour, colour end
   end
 
   -- ===== refuel (spec 7) =====
@@ -1772,7 +1808,26 @@ return function(core)
     local dir = dirOf(interact)
     local x, y, z = world.offset(pos.x, pos.y, pos.z, dir)
     local inv = worldInventory(x, y, z, OPP[dir])
-    if inv then
+    if inv and core.cc121 then
+      -- CC:Tweaked 1.121.0 (ForgeItemContainer.moveTo): slot by slot, the first whose items fit moves (at most a stack
+      -- of them, from that slot only); a slot whose items cannot fit is passed over
+      local hasItems = false
+      for _, s in ipairs(inv.slots) do
+        local here = inv.get(s)
+        if here then
+          local n = min(count, here.count, here.maxCount or items.maxCount(here.name))
+          local rest = storeItems(copy(here, n), t.selected)
+          local moved = n - (rest and rest.count or 0)
+          if moved > 0 then
+            here.count = here.count - moved
+            if here.count <= 0 then inv.set(s, nil) else core.dirty = true end
+            return success(true)
+          end
+          hasItems = true
+        end
+      end
+      return failure(hasItems and "No space for items" or "No items to take")
+    elseif inv then
       local taken = invTake(inv, count)
       if not taken then return failure("No items to take") end
       local rest = storeItems(taken, t.selected)
@@ -1832,6 +1887,11 @@ return function(core)
   local function validUpgrade(stack)
     local up = UPGRADES[stack.name]
     if not up then return false end
+    if up.tool and core.cc121 then
+      -- 1.121.0 TurtleTool.isItemSuitable with the vanilla tools' defaults (consumeDurability "never",
+      -- allowEnchantments false): a damaged or enchanted tool is refused; a renamed one is fine and keeps its name
+      return (stack.damage or 0) <= 0 and not stack.enchantments and not stack.attributeModifiers
+    end
     if up.tool then
       if (stack.damage or 0) > 0 or stack.enchantments or (stack.displayName and stack.displayName ~= data.displayName(stack.name)) then
         return false
@@ -1846,6 +1906,20 @@ return function(core)
     if stack and not validUpgrade(stack) then return failure("Not a valid upgrade") end
     local old = t[side]
     local new = stack and stack.name or nil
+    if core.cc121 then
+      -- 1.121.0: the upgrade keeps the very item it was equipped as (UpgradeData), and gives it back unequipped;
+      -- TurtleUtil.storeItemOrDrop drops what does not fit behind the turtle
+      local oldItem = old and (t[side .. "Item"] or { name = old, count = 1 })
+      local taken = stack and takeFrom(slot, 1) or nil
+      if oldItem then
+        local rest = storeItems(oldItem, t.selected)
+        if rest then dropFromTurtle(rest, OPP[t.facing]) end
+      end
+      t[side], t[side .. "Item"] = new, taken
+      refreshPeripherals(false)
+      core.dirty = true
+      return success(old ~= nil or new ~= nil)
+    end
     if stack then takeFrom(slot, 1) end
     if old then
       local rest = storeItems({ name = old, count = 1 }, t.selected)
@@ -2008,7 +2082,8 @@ return function(core)
     end
     for _, stack in ipairs(results) do
       local rest = storeItems(stack, t.selected)
-      if rest then dropFromTurtle(rest, t.facing) end
+      -- 1.121.0 TurtleUtil.storeItemOrDrop drops behind the turtle; 1.101.3 dropped in front
+      if rest then dropFromTurtle(rest, core.cc121 and OPP[t.facing] or t.facing) end
     end
     core.dirty = true
     return success(#results > 0)
@@ -2129,6 +2204,18 @@ return function(core)
 
   function api.equipLeft() return execute(function() return equip("left") end) end
   function api.equipRight() return execute(function() return equip("right") end) end
+
+  if core.cc121 then
+    -- 1.116.0 TurtleAPI.getEquippedLeft/Right: the full details of the upgrade's item, or nil; main-thread calls
+    local function equipped(side)
+      core.waitForServerTick()
+      local id = t[side]
+      if not id then return nil end
+      return M.itemDetail(t[side .. "Item"] or { name = id, count = 1 }, true)
+    end
+    function api.getEquippedLeft() return equipped("left") end
+    function api.getEquippedRight() return equipped("right") end
+  end
 
   function api.getItemDetail(slot, detailed)
     slot = optInt(1, slot)

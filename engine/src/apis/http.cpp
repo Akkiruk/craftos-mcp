@@ -277,7 +277,7 @@ downloadThread_entry:
         size_t requestSize = param->postData.size();
         for (const auto& h : param->headers) {request.add(h.first, h.second); requestSize += h.first.size() + h.second.size() + 1;}
         if (isLocalhost) request.add("Host", "localhost:" + std::to_string(uri.getPort()));
-        if (!request.has("User-Agent")) request.add("User-Agent", "computercraft/" CRAFTOSPC_CC_VERSION " CraftOS-PC/" CRAFTOSPC_VERSION);
+        if (!request.has("User-Agent")) request.add("User-Agent", "computercraft/" + ccVersionString + " CraftOS-PC/" CRAFTOSPC_VERSION);
         if (!request.has("Accept-Charset")) request.add("Accept-Charset", "UTF-8");
         if (!param->postData.empty()) {
             if (request.getContentLength() == HTTPRequest::UNKNOWN_CONTENT_LENGTH) request.setContentLength(param->postData.size());
@@ -546,6 +546,25 @@ static int http_request(lua_State *L) {
         param->redirect = !lua_isboolean(L, 6) || lua_toboolean(L, 6);
         param->timeout = 0;
     }
+    if (!param->method.empty()) {
+        // craftos-agent: CC upper-cases the method (Locale.ROOT) and refuses CONNECT on every version. 1.121.0 allows
+        // any verb (HTTPAPI.getMethod): 1 to 32 of A-Z, '_' and '-', else "Invalid HTTP method".
+        std::string method = param->method;
+        for (char& c : method) if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+        if (method == "CONNECT") {delete param; return luaL_error(L, "Unsupported HTTP method");}
+        if (ccAtLeast(param->comp, 1, 121, 0) && (method.size() > 32 ||
+            method.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ_-") != std::string::npos)) {
+            delete param;
+            return luaL_error(L, "Invalid HTTP method");
+        }
+        param->method = method;
+    } else if (lua_istable(L, 1) && ccAtLeast(param->comp, 1, 121, 0)) {
+        // an empty method string is still a method in 1.121.0, and an invalid one
+        lua_getfield(L, 1, "method");
+        const bool given = lua_isstring(L, -1);
+        lua_pop(L, 1);
+        if (given) {delete param; return luaL_error(L, "Invalid HTTP method");}
+    }
     std::lock_guard<std::mutex> lock(param->comp->httpRequestQueueMutex);
     if (param->comp->requests_open >= config.http_max_requests) {
         param->comp->httpRequestQueue.push(param);
@@ -768,6 +787,12 @@ struct ws_handle {
     uint16_t port;
     void * clientID = NULL;
     ws_handle ** ud = NULL;
+    // craftos-agent: CC:Tweaked 1.121.0 client sockets. close() sends a close frame and waits (Closing) for the
+    // server's; the response headers are kept for getResponseHeaders (1.117).
+    bool newer = false;
+    bool closing = false;
+    std::chrono::steady_clock::time_point closeSent;
+    std::vector<std::pair<std::string, std::string> > responseHeaders;
 };
 
 struct websocket_failure_data {
@@ -802,12 +827,14 @@ static std::string websocket_failure(lua_State *L, void* userp) {
 
 static std::string websocket_closed(lua_State *L, void* userp) {
     websocket_closed_data * data = (websocket_closed_data*)userp;
-    if (data == NULL) lua_pushnil(L);
-    else pushstring(L, data->url);
-    if (data->code != 0) {
-        pushstring(L, data->reason);
-        lua_pushinteger(L, data->code);
-    }
+    // craftos-agent: CC queues (url, reason, code) on every version, a missing reason or code as nil
+    // (Websocket.close / serverClose); code 0 here means none
+    if (data == NULL) {lua_pushnil(L); return "websocket_closed";}
+    pushstring(L, data->url);
+    if (data->reason.empty()) lua_pushnil(L);
+    else pushstring(L, data->reason);
+    if (data->code == 0) lua_pushnil(L);
+    else lua_pushinteger(L, data->code);
     delete data;
     return "websocket_closed";
 }
@@ -829,6 +856,15 @@ static int websocket_close(lua_State *L) {
     if (ws == NULL) return 0;
     std::lock_guard<std::mutex> lock(ws->lock);
     if (ws->ws == NULL) return 0;
+    if (ws->newer) {
+        // CC:Tweaked 1.121.0: send a close frame (1000) and keep reading until the server answers with its own; the
+        // client thread queues websocket_closed then, or after 5 seconds without an answer (1006)
+        if (ws->closing) return 0;
+        ws->closing = true;
+        ws->closeSent = std::chrono::steady_clock::now();
+        try {ws->ws->shutdown(1000, "");} catch (...) {}
+        return 0;
+    }
     ws->ws = NULL;
     return 0;
 }
@@ -836,11 +872,19 @@ static int websocket_close(lua_State *L) {
 static int websocket_send(lua_State *L) {
     lastCFunction = __func__;
     std::string str = checkstring(L, 1);
-    if (config.http_max_websocket_message > 0 && str.size() > (unsigned)config.http_max_websocket_message) luaL_error(L, "Message is too large");
     ws_handle * ws = *(ws_handle**)lua_touserdata(L, lua_upvalueindex(1));
-    if (ws == NULL) return luaL_error(L, "attempt to use a closed file");
+    // CC checks the socket is open before the size; 1.121.0 calls it "a closed websocket"
+    const char * closedError = lua_isstring(L, lua_upvalueindex(2)) && ccAtLeast(get_comp(L), 1, 121, 0) ? "attempt to use a closed websocket" : "attempt to use a closed file";
+    if (ws == NULL) return luaL_error(L, closedError);
+    bool open;
+    {
+        std::lock_guard<std::mutex> lock(ws->lock);
+        open = ws->ws != NULL && !ws->closing;
+    }
+    if (!open) return luaL_error(L, closedError);  // not while holding the lock: a Lua error jumps past its unlock
+    if (config.http_max_websocket_message > 0 && str.size() > (unsigned)config.http_max_websocket_message) luaL_error(L, "Message is too large");
     std::lock_guard<std::mutex> lock(ws->lock);
-    if (ws->ws == NULL) return luaL_error(L, "attempt to use a closed file");
+    if (ws->ws == NULL) return 0;
     ws->ws->sendFrame(str.c_str(), str.size(), (int)WebSocket::FRAME_FLAG_FIN | (int)(lua_toboolean(L, 2) ? WebSocket::FRAME_BINARY : WebSocket::FRAME_TEXT));
     return 0;
 }
@@ -848,8 +892,42 @@ static int websocket_send(lua_State *L) {
 static int websocket_receive(lua_State *L) {
     lastCFunction = __func__;
     ws_handle * ws = *(ws_handle**)lua_touserdata(L, lua_upvalueindex(1));
+    // craftos-agent: CC:Tweaked 1.121.0 client sockets (the url is upvalue 2) answer a close with nil and the reason
+    // ("Connection closed" when there is none) and a timeout with nil, "Timed out" (WebsocketHandle.ReceiveCallback)
+    const bool newer = lua_isstring(L, lua_upvalueindex(2)) && ccAtLeast(get_comp(L), 1, 121, 0);
     int tm = 0;
     if (lua_getctx(L, &tm) == LUA_YIELD) {
+        if (newer && lua_isstring(L, 1)) {
+            // the socket's thread may be gone already: match on the url kept in the closure
+            const std::string ev = lua_tostring(L, 1);
+            const char * myUrl = lua_tostring(L, lua_upvalueindex(2));
+            const bool closedNow = ws == NULL || ws->ws == NULL;
+            if (ev == "websocket_closed" && closedNow && lua_isstring(L, 2) && strcmp(lua_tostring(L, 2), myUrl) == 0) {
+                if (tm > 0) {
+                    lua_pushcfunction(L, os_cancelTimer);
+                    lua_pushinteger(L, tm);
+                    lua_call(L, 1, 0);
+                }
+                lua_pushnil(L);
+                if (lua_isstring(L, 3)) lua_pushvalue(L, 3);
+                else lua_pushliteral(L, "Connection closed");
+                return 2;
+            } else if (tm > 0 && ev == "timer" && lua_isnumber(L, 2) && lua_tointeger(L, 2) == tm) {
+                lua_pushnil(L);
+                lua_pushliteral(L, "Timed out");
+                return 2;
+            } else if (ws == NULL && ev == "terminate") {
+                if (tm > 0) {
+                    lua_pushcfunction(L, os_cancelTimer);
+                    lua_pushinteger(L, tm);
+                    lua_call(L, 1, 0);
+                }
+                return luaL_error(L, "Terminated");
+            } else if (ws == NULL) {
+                lua_settop(L, 0);
+                return lua_yieldk(L, 0, tm, websocket_receive);
+            }
+        }
         if (lua_isstring(L, 1)) {
             // haha, another string scoping issue :DDD
             // can M$ PLEASE fix this? (maybe I need to repro & report? :thinking:)
@@ -908,7 +986,7 @@ static int websocket_receive(lua_State *L) {
             delete url;
         }
     } else {
-        if (ws == NULL || ws->ws == NULL) luaL_error(L, "attempt to use a closed file");
+        if (ws == NULL || ws->ws == NULL) luaL_error(L, newer ? "attempt to use a closed websocket" : "attempt to use a closed file");
         // instead of using native timer routines, we're using os.startTimer so we can be resumed
         if (!lua_isnoneornil(L, 1)) {
             luaL_checknumber(L, 1);
@@ -921,6 +999,19 @@ static int websocket_receive(lua_State *L) {
     }
     lua_settop(L, 0);
     return lua_yieldk(L, 0, tm, websocket_receive);
+}
+
+static int websocket_getResponseHeaders(lua_State *L) {
+    lastCFunction = __func__;
+    // CC converts its Java map into a new table on every call
+    lua_newtable(L);
+    lua_pushnil(L);
+    while (lua_next(L, lua_upvalueindex(1))) {
+        lua_pushvalue(L, -2);
+        lua_insert(L, -2);
+        lua_settable(L, -4);
+    }
+    return 1;
 }
 
 static luaL_Reg websocket_funcs[] = {
@@ -943,7 +1034,27 @@ static std::string websocket_success(lua_State *L, void* userp) {
     lua_pushcfunction(L, websocket_free);
     lua_settable(L, -3);
     lua_setmetatable(L, -2);
-    luaL_setfuncs(L, websocket_funcs, 1);
+    pushstring(L, (*wsh)->url);  // upvalue 2: the url, so receive still knows its close event once the thread is gone
+    luaL_setfuncs(L, websocket_funcs, 2);
+    if (ccAtLeast(get_comp(L), 1, 117, 0)) {
+        // getResponseHeaders (1.117): the handshake's headers, repeated ones joined with ","
+        lua_pushstring(L, "getResponseHeaders");
+        lua_createtable(L, 0, (int)(*wsh)->responseHeaders.size());
+        for (const auto& h : (*wsh)->responseHeaders) {
+            lua_getfield(L, -1, h.first.c_str());
+            if (lua_isstring(L, -1)) {
+                std::string joined = tostring(L, -1) + "," + h.second;
+                lua_pop(L, 1);
+                pushstring(L, joined);
+            } else {
+                lua_pop(L, 1);
+                pushstring(L, h.second);
+            }
+            lua_setfield(L, -2, h.first.c_str());
+        }
+        lua_pushcclosure(L, websocket_getResponseHeaders, 1);
+        lua_settable(L, -3);
+    }
     return "websocket_success";
 }
 
@@ -1163,7 +1274,8 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
     } else {
         websocket_failure_data * data = new websocket_failure_data;
         data->url = str;
-        data->reason = "Invalid scheme '" + uri.getScheme() + "'";
+        // CC:Tweaked 1.101.3 says "Invalid scheme"; 1.121.0 says "Invalid protocol", as http.request does
+        data->reason = (ccAtLeast(comp, 1, 109, 0) ? "Invalid protocol '" : "Invalid scheme '") + uri.getScheme() + "'";
         queueEvent(comp, websocket_failure, data);
         return;
     }
@@ -1176,7 +1288,7 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
     if (!config.http_proxy_server.empty()) cs->setProxy(config.http_proxy_server, config.http_proxy_port);
     HTTPRequest request(HTTPRequest::HTTP_GET, path, HTTPMessage::HTTP_1_1);
     for (std::pair<std::string, std::string> h : headers) request.set(h.first, h.second);
-    if (!request.has("User-Agent")) request.add("User-Agent", "computercraft/" CRAFTOSPC_CC_VERSION " CraftOS-PC/" CRAFTOSPC_VERSION);
+    if (!request.has("User-Agent")) request.add("User-Agent", "computercraft/" + ccVersionString + " CraftOS-PC/" CRAFTOSPC_VERSION);
     if (!request.has("Accept-Charset")) request.add("Accept-Charset", "UTF-8");
     HTTPResponse response;
     WebSocket* ws;
@@ -1205,11 +1317,29 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
     wsh->isServer = false;
     wsh->url = str;
     wsh->ws = ws;
+    wsh->newer = ccAtLeast(comp, 1, 121, 0);
+    for (const auto& h : response) wsh->responseHeaders.push_back(h);
     {
         std::lock_guard<std::mutex> lock(comp->openWebsocketsMutex);
         comp->openWebsockets.push_back(&wsh);
     }
     queueEvent(comp, websocket_success, &wsh);
+    // craftos-agent: closing the socket the way CC does. websocket_closed is (url, reason, code), each nil when
+    // missing (code 0 here). 1.101.3: a local close() queues nothing; a dropped connection says "Websocket is
+    // inactive", an error its message. 1.121.0: close() sends a close frame and the server's answer queues the event
+    // (1006 after 5 seconds without one); a drop says "Connection closed", a too-large message "Received a
+    // too-large message".
+    auto closed = [&](const std::string& reason, uint16_t code) {
+        {
+            std::lock_guard<std::mutex> lock(wsh->lock);
+            wsh->ws = NULL;
+        }
+        websocket_closed_data * d = new websocket_closed_data;
+        d->url = str;
+        d->reason = reason;
+        d->code = code;
+        queueEvent(comp, websocket_closed, d);
+    };
     char * buf = new char[config.http_max_websocket_message];
     while (wsh->ws) {
         int flags = 0;
@@ -1217,41 +1347,29 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
         try {
             res = ws->receiveFrame(buf, config.http_max_websocket_message, flags);
             if (res < 0 || (res == 0 && flags == 0)) {
-                wsh->ws = NULL;
-                websocket_closed_data * d = new websocket_closed_data;
-                d->url = str;
-                d->code = 0;
-                queueEvent(comp, websocket_closed, d);
+                closed(wsh->newer ? "Connection closed" : "Websocket is inactive", 0);
                 break;
             }
         } catch (Poco::TimeoutException &e) {
-            if (!wsh->ws) {
-                websocket_closed_data * d = new websocket_closed_data;
-                d->url = str;
-                d->code = 1006;
-                d->reason = "Timed out";
-                queueEvent(comp, websocket_closed, d);
+            if (wsh->newer && wsh->closing && std::chrono::steady_clock::now() - wsh->closeSent >= std::chrono::seconds(5)) {
+                closed("", 1006);  // Websocket.close's force-close: the server never answered
                 break;
             }
+            if (!wsh->ws) break;  // closed here (1.101.3) or the computer stopped: CC queues nothing
             continue;
+        } catch (WebSocketException &e) {
+            if (wsh->newer) closed(e.code() == WebSocket::WS_ERR_PAYLOAD_TOO_BIG ? "Received a too-large message" : "Corrupted websocket message", 0);
+            else closed(e.message(), 0);
+            break;
         } catch (NetException &e) {
-            wsh->ws = NULL;
-            websocket_closed_data * d = new websocket_closed_data;
-            d->url = str;
-            d->code = 1006;
-            d->reason = e.message();
-            queueEvent(comp, websocket_closed, d);
+            if (wsh->newer) closed(dynamic_cast<ConnectionResetException*>(&e) != NULL ? "Connection closed" : "Could not connect", 0);
+            else closed(e.message(), 0);
             break;
         }
         if ((flags & 0x0f) == WebSocket::FRAME_OP_CLOSE) {
-            wsh->ws = NULL;
-            websocket_closed_data * d = new websocket_closed_data;
-            d->url = str;
-            if (res >= 2) {
-                d->code = (((uint8_t*)buf)[0] << 8) | ((uint8_t*)buf)[1];
-                d->reason = std::string(buf + 2, res - 2);
-            } else d->code = 0;
-            queueEvent(comp, websocket_closed, d);
+            // the server's close frame: its status code (none without a payload) and reason
+            if (res >= 2) closed(std::string(buf + 2, res - 2), (((uint8_t*)buf)[0] << 8) | ((uint8_t*)buf)[1]);
+            else closed("", 0);
             break;
         } else if ((flags & 0x0f) == WebSocket::FRAME_OP_PING) {
             ws->sendFrame(buf, res, WebSocket::FRAME_FLAG_FIN | WebSocket::FRAME_OP_PONG);
@@ -1270,7 +1388,7 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
         auto it = std::find(comp->openWebsockets.begin(), comp->openWebsockets.end(), (void*)&wsh);
         if (it != comp->openWebsockets.end()) comp->openWebsockets.erase(it);
     }
-    try {ws->shutdown();} catch (...) {}
+    if (!wsh->closing) try {ws->shutdown();} catch (...) {}  // a closing socket has sent its close frame already
     std::lock_guard<std::mutex> lock(wsh->lock);
     wsh->ws = NULL;
     if (wsh->ud != NULL) *wsh->ud = NULL;

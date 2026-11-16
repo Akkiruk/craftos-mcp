@@ -15,12 +15,17 @@ local ccsimShown = {}
 -- a Java function's error has; the wrapper raises plain messages, and engine errors through call() lose theirs.
 local toNative = os.__ccsimNative
 local function native(fn) return toNative and toNative(fn) or fn end
+local getinfo = debug.getinfo
 local function call(fn, ...)
-    local r = table.pack(pcall(fn, ...))
+    local r, here = table.pack(pcall(fn, ...)) if not r[1] then here = getinfo(1, "Sl") end -- one line: the pcall's
     if r[1] then return table.unpack(r, 2, r.n) end
     local err = r[2]
-    -- positioned at its caller, the pcall here
-    if type(err) == "string" and err:sub(1, 7) == "pcall: " then err = err:sub(8) end
+    -- positioned at its caller, the pcall here: "pcall: " on CC 1.101.3, this line (the nearest Lua caller) on 1.109+
+    if type(err) == "string" and here then
+        local at = here.short_src .. ":" .. here.currentline .. ": "
+        if err:sub(1, 7) == "pcall: " then err = err:sub(8)
+        elseif err:sub(1, #at) == at then err = err:sub(#at + 1) end
+    end
     error(err, 0)
 end
 
@@ -109,7 +114,9 @@ local function hideEmulator()
         "_CCPC_FIRST_RUN", "_CCPC_STARTUP_SCRIPT", "_CCPC_STARTUP_ARGS", "_CCPC_PLUGIN_ERRORS", "" }) do
         _G[name] = nil
     end
-    table.move, table.setn, coroutine.isyieldable, os.about, os.__ccsimNative = nil, nil, nil, nil, nil
+    table.setn, os.about, os.__ccsimNative = nil, nil, nil
+    -- CC:Tweaked 1.101.3's Cobalt 0.6 has neither; 1.109+ (Cobalt 0.8, Lua 5.2 and up) has both
+    if _VERSION == "Lua 5.1" then table.move, coroutine.isyieldable = nil, nil end
     peripheral.__ccsimNamed = nil
     for _, name in ipairs({ "getuservalue", "setuservalue", "setbreakpoint", "unsetbreakpoint" }) do debug[name] = nil end
     -- Measured on the server, in a zone 5 hours from UTC: os.epoch("local") is the same number as "utc"
