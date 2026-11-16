@@ -68,7 +68,7 @@ jobs:
         run: '"$CRAFTOS_VCPKG/bootstrap-vcpkg.sh" -disableMetrics'
 
       - name: vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.VCPKG_CACHE }}
           key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('engine/vcpkg.json') }}
