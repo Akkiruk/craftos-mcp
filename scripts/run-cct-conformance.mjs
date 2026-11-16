@@ -53,7 +53,9 @@ appendFileSync(
   "\n_G.failed_tests = actual_count - test_status.pass\n",
 );
 
+// The specs see what a program sees: the plain CC:Tweaked surface, no emulator extras (scripts/rom-patches).
 const boot = `
+if emulator then emulator.hide() end
 package.path = "/test-rom/?.lua;/test-rom/spec/?.lua;" .. package.path
 local log = assert(io.open("/results/test-log.txt", "w"))
 io.output(log)
@@ -63,7 +65,11 @@ os.shutdown(_G.failed_tests or 255)
 `;
 
 const config = { ...loadConfig(), workspaceDir: workspace };
-const handle = startEngine(config, boot, "cct");
+// CC's harness gives the test computer a 10 MB disk (ComputerTestDelegate); fs_spec checks fs.getCapacity against it
+const handle = startEngine(config, boot, {
+  label: "cct",
+  computerSpaceLimit: 10_000_000,
+});
 const started = Date.now();
 const exit = await handle.session
   .waitForExit(Number(timeoutSec) * 1000)

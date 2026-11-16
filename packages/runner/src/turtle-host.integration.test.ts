@@ -3,7 +3,13 @@
 // Expected values come from the CC:Tweaked 1.101.3 source (docs/turtle/cct-1.101.3-turtle-rules.md and the classes
 // named in each case).
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -113,6 +119,12 @@ describe.skipIf(!ready)(
   { concurrent: true, timeout: 180000 },
   () => {
     it("hashes NBT as NBTUtil does: MD5 of the tag written big-endian, keys sorted", async () => {
+      // Programs do not see rom/ccsim, as a real ROM has none: the module under test and its one dependency are copied in
+      for (const file of ["turtle/nbt.lua", "mek/java.lua"]) {
+        const to = join(scratch, "ccsim", file);
+        mkdirSync(join(to, ".."), { recursive: true });
+        copyFileSync(join(base.romDir, "rom", "ccsim", file), to);
+      }
       const damage0 = md5(nbtCompound([["Damage", 0]]));
       const damage5 = md5(nbtCompound([["Damage", 5]]));
       const named = md5(
@@ -124,8 +136,13 @@ describe.skipIf(!ready)(
       );
       const r = await runLua(
         `
+local function simModule(path)
+  local env = setmetatable({}, { __index = _G })
+  function env.dofile(p) return assert(loadfile((p:gsub("^/rom/ccsim/", "/ccsim/")), nil, env))() end
+  return env.dofile(path)
+end
 ccunit.test("md5", function()
-  local N = dofile("/rom/ccsim/turtle/nbt.lua")()
+  local N = simModule("/rom/ccsim/turtle/nbt.lua")()
   ccunit.eq(N.md5(""), "d41d8cd98f00b204e9800998ecf8427e")
   ccunit.eq(N.md5("abc"), "900150983cd24fb0d6963f7d28e17f72")
   ccunit.eq(N.md5(("a"):rep(100)), "${md5(Buffer.from("a".repeat(100)))}")
@@ -140,7 +157,7 @@ ccunit.test("a full tag, as a table or as SNBT", function()
   ccunit.eq(turtle.getItemDetail(4, true).nbt, "${named}")
 end)
 ccunit.test("floats, longs, lists and nesting go through", function()
-  local N = dofile("/rom/ccsim/turtle/nbt.lua")()
+  local N = simModule("/rom/ccsim/turtle/nbt.lua")()
   -- {a:1.5f}: 0a 0000 05 0001 61 3fc00000 00
   ccunit.eq(N.encode("{a:1.5f}"), "\\10\\0\\0\\5\\0\\1a\\63\\192\\0\\0\\0")
   -- {l:[I;1]}: an int array

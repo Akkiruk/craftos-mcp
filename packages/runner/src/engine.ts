@@ -46,7 +46,7 @@ export interface EngineHandle {
 
 /** Directory names never copied into the computer. */
 const SKIP = new Set([".git", "node_modules", "__snapshots__"]);
-// computer_space_limit on the real server, which raised it from the 1 MB default
+// computer_space_limit on the real server, which raised it from CC:Tweaked's 1 MB default (StartOptions)
 const COMPUTER_SPACE_LIMIT = 25_000_000;
 /** Cobalt (CC:Tweaked's Lua VM) against native Lua: a 2,000,000-step loop takes about 90 ms real, 12 ms native. */
 export const COBALT_SLOWDOWN = 8;
@@ -86,6 +86,12 @@ export interface StartOptions {
   readonly shared?: { diskDir: string; computerDir?: string; fresh?: boolean };
   /** A linked network's one economy (balances, ledger, refusals), which the computer finds at /results/economy. */
   readonly economyDir?: string;
+  /**
+   * The computer's disk size in bytes. Default 25 MB, the real server's computer_space_limit. CC:Tweaked's own default
+   * is 1 MB (ComputerCraft.computerSpaceLimit); its test suite runs on a 10 MB disk (ComputerTestDelegate), which the
+   * conformance run (scripts/run-cct-conformance.mjs) asks for here.
+   */
+  readonly computerSpaceLimit?: number;
 }
 
 /** A directory link that needs no rights on Windows (a junction). */
@@ -101,7 +107,14 @@ export function startEngine(
   bootLua: string,
   options: StartOptions = {},
 ): EngineHandle {
-  const { label = "run", timeScale = 1, world, shared, economyDir } = options;
+  const {
+    label = "run",
+    timeScale = 1,
+    world,
+    shared,
+    economyDir,
+    computerSpaceLimit = COMPUTER_SPACE_LIMIT,
+  } = options;
   const dir = mkdtempSync(join(config.runtimeDir, `${label}-`));
   const resultsDir = join(dir, "results");
   const computerId = world?.computerId ?? 0;
@@ -139,7 +152,7 @@ export function startEngine(
   writeFileSync(
     join(dir, "config", "global.json"),
     JSON.stringify({
-      computerSpaceLimit: COMPUTER_SPACE_LIMIT,
+      computerSpaceLimit,
       ...(size && { defaultWidth: size.width, defaultHeight: size.height }),
     }),
   );

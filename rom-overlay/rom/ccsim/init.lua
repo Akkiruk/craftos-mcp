@@ -1,5 +1,7 @@
 -- ccsim: the simulated world around a computer (peripherals from other mods, modems, turtles).
 -- Loaded from rom/startup.lua when /results/world.json exists (the runner always writes it).
+-- Programs do not see rom/ccsim; every module loads through the simulation's own fs (rom/ccsim/env.lua).
+local dofile = dofile("/rom/ccsim/env.lua").dofile
 local core = dofile("/rom/ccsim/core.lua")
 core.load()
 core.restore()

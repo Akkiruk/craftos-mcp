@@ -154,11 +154,16 @@ end)
 
 ccunit.test("cooldown", function()
   local c = peripheral.wrap("cb")
+  local sent = os.epoch("utc")
   ccunit.eq(c.sendMessage("hello"), true)
   local r, e = c.sendMessage("again")
-  ccunit.eq(r, nil)
-  ccunit.eq(e, "chatMessage is on cooldown")
-  -- (two calls are two server ticks: AP's 100 ms cooldown is already over by the next read)
+  -- AP's shipped cooldown is 100 ms, about two ticks: on a busy host the second call can come after it ends
+  if os.epoch("utc") - sent < 100 then
+    ccunit.eq(r, nil)
+    ccunit.eq(e, "chatMessage is on cooldown")
+  else -- it ran inside the cooldown or after it, either is right
+    ccunit.truthy(r == true or e == "chatMessage is on cooldown", tostring(e))
+  end
   ccunit.eq(select(2, c.getOperationCooldown("nope")), "Cannot find this operation")
   sleep(1.1)
   ccunit.eq(c.getOperationCooldown("chatMessage"), 0)

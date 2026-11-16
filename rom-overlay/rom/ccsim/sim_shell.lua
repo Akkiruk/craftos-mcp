@@ -1,6 +1,7 @@
 -- The emulator's `sim` program (rom/ccsim/sim.lua) in the shell: the `sim` alias and its tab completion. Not part of
 -- CC:Tweaked, so only for a computer a person drives (`craftos-mcp window` / `app` set world.simProgram); every other
 -- computer has no `sim`, as on a real server. Run from the ROM's startup.lua (scripts/rom-patches/startup-emulator.lua).
+local show = ... -- programs do not see rom/ccsim; this keeps the one program the shell runs from it
 if not shell or not fs.exists("/results/world.json") then return end
 do
   local h = fs.open("/results/world.json", "r")
@@ -8,6 +9,7 @@ do
   if h then h.close() end
   if type(world) ~= "table" or world.simProgram ~= true then return end
 end
+if show then show("rom/ccsim/sim.lua") end
 shell.setAlias("sim", "/rom/ccsim/sim.lua")
 
 local verbs = { "join ", "leave ", "chat ", "advance ", "item ", "state", "help" }

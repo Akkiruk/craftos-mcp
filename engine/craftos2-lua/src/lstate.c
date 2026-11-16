@@ -93,7 +93,17 @@ void _lua_freelock(void *);
   { size_t t = cast(size_t, e); \
     memcpy(buff + p, &t, sizeof(t)); p += sizeof(t); }
 
+/*
+** craftos-agent: CC's Cobalt hashes without a random seed, so a table's key order is the same on every run (CC's own
+** textutils.serialise specs depend on it). A random seed here made `pairs` order change from run to run. With seed 0
+** a two-key table like { a = 1, b = {} } also iterates in Cobalt's order. Hash flooding is no concern in a sandbox.
+*/
+#define CCSIM_FIXED_SEED 1
 static unsigned int makeseed (lua_State *L) {
+#if CCSIM_FIXED_SEED
+  (void)L;
+  return 0;
+#else
   char buff[4 * sizeof(size_t)];
   unsigned int h = luai_makeseed();
   int p = 0;
@@ -103,6 +113,7 @@ static unsigned int makeseed (lua_State *L) {
   addbuff(buff, p, &lua_newstate);  /* public function */
   lua_assert(p == sizeof(buff));
   return luaS_hash(buff, p, h);
+#endif
 }
 
 

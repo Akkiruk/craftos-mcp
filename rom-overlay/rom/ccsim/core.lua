@@ -751,8 +751,7 @@ function M.installEventHook()
   -- forward and fires the timers that fall due, so sleeps and timeouts pass without waiting.
   local rawAdvance = os.__ccsimAdvance
   os.__ccsimAdvance = nil
-  M.native = os.__ccsimNative
-  os.__ccsimNative = nil
+  M.native = os.__ccsimNative -- emulator.hide() removes it (scripts/rom-patches/startup-emulator.lua wraps fs with it)
   function handlers.advance(cmd)
     local seconds = tonumber(cmd.seconds)
     if not rawAdvance or not seconds or seconds <= 0 then return false, "advance needs seconds > 0" end

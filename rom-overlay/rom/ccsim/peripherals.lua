@@ -1259,7 +1259,10 @@ return function(core)
     return wrapped
   end
 
+  local expect = dofile("/rom/modules/main/cc/expect.lua").expect
   function api.find(ty, filter)
+    expect(1, ty, "string")
+    expect(2, filter, "function", "nil")
     local results = {}
     for _, name in ipairs(api.getNames()) do
       if api.hasType(name, ty) then
