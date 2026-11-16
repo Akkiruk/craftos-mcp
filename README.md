@@ -4,27 +4,43 @@
 > 1.20.1 turtle data, but the mods' peripherals still behave like their 1.18.2 versions for now. 1.21.1 is next. See
 > [Choose your Minecraft version](#choose-your-minecraft-version).
 
-A CC:Tweaked emulator built for testing, with the world around the computer: other computers on modems, turtles in a
-block world, and peripherals from Create, Mekanism, Advanced Peripherals and more. Write a ComputerCraft program, run
-it, touch its monitors, check its screens and lock the behaviour in with tests, all without starting Minecraft.
+**Let your coding agent test the ComputerCraft code it writes.** AI agents write CC:Tweaked Lua they have never run,
+and the bugs turn up on your server. craftos-mcp is a CC:Tweaked emulator the agent drives itself over
+[MCP](https://modelcontextprotocol.io): it runs the program, reads the terminal and every monitor, taps buttons,
+changes the world around the computer (a player walks up, a chest fills, a train arrives, a reactor heats up, an hour
+passes), writes and runs tests, and fixes what broke until it works. All without Minecraft.
 
-Use it the way you like:
+```json
+{
+  "mcpServers": {
+    "craftos": { "command": "npx", "args": ["-y", "craftos-mcp", "serve"] }
+  }
+}
+```
+
+That one entry works in Claude Code, Cursor, VS Code and any other MCP client; the first start downloads the engine
+and builds the ROM by itself. The world it simulates is what CC programs depend on: several computers on modems with
+real rednet, turtles in a block world, and peripherals from Create, Mekanism, Advanced Peripherals and more.
+
+No agent? The same emulator works for people too:
 
 - **In a window**, like CraftOS-PC: `craftos-mcp window` ([Without an AI agent](#without-an-ai-agent)).
 - **In your browser**: `craftos-mcp app` opens computers, monitors and the world side by side.
 - **From the command line and CI**: `craftos-mcp test tests/` runs your `*.test.lua` files.
-- **With an AI agent**: it speaks [MCP](https://modelcontextprotocol.io), so Claude Code, VS Code, Cursor and others
-  can write, run and test your programs for you.
 
 The engine passes 1190 of 1191 of CC:Tweaked's own tests at 1.101.3 (and 1362 of 1363 at 1.121.0), and the ROM is
 built from the real CC:Tweaked jar. [How exact is it](docs/accuracy.md) says, area by area, what was measured in game
 and what was written from source.
 
-![The board game arcade on a touch monitor wall: the menu, then a game of Reversi against the computer, each tap marked with a ring](docs/media/showcase/board-arcade.gif)
+![A real Claude Code session: it writes a door controller, runs it in craftos-mcp, sees the monitor, finds that a player exactly at the range edge does not open the door, fixes it, and gets its tests passing](docs/media/showcase/agent-demo.gif)
 
-**[Play these in your browser](https://rogiedoji.com/craftos)**, no install, or watch the
-[highlight reel](docs/media/showcase/sizzle.mp4) (47 s, ten games). Everything in it is plain CC:Tweaked Lua from
-[the examples](#games), running in this emulator.
+_A real Claude Code session, unscripted: asked for a door controller with tests, it ran its program in the emulator,
+caught a monitor that never stopped redrawing and a player at the range edge who could not get in, fixed both, and
+finished with its tests passing. The [full transcript](docs/media/showcase/agent-demo-transcript.md) is next to the
+[video](docs/media/showcase/agent-demo.mp4)._
+
+Some games built and tested with it are **[playable in your browser](https://rogiedoji.com/craftos)**, no install,
+and there's a [highlight reel](docs/media/showcase/sizzle.mp4) of them.
 
 ## What it does
 
