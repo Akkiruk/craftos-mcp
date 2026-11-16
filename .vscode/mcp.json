@@ -1,0 +1,16 @@
+{
+  "servers": {
+    "craftos-agent": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--enable-source-maps",
+        "${workspaceFolder}/apps/mcp-server/dist/index.js"
+      ],
+      "env": {
+        "CRAFTOS_WORKSPACE": "${workspaceFolder}/workspace",
+        "CRAFTOS_ADDONS": "advanced-peripherals,mekanism,mekanism-generators,create,create-additions,toms-peripherals,bigger-reactors,extreme-reactors"
+      }
+    }
+  }
+}

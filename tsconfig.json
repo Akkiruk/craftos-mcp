@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/protocol"
+    },
+    {
+      "path": "./packages/rawterm"
+    },
+    {
+      "path": "./packages/runner"
+    },
+    {
+      "path": "./apps/mcp-server"
+    }
+  ]
+}

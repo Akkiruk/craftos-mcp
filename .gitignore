@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+.env
+.craftos/
+.runtime/
+*.log
+
+
+# Generated ROM built from the modpack jar (not redistributed)
+/rom/
+*.tsbuildinfo
+
+# Publishable vanilla + Forge + CC:Tweaked data (tools/turtledata/extract.py --vanilla)
+/.public-data/
+
+# Downloaded CC:Tweaked jar (scripts/build-rom.mjs --download)
+/.cache/
+__pycache__/
+# The public copy builds Tom's Peripherals' fonts on each machine (scripts/build-toms-fonts.mjs)
+/rom-overlay/rom/ccsim/addons/toms-peripherals/fonts.lua

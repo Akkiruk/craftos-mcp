@@ -1,0 +1,167 @@
+{
+  "peripherals": [
+    {
+      "name": "fissionReactorLogicAdapter_0",
+      "type": "fissionReactorLogicAdapter",
+      "multiblock": "reactor",
+      "logicMode": "TEMPERATURE"
+    },
+    {
+      "name": "fissionReactorPort_0",
+      "type": "fissionReactorPort",
+      "multiblock": "reactor",
+      "mode": "OUTPUT_COOLANT"
+    },
+    {
+      "name": "turbineValve_0",
+      "type": "turbineValve",
+      "multiblock": "turbine"
+    },
+    {
+      "name": "boilerValve_0",
+      "type": "boilerValve",
+      "multiblock": "boiler",
+      "mode": "OUTPUT_STEAM"
+    },
+    {
+      "name": "inductionPort_0",
+      "type": "inductionPort",
+      "multiblock": "matrix",
+      "mode": "output"
+    },
+    {
+      "name": "inductionPort_1",
+      "type": "inductionPort",
+      "multiblock": "matrix"
+    },
+    {
+      "name": "fusionReactorLogicAdapter_0",
+      "type": "fusionReactorLogicAdapter",
+      "multiblock": "fusion",
+      "logicMode": "READY"
+    },
+    {
+      "name": "fusionReactorPort_0",
+      "type": "fusionReactorPort",
+      "multiblock": "fusion",
+      "mode": "output"
+    },
+    {
+      "name": "eliteEnergyCube_0",
+      "type": "eliteEnergyCube",
+      "energy": 20000000,
+      "energyInput": 2000,
+      "energyOutput": 1500
+    },
+    {
+      "name": "ultimateFluidTank_0",
+      "type": "ultimateFluidTank",
+      "fluid": 120000,
+      "fluidInput": 100
+    },
+    {
+      "name": "basicChemicalTank_0",
+      "type": "basicChemicalTank",
+      "chemical": { "name": "mekanism:oxygen", "amount": 30000 }
+    },
+    {
+      "name": "enrichmentChamber_0",
+      "type": "enrichmentChamber",
+      "upgrades": { "speed": 2, "energy": 1 },
+      "energyInput": 1000,
+      "input": { "name": "minecraft:iron_ore", "count": 64 },
+      "recipeOutput": "mekanism:enriched_iron"
+    },
+    {
+      "name": "electrolyticSeparator_0",
+      "type": "electrolyticSeparator",
+      "water": 24000,
+      "waterInput": 4,
+      "energyInput": 800,
+      "leftOutput": 4,
+      "rightOutput": 2
+    },
+    {
+      "name": "solarGenerator_0",
+      "type": "solarGenerator",
+      "energyOutput": 50
+    },
+    { "name": "advancedSolarGenerator_0", "type": "advancedSolarGenerator" },
+    { "name": "windGenerator_0", "type": "windGenerator", "y": 120 },
+    {
+      "name": "heatGenerator_0",
+      "type": "heatGenerator",
+      "lava": 24000,
+      "lavaSides": 2
+    },
+    { "name": "bioGenerator_0", "type": "bioGenerator", "bioFuel": 8000 },
+    {
+      "name": "gasBurningGenerator_0",
+      "type": "gasBurningGenerator",
+      "fuel": { "name": "mekanism:ethene", "amount": 9000 }
+    }
+  ],
+  "mekanism": {
+    "seed": 7,
+    "dayTime": 1000,
+    "multiblocks": {
+      "reactor": {
+        "kind": "fission",
+        "length": 7,
+        "width": 7,
+        "height": 7,
+        "fuelAssemblies": 18,
+        "surfaceArea": 90,
+        "fuel": 100000,
+        "coolant": 4000000,
+        "burnRate": 2,
+        "active": false,
+        "fuelInput": 1,
+        "coolantInput": 40000,
+        "heatedCoolantTo": "turbine"
+      },
+      "boiler": {
+        "kind": "boiler",
+        "superheaters": 2,
+        "water": 200000,
+        "waterInput": 2000,
+        "heatInput": 400000,
+        "temperature": 380,
+        "steamTo": "turbine"
+      },
+      "turbine": {
+        "kind": "turbine",
+        "length": 9,
+        "width": 9,
+        "height": 17,
+        "blades": 28,
+        "coils": 7,
+        "vents": 60,
+        "condensers": 4,
+        "energyTo": "matrix"
+      },
+      "matrix": {
+        "kind": "matrix",
+        "length": 9,
+        "width": 9,
+        "height": 9,
+        "cells": { "elite": 8 },
+        "providers": { "ultimate": 2 },
+        "energy": 500000000000,
+        "output": 1000000
+      },
+      "fusion": {
+        "kind": "fusion",
+        "injectionRate": 4,
+        "deuterium": 1000,
+        "tritium": 1000,
+        "water": 2000000,
+        "hohlraum": true,
+        "deuteriumInput": 4,
+        "tritiumInput": 4,
+        "waterInput": 100000,
+        "energyTo": "matrix"
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "BiggerReactors_Reactor": [
+    "fuelTank",
+    "active",
+    "battery",
+    "ambientTemperature",
+    "connected",
+    "setAllControlRodLevels",
+    "stackTemperature",
+    "apiVersion",
+    "setActive",
+    "coolantTank",
+    "casingTemperature",
+    "fuelTemperature",
+    "controlRodCount",
+    "getControlRod"
+  ],
+  "BiggerReactors_Turbine": [
+    "connected",
+    "rotor",
+    "coilEngaged",
+    "apiVersion",
+    "setActive",
+    "setCoilEngaged",
+    "fluidTank",
+    "active",
+    "battery"
+  ]
+}

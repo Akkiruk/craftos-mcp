@@ -1,0 +1,90 @@
+{
+  "Create_DisplayLink": [
+    "setCursorPos",
+    "getCursorPos",
+    "getSize",
+    "isColor",
+    "isColour",
+    "write",
+    "clearLine",
+    "clear",
+    "update"
+  ],
+  "Create_SequencedGearshift": ["rotate", "move", "isRunning"],
+  "Create_RotationSpeedController": ["setTargetSpeed", "getTargetSpeed"],
+  "Create_Speedometer": ["getSpeed"],
+  "Create_Stressometer": ["getStress", "getStressCapacity"],
+  "Create_Station": [
+    "assemble",
+    "disassemble",
+    "setAssemblyMode",
+    "isInAssemblyMode",
+    "getStationName",
+    "setStationName",
+    "isTrainPresent",
+    "isTrainImminent",
+    "isTrainEnroute",
+    "getTrainName",
+    "setTrainName",
+    "hasSchedule",
+    "getSchedule",
+    "setSchedule"
+  ],
+  "electric_motor": [
+    "getType",
+    "setSpeed",
+    "stop",
+    "getSpeed",
+    "getStressCapacity",
+    "getEnergyConsumption",
+    "rotate",
+    "translate",
+    "getMaxInsert",
+    "getMaxExtract"
+  ],
+  "modular_accumulator": [
+    "getEnergy",
+    "getCapacity",
+    "getPercent",
+    "getMaxInsert",
+    "getMaxExtract",
+    "getHeight",
+    "getWidth"
+  ],
+  "portable_energy_interface": [
+    "getEnergy",
+    "getCapacity",
+    "isConnected",
+    "getMaxInsert",
+    "getMaxExtract"
+  ],
+  "redstone_relay": [
+    "getMaxInsert",
+    "getMaxExtract",
+    "getThroughput",
+    "isPowered"
+  ],
+  "digital_adapter": [
+    "clearLine",
+    "clear",
+    "print",
+    "getLine",
+    "setLine",
+    "getMaxLines",
+    "setTargetSpeed",
+    "getTargetSpeed",
+    "getKineticStress",
+    "getKineticCapacity",
+    "getKineticSpeed",
+    "getKineticTopSpeed",
+    "getPulleyDistance",
+    "getPistonDistance",
+    "getBearingAngle",
+    "getElevatorFloor",
+    "getElevatorFloors",
+    "getElevatorFloorName",
+    "gotoElevatorFloor",
+    "getDurationAngle",
+    "getDurationDistance"
+  ]
+}

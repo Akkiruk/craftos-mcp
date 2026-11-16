@@ -1,0 +1,150 @@
+{
+  "create": {
+    "dayTime": 1000,
+    "stations": ["Mine", "Farm"],
+    "distances": { "Central|Mine": 400, "Central|Farm": 250, "Mine|Farm": 500 },
+    "networks": {
+      "main": { "speed": 64, "capacity": 8192, "impact": 16 },
+      "press": { "source": "Create_RotationSpeedController_0", "impact": 4 },
+      "lift": { "source": "Create_SequencedGearshift_0" },
+      "electric": { "source": "electric_motor_0", "impact": 2 }
+    },
+    "trains": [
+      {
+        "name": "Ore Express",
+        "at": "Central",
+        "route": [
+          { "station": "Mine", "wait": 10 },
+          { "station": "Central", "wait": 10 }
+        ]
+      },
+      {
+        "name": "Harvest",
+        "at": "Farm",
+        "items": [{ "name": "minecraft:wheat", "count": 32 }],
+        "schedule": {
+          "cyclic": true,
+          "entries": [
+            {
+              "instruction": {
+                "id": "create:destination",
+                "data": { "text": "Farm" }
+              },
+              "conditions": [
+                [
+                  {
+                    "id": "create:item_threshold",
+                    "data": {
+                      "threshold": "64",
+                      "operator": 0,
+                      "measure": 0,
+                      "item": { "id": "minecraft:wheat", "count": 1 }
+                    }
+                  }
+                ]
+              ]
+            },
+            {
+              "instruction": {
+                "id": "create:destination",
+                "data": { "text": "Central" }
+              },
+              "conditions": [
+                [
+                  {
+                    "id": "create:delay",
+                    "data": { "value": 20, "time_unit": 1 }
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "peripherals": [
+    {
+      "name": "Create_Station_0",
+      "type": "Create_Station",
+      "station": "Central"
+    },
+    {
+      "name": "Create_DisplayLink_0",
+      "type": "Create_DisplayLink",
+      "target": { "type": "display_board", "width": 4, "height": 2 }
+    },
+    {
+      "name": "Create_DisplayLink_1",
+      "type": "Create_DisplayLink",
+      "source": "digital_adapter_0",
+      "target": "sign"
+    },
+    {
+      "name": "Create_Speedometer_0",
+      "type": "Create_Speedometer",
+      "network": "main"
+    },
+    {
+      "name": "Create_Stressometer_0",
+      "type": "Create_Stressometer",
+      "network": "main"
+    },
+    {
+      "name": "Create_RotationSpeedController_0",
+      "type": "Create_RotationSpeedController",
+      "network": "main",
+      "targetSpeed": 32
+    },
+    {
+      "name": "Create_SequencedGearshift_0",
+      "type": "Create_SequencedGearshift",
+      "network": "main"
+    },
+    {
+      "name": "electric_motor_0",
+      "type": "electric_motor",
+      "rpm": 64,
+      "energy": 5000,
+      "input": 500
+    },
+    {
+      "name": "modular_accumulator_0",
+      "type": "modular_accumulator",
+      "width": 2,
+      "height": 2,
+      "energy": 4000000,
+      "output": 500
+    },
+    {
+      "name": "portable_energy_interface_0",
+      "type": "portable_energy_interface",
+      "contraption": { "energy": 20000, "capacity": 2000000 }
+    },
+    {
+      "name": "redstone_relay_0",
+      "type": "redstone_relay",
+      "powered": true,
+      "supply": 1000,
+      "demand": 400
+    },
+    {
+      "name": "digital_adapter_0",
+      "type": "digital_adapter",
+      "sides": {
+        "up": "Create_RotationSpeedController_0",
+        "north": "Create_Speedometer_0",
+        "south": "Create_Stressometer_0",
+        "east": { "kind": "bearing", "rpm": 8 },
+        "west": {
+          "kind": "elevator_pulley",
+          "offset": 0,
+          "floors": [
+            { "y": 64, "name": "Lobby" },
+            { "y": 80, "name": "Office" }
+          ]
+        }
+      }
+    }
+  ]
+}

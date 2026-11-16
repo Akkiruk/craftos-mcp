@@ -1,0 +1,46 @@
+{
+  "extremeReactors": {
+    "gameTime": 0
+  },
+  "peripherals": [
+    {
+      "name": "BigReactors-Reactor_0",
+      "type": "BigReactors-Reactor",
+      "variant": "reinforced",
+      "cooling": "active",
+      "dimensions": [7, 8, 7],
+      "layout": ["X.X.X", ".GWG.", "XWXWX", ".GWG.", "X.X.X"],
+      "legend": { "G": "graphite", "W": "water" },
+      "controlRods": [{ "name": "corner", "level": 20 }],
+      "rodLevel": 20,
+      "fuel": 80000,
+      "coolant": 20000,
+      "coolantSupply": 2000,
+      "steamTo": "BigReactors-Turbine_0",
+      "position": [100, 60, 100]
+    },
+    {
+      "name": "BigReactors-Turbine_0",
+      "type": "BigReactors-Turbine",
+      "variant": "reinforced",
+      "dimensions": [7, 12, 7],
+      "shafts": 10,
+      "blades": 80,
+      "coils": { "minecraft:gold_block": 24 },
+      "vent": "overflow",
+      "flowRate": 2000,
+      "load": 4000,
+      "position": [110, 60, 100]
+    },
+    {
+      "name": "BigReactors-Reactor_1",
+      "type": "BigReactors-Reactor",
+      "dimensions": [5, 5, 5],
+      "fuel": 12000,
+      "active": true,
+      "load": 100,
+      "wasteOutlet": true,
+      "position": [90, 60, 100]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+engine/
+rom/
+.claude/skills/
+workspace/__snapshots__/
+packages/rawterm/assets/
+.runtime/

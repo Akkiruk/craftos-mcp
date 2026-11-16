@@ -1,0 +1,6 @@
+ccunit.test("addition", function() ccunit.eq(1 + 1, 2) end)
+ccunit.test("tables compare deeply", function() ccunit.eq({ 1, { a = 2 } }, { 1, { a = 2 } }) end)
+ccunit.test("textutils round-trips json", function()
+  ccunit.eq(textutils.unserializeJSON(textutils.serializeJSON({ x = 1 })), { x = 1 })
+end)
+ccunit.test("raises on bad argument", function() ccunit.raises(function() error("boom") end, "boom") end)

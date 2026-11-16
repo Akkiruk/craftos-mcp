@@ -1,0 +1,32 @@
+[
+  {
+    "peripheral": null,
+    "width": 51,
+    "height": 19,
+    "lines": [
+      "CraftOS 1.8",
+      "Files beginning with a \".\" are hidden from \"list\"",
+      "by default.",
+      "drawn 29x12"
+    ]
+  },
+  {
+    "peripheral": "top",
+    "width": 29,
+    "height": 12,
+    "lines": [
+      "STATUS",
+      "All good",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "29x12"
+    ]
+  }
+]

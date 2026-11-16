@@ -1,0 +1,46 @@
+{
+  "peripherals": [
+    {
+      "name": "furnace_0",
+      "type": "thermal:machine_furnace",
+      "size": 3,
+      "items": {
+        "1": { "name": "minecraft:iron_ore", "count": 24 }
+      },
+      "tanks": [
+        {
+          "name": "minecraft:lava",
+          "amount": 2000,
+          "capacity": 4000,
+          "rate": -5
+        }
+      ],
+      "energy": 12000,
+      "energyCapacity": 50000,
+      "energyRate": -20
+    },
+    {
+      "name": "boiler_0",
+      "type": "mymod:boiler",
+      "tanks": [
+        { "name": "minecraft:water", "amount": 4000, "capacity": 8000 },
+        { "name": "mymod:steam", "amount": 0, "capacity": 8000, "rate": 10 }
+      ]
+    },
+    {
+      "name": "battery_0",
+      "type": "energy_storage",
+      "energy": 20000,
+      "energyCapacity": 100000,
+      "energyRate": 40
+    },
+    {
+      "name": "tank_0",
+      "type": "fluid_storage",
+      "capacity": 16000,
+      "fluid": { "name": "minecraft:water", "amount": 8000 }
+    },
+    { "name": "tank_1", "type": "fluid_storage", "capacity": 16000 },
+    { "name": "chest_0", "type": "minecraft:chest", "size": 27 }
+  ]
+}

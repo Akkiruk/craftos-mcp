@@ -1,0 +1,84 @@
+{
+  "players": [
+    { "name": "Alice", "x": 2, "y": 64, "z": 0 },
+    { "name": "Bob", "x": 40, "y": 64, "z": 0 }
+  ],
+  "environment": { "time": 6000, "biome": "plains", "moonPhase": 0 },
+  "entities": [
+    { "type": "cow", "name": "Cow", "x": 4, "y": 64, "z": 0, "animal": true }
+  ],
+  "peripherals": [
+    {
+      "name": "playerDetector_0",
+      "type": "playerDetector",
+      "x": 0,
+      "y": 64,
+      "z": 0
+    },
+    { "name": "chatBox_0", "type": "chatBox" },
+    {
+      "name": "energyDetector_0",
+      "type": "energyDetector",
+      "transferRate": 120
+    },
+    {
+      "name": "environmentDetector_0",
+      "type": "environmentDetector",
+      "x": 0,
+      "y": 64,
+      "z": 0
+    },
+    {
+      "name": "redstoneIntegrator_0",
+      "type": "redstoneIntegrator",
+      "inputs": { "back": 5 }
+    },
+    { "name": "nbtStorage_0", "type": "nbtStorage" },
+    { "name": "arController_0", "type": "arController" },
+    {
+      "name": "meBridge_0",
+      "type": "meBridge",
+      "items": [
+        { "name": "minecraft:iron_ingot", "amount": 640 },
+        { "name": "minecraft:diamond", "amount": 24, "craftable": true }
+      ],
+      "fluids": [{ "name": "minecraft:water", "amount": 16000 }],
+      "craftableItems": [{ "name": "minecraft:piston" }],
+      "energy": { "stored": 5000, "max": 10000, "usage": 8, "injection": 12 },
+      "cells": [
+        {
+          "item": "ae2:item_storage_cell_16k",
+          "cellType": "item",
+          "bytesPerType": 8,
+          "totalBytes": 16384
+        }
+      ],
+      "cpus": [
+        { "name": "cpu1", "storage": 4096, "coProcessors": 4, "isBusy": false }
+      ],
+      "adjacent": { "top": "chest_0" }
+    },
+    {
+      "name": "rsBridge_0",
+      "type": "rsBridge",
+      "items": [{ "name": "minecraft:gold_ingot", "amount": 200 }],
+      "craftableItems": [{ "name": "minecraft:gold_block" }],
+      "energy": { "stored": 900, "max": 1000, "usage": 4 },
+      "storage": {
+        "maxItemDisk": 32000,
+        "maxFluidDisk": 0,
+        "maxItemExternal": 0,
+        "maxFluidExternal": 0
+      },
+      "patterns": [
+        {
+          "outputs": [{ "name": "minecraft:gold_block", "count": 1 }],
+          "inputs": [[{ "name": "minecraft:gold_ingot", "count": 9 }]],
+          "processing": false
+        }
+      ]
+    },
+    { "name": "chest_0", "type": "minecraft:chest", "size": 27 },
+    { "name": "tank_0", "type": "fluid_storage", "capacity": 8000 }
+  ]
+}

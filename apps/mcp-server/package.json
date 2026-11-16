@@ -1,0 +1,22 @@
+{
+  "name": "@craftos-agent/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "craftos-agent": "./dist/index.js"
+  },
+  "dependencies": {
+    "@craftos-agent/protocol": "0.0.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7",
+    "@craftos-agent/rawterm": "0.0.0",
+    "@craftos-agent/runner": "0.0.0"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "node --watch --enable-source-maps dist/index.js",
+    "start": "node --enable-source-maps dist/index.js",
+    "typecheck": "tsc -b --pretty false"
+  }
+}

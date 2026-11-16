@@ -1,0 +1,158 @@
+name: Release
+
+# On a v* tag: build the engine for Windows and Linux, build the TypeScript packages, and attach one zip per OS to a
+# GitHub release. The zips hold paths relative to the repository root, so they unzip over a clone. They never contain
+# CC:Tweaked's ROM (its license does not allow redistribution): users build it with `node scripts/build-rom.mjs --download`.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The vcpkg commit the engine is known to build with. Bump it on purpose, not by accident.
+  VCPKG_COMMIT: fa569792185110f25f68c333dd4fabca11c217ef
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            triplet: x64-windows
+          - os: ubuntu-latest
+            platform: linux-x64
+            triplet: x64-linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Paths
+        shell: bash
+        run: |
+          # RUNNER_TEMP is a native path on each OS (D:\a\_temp on Windows), so join with the native separator.
+          if [ "$RUNNER_OS" = Windows ]; then sep='\'; else sep=/; fi
+          echo "CRAFTOS_VCPKG=${RUNNER_TEMP}${sep}vcpkg" >> "$GITHUB_ENV"
+          echo "VCPKG_CACHE=${RUNNER_TEMP}${sep}vcpkg-cache" >> "$GITHUB_ENV"
+          echo "VCPKG_BINARY_SOURCES=clear;files,${RUNNER_TEMP}${sep}vcpkg-cache,readwrite" >> "$GITHUB_ENV"
+
+      - name: Linux packages vcpkg needs to build SDL2 and friends
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build pkg-config curl zip unzip tar git \
+            autoconf autoconf-archive automake libtool bison python3-venv python3-jinja2 linux-libc-dev \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxss-dev libxtst-dev \
+            libwayland-dev libxkbcommon-dev libegl1-mesa-dev libibus-1.0-dev libltdl-dev
+
+      - name: Get vcpkg
+        shell: bash
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$CRAFTOS_VCPKG"
+          git -C "$CRAFTOS_VCPKG" checkout --quiet "$VCPKG_COMMIT"
+          mkdir -p "$VCPKG_CACHE"
+
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call "%CRAFTOS_VCPKG%\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Bootstrap vcpkg (Linux)
+        if: runner.os == 'Linux'
+        run: '"$CRAFTOS_VCPKG/bootstrap-vcpkg.sh" -disableMetrics'
+
+      - name: vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_CACHE }}
+          key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('engine/vcpkg.json') }}
+          restore-keys: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Build the engine (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call engine\build.cmd
+
+      - name: Build the engine (Linux)
+        if: runner.os == 'Linux'
+        run: bash engine/build.sh
+
+      - name: Check the Linux binary finds its libraries
+        if: runner.os == 'Linux'
+        run: |
+          ldd engine/build/craftos
+          if ldd engine/build/craftos | grep -q "not found"; then exit 1; fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      - name: Package
+        shell: bash
+        run: |
+          name="craftos-agent-${GITHUB_REF_NAME}-${{ matrix.platform }}"
+          stage="$RUNNER_TEMP/stage"
+          rm -rf "$stage" && mkdir -p "$stage/engine/build"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp engine/build/craftos.exe engine/build/*.dll "$stage/engine/build/"
+          else
+            cp engine/build/craftos "$stage/engine/build/"
+            find engine/build -maxdepth 1 -name '*.so*' -exec cp -P {} "$stage/engine/build/" \;
+          fi
+          # Everything else the tools need at run time, in the repository layout.
+          cp package.json package-lock.json LICENSE "$stage/"
+          for f in README.md NOTICE.md; do if [ -f "$f" ]; then cp "$f" "$stage/"; fi; done
+          for pkg in apps/* packages/*; do
+            mkdir -p "$stage/$pkg"
+            cp "$pkg/package.json" "$stage/$pkg/"
+            cp -r "$pkg/dist" "$stage/$pkg/"
+            for extra in lua assets; do if [ -d "$pkg/$extra" ]; then cp -r "$pkg/$extra" "$stage/$pkg/"; fi; done
+          done
+          cp -r rom-overlay scripts "$stage/"
+          # No CC:Tweaked files, ever.
+          if [ -d "$stage/rom" ] || find "$stage" -name '*.jar' | grep -q .; then echo "CC:Tweaked files in the package" >&2; exit 1; fi
+          mkdir -p dist-release
+          if [ "$RUNNER_OS" = Windows ]; then
+            (cd "$stage" && 7z a -tzip -r "$GITHUB_WORKSPACE/dist-release/$name.zip" . >/dev/null)
+          else
+            (cd "$stage" && zip -qry "$GITHUB_WORKSPACE/dist-release/$name.zip" .)
+          fi
+          ls -l dist-release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: dist-release/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          merge-multiple: true
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist-release
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist-release/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" dist-release/*.zip --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          fi

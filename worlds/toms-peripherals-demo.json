@@ -1,0 +1,19 @@
+{
+  "peripherals": [
+    {
+      "name": "tm_gpu_0",
+      "type": "tm_gpu",
+      "monitor": { "width": 2, "height": 1 }
+    },
+    { "name": "tm_keyboard_0", "type": "tm_keyboard" },
+    { "name": "tm_keyboard_1", "type": "tm_keyboard", "dongle": true },
+    {
+      "name": "tm_rsPort_0",
+      "type": "tm_rsPort",
+      "inputs": { "north": 15 },
+      "bundledInputs": { "east": 3 }
+    },
+    { "name": "tm_wdt_0", "type": "tm_wdt", "timeout": 200 }
+  ],
+  "tomsPeripherals": { "maxScreenSize": 16 }
+}

@@ -1,0 +1,183 @@
+{
+  "players": [
+    {
+      "name": "Alice"
+    },
+    {
+      "name": "Bob"
+    }
+  ],
+  "mekanism": {
+    "seed": 1,
+    "qio": {
+      "frequencies": [
+        {
+          "name": "Vault Storage",
+          "owner": "Alice",
+          "color": "PURPLE"
+        },
+        {
+          "name": "Bob's Stuff",
+          "public": false,
+          "owner": "Bob"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "basement_array",
+          "type": "qioDriveArray",
+          "owner": "Alice",
+          "frequency": "Vault Storage",
+          "drives": [
+            {
+              "tier": "supermassive",
+              "items": [
+                {
+                  "name": "minecraft:cobblestone",
+                  "count": 250000
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "inventories": [
+        {
+          "name": "loot_drop",
+          "type": "minecraft:barrel",
+          "size": 27,
+          "items": {
+            "1": {
+              "name": "minecraft:iron_ingot",
+              "count": 40,
+              "tags": ["forge:ingots/iron", "forge:ingots"]
+            }
+          }
+        }
+      ]
+    },
+    "entangloporter": {
+      "frequencies": [
+        {
+          "name": "Shop Link",
+          "owner": "Alice",
+          "item": {
+            "name": "minecraft:diamond_chestplate",
+            "count": 1,
+            "maxCount": 1,
+            "nbt": "{vaultGear:{id:\"c0de\",rarity:\"RARE\",level:40},Damage:0}"
+          },
+          "energy": 1000000
+        }
+      ]
+    }
+  },
+  "peripherals": [
+    {
+      "name": "qioDriveArray_0",
+      "type": "qioDriveArray",
+      "owner": "Alice",
+      "frequency": "Vault Storage",
+      "drives": [
+        {
+          "tier": "base",
+          "items": [
+            {
+              "name": "minecraft:diamond",
+              "count": 24
+            },
+            {
+              "name": "minecraft:iron_ingot",
+              "count": 640,
+              "tags": ["forge:ingots/iron", "forge:ingots"]
+            },
+            {
+              "name": "minecraft:diamond_helmet",
+              "count": 1,
+              "maxCount": 1,
+              "displayName": "Champion's Helmet",
+              "nbt": "{vaultGear:{id:\"7f3a\",rarity:\"EPIC\",level:62},Damage:0}"
+            },
+            {
+              "name": "minecraft:diamond_helmet",
+              "count": 1,
+              "maxCount": 1,
+              "displayName": "Scrappy Helmet",
+              "nbt": "{vaultGear:{id:\"91c0\",rarity:\"SCRAPPY\",level:3},Damage:0}"
+            },
+            {
+              "name": "mekanism:ingot_osmium",
+              "count": 96,
+              "tags": ["forge:ingots/osmium", "forge:ingots"]
+            }
+          ]
+        },
+        {
+          "slot": 1,
+          "tier": "hyper_dense"
+        }
+      ]
+    },
+    {
+      "name": "qioDashboard_0",
+      "type": "qioDashboard",
+      "owner": "Alice",
+      "frequency": "Vault Storage",
+      "facing": "UP"
+    },
+    {
+      "name": "gear_chest",
+      "type": "minecraft:chest",
+      "size": 27
+    },
+    {
+      "name": "qioExporter_0",
+      "type": "qioExporter",
+      "owner": "Alice",
+      "frequency": "Vault Storage",
+      "target": "gear_chest",
+      "speedUpgrades": 2,
+      "filters": [
+        {
+          "type": "QIO_ITEMSTACK_FILTER",
+          "item": "minecraft:diamond_helmet",
+          "fuzzy": true
+        }
+      ]
+    },
+    {
+      "name": "qioImporter_0",
+      "type": "qioImporter",
+      "owner": "Alice",
+      "frequency": "Vault Storage",
+      "target": "loot_drop"
+    },
+    {
+      "name": "qioRedstoneAdapter_0",
+      "type": "qioRedstoneAdapter",
+      "owner": "Alice",
+      "frequency": "Vault Storage",
+      "targetItem": "minecraft:diamond",
+      "triggerAmount": 16
+    },
+    {
+      "name": "shop_drop",
+      "type": "minecraft:chest",
+      "size": 27
+    },
+    {
+      "name": "quantumEntangloporter_0",
+      "type": "quantumEntangloporter",
+      "owner": "Alice",
+      "frequency": "Shop Link",
+      "config": {
+        "ITEM": {
+          "ejecting": true
+        }
+      },
+      "adjacent": {
+        "front": "shop_drop"
+      }
+    }
+  ]
+}

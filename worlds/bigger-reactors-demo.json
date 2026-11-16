@@ -1,0 +1,45 @@
+{
+  "biggerReactors": {
+    "gameTime": 0,
+    "seed": 1
+  },
+  "peripherals": [
+    {
+      "name": "BiggerReactors_Reactor_0",
+      "type": "BiggerReactors_Reactor",
+      "cooling": "active",
+      "dimensions": [5, 7, 5],
+      "layout": ["XMX", "MXM", "XMX"],
+      "controlRods": [{ "name": "centre", "level": 10 }],
+      "rodLevel": 10,
+      "fuel": 30000,
+      "coolant": 40000,
+      "coolantSupply": 500,
+      "steamTo": "BiggerReactors_Turbine_0",
+      "active": true
+    },
+    {
+      "name": "BiggerReactors_Turbine_0",
+      "type": "BiggerReactors_Turbine",
+      "dimensions": [7, 12, 7],
+      "shafts": 10,
+      "bladeLength": 2,
+      "coils": { "minecraft:gold_block": 16 },
+      "vent": "overflow",
+      "flowRate": 2000,
+      "load": 2000,
+      "active": true
+    },
+    {
+      "name": "BiggerReactors_Reactor_1",
+      "type": "BiggerReactors_Reactor",
+      "dimensions": [5, 5, 5],
+      "layout": ["X.X", ".G.", "X.X"],
+      "legend": { "G": "graphite" },
+      "fuel": 12000,
+      "active": true,
+      "load": 100,
+      "wasteOutlet": true
+    }
+  ]
+}
