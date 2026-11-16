@@ -1,0 +1,12 @@
+{
+  "name": "craftos-mcp",
+  "description": "A headless CC:Tweaked emulator for AI agents and tests",
+  "owner": { "name": "craftos-mcp contributors" },
+  "plugins": [
+    {
+      "name": "craftos-mcp",
+      "source": "./",
+      "description": "Run, test and screenshot ComputerCraft Lua programs without Minecraft: the cc-tweaked-dev skill and the craftos MCP server."
+    }
+  ]
+}

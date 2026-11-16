@@ -25,6 +25,7 @@ return function(core, host)
   local E = { J = J }
   local world = core.world or {}
   local cfg = type(world.mekanism) == "table" and world.mekanism or {}
+  E.cfg = cfg
 
   -- ===== Java number helpers =====
 
@@ -351,7 +352,14 @@ return function(core, host)
     return names
   end
 
-  local argContext = { filter = function() return nil end, knownItem = function() return true end }
+  local argContext = {
+    filter = function() return nil end, knownItem = function() return true end,
+    convert = function(expected, value)
+      local f = E.convert and E.convert[expected]
+      if f then return f(value) end
+      return nil
+    end,
+  }
 
   --- The bound methods of a block right now: the tile's (sorted), then the multiblock's (sorted) while formed.
   local function bind(p)
@@ -546,6 +554,10 @@ return function(core, host)
   loadKind("/rom/ccsim/addons/mekanism-machines/cube.lua")
   loadKind("/rom/ccsim/addons/mekanism-machines/tanks.lua")
   loadKind("/rom/ccsim/addons/mekanism-machines/machines.lua")
+  dofile("/rom/ccsim/addons/mekanism-machines/filters.lua")(E)
+  for _, f in ipairs({ "factories", "bins", "recipes", "dynamic", "evaporation", "sps", "miner", "misc", "transmitters" }) do
+    loadKind("/rom/ccsim/addons/mekanism-machines/" .. f .. ".lua")
+  end
   if generatorsOn then
     loadKind("/rom/ccsim/addons/mekanism-generators/generators.lua")
     loadKind("/rom/ccsim/addons/mekanism-generators/fission.lua")

@@ -338,6 +338,22 @@ end)
 // ───────────── sequenced gearshift ─────────────
 
 describe.skipIf(!ready)("Create sequenced gearshift", () => {
+  it("void methods return no values, getters exactly one", async () => {
+    const result = await lua(
+      `
+ccunit.test("counts", function()
+  local g = peripheral.wrap("gear")
+  ccunit.eq(select("#", g.rotate(90)), 0)
+  ccunit.eq(select("#", g.isRunning()), 1)
+  sleep(0.5)
+end)
+`,
+      world,
+      "returns.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
   it("rotate and move run for the time the source works out at the input speed", async () => {
     const result = await lua(
       `
@@ -517,6 +533,27 @@ describe.skipIf(!ready)("Create display link", () => {
       },
     ],
   } as unknown as WorldConfig;
+
+  it("void methods return no values, the others exactly what Java returns", async () => {
+    const result = await lua(
+      `
+ccunit.test("counts", function()
+  local l = peripheral.wrap("sign")
+  ccunit.eq(select("#", l.write("a")), 0)
+  ccunit.eq(select("#", l.clear()), 0)
+  ccunit.eq(select("#", l.clearLine()), 0)
+  ccunit.eq(select("#", l.setCursorPos(1, 1)), 0)
+  ccunit.eq(select("#", l.getCursorPos()), 2)
+  ccunit.eq(select("#", l.getSize()), 2)
+  ccunit.eq(select("#", l.isColor()), 1)
+  ccunit.eq(select("#", l.update()), 0)
+end)
+`,
+      linkWorld,
+      "returns.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
 
   it("cursor, write, clear, sizes and errors", async () => {
     const result = await lua(
@@ -1343,6 +1380,32 @@ end)
 `,
       caWorld,
       "energy.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("return counts are exactly what the Java methods return: void gives none, a value gives one", async () => {
+    const result = await lua(
+      `
+local d = peripheral.wrap("adapter")
+local m = peripheral.wrap("motor")
+ccunit.test("void methods return nothing, the rest exactly one value", function()
+  ccunit.eq(select("#", d.print("x")), 0)
+  ccunit.eq(select("#", d.clearLine()), 0)
+  ccunit.eq(select("#", d.clear()), 0)
+  ccunit.eq(select("#", d.setTargetSpeed("up", 10)), 0)
+  ccunit.eq(select("#", m.setSpeed(64)), 0)
+  ccunit.eq(select("#", m.stop()), 0)
+  ccunit.eq(select("#", d.setLine(3)), 1)
+  ccunit.eq(select("#", d.getElevatorFloorName("down", 99)), 1)
+  ccunit.eq(select("#", d.gotoElevatorFloor("north", 1)), 1)
+  ccunit.eq(select("#", m.rotate(90)), 1)
+  ccunit.eq(select("#", peripheral.call("acc", "getPercent")), 1)
+  ccunit.eq(select("#", peripheral.call("relay", "isPowered")), 1)
+end)
+`,
+      caWorld,
+      "returns.test.lua",
     );
     expectAllPassed(result);
   }, 60000);

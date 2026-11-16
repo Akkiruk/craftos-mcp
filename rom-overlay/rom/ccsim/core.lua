@@ -62,7 +62,7 @@ local function readFile(path)
 end
 
 function M.nowMs()
-  return os.epoch("utc")
+  return M.frozenMs or os.epoch("utc")
 end
 
 --- ISO-8601 instant like java.time.Instant.toString().
@@ -356,6 +356,16 @@ end
 --- Persist everything a test might want to assert on.
 function M.save()
   M.lastSave, M.dirty = M.nowMs(), false
+  -- One instant for the whole snapshot: every machine and the tick count it reports come from the same moment, even
+  -- when the host is slow enough for a tick to pass while the state is gathered.
+  local outer = M.frozenMs ~= nil
+  M.frozenMs = M.frozenMs or os.epoch("utc")
+  local ok, err = pcall(M.saveNow)
+  if not outer then M.frozenMs = nil end
+  if not ok then error(err, 0) end
+end
+
+function M.saveNow()
   if M.beforeObserve then M.beforeObserve() end -- machines on the virtual clock (Mekanism QIO) catch up first
   M.peekEconomy() -- what other computers moved shows here too
   local balances = {}
@@ -595,6 +605,35 @@ function M.applyCommand(seq, json)
   M.lastCommandResult = { seq = seq, ok = ok and true or false, error = err }
 end
 
+--- The in-computer `sim` program (rom/ccsim/sim.lua, emulator only): a `ccsim_cmd` event whose seq is a "sim:..."
+--- token. It runs the same handlers as a host command and answers with a `ccsim_reply` event (token, ok, error, data),
+--- which only that program waits for. "list" answers with every command name, "state" with the players.
+--- Only a computer a person drives has it (world.simProgram, set by `craftos-mcp window` and `app`): anywhere else such
+--- an event is an ordinary event the program queued, as on a real server.
+local localSeen = {}
+function M.localCommand(token, json)
+  if not (M.world and M.world.simProgram == true) then return false end
+  if type(token) ~= "string" or token:sub(1, 4) ~= "sim:" or localSeen[token] then return end
+  localSeen[token] = true
+  if json == "list" then
+    local names = {}
+    for name in pairs(handlers) do names[#names + 1] = name end
+    for name in pairs(M.extraHandlers or {}) do if not handlers[name] then names[#names + 1] = name end end
+    table.sort(names)
+    os.queueEvent("ccsim_reply", token, true, nil, table.concat(names, " "))
+    return
+  elseif json == "state" then
+    M.save()
+    local players = {}
+    for i, p in ipairs(M.players) do players[i] = { name = p.name, online = p.online, balance = p.balance } end
+    os.queueEvent("ccsim_reply", token, true, nil, textutils.serialize(players))
+    return
+  end
+  local ran, err = pcall(M.applyCommand, nil, json)
+  local result = ran and M.lastCommandResult or { ok = false, error = tostring(err) }
+  os.queueEvent("ccsim_reply", token, result.ok, result.error)
+end
+
 --- Wrap os.pullEventRaw so commands are applied wherever the program is waiting.
 function M.installEventHook()
   local rawPull = os.pullEventRaw
@@ -791,7 +830,9 @@ function M.installEventHook()
         local fn = M.simTimers[event[2]]
         M.simTimers[event[2]] = nil
         fn()
-      elseif event[1] == "ccsim_cmd" then
+      elseif event[1] == "ccsim_cmd" and type(event[2]) == "string" and M.world and M.world.simProgram == true then
+        M.localCommand(event[2], event[3]) -- the sim program typed into the computer
+      elseif event[1] == "ccsim_cmd" and type(event[2]) ~= "string" then -- the host's (numbered) and tests' (nil)
         beacon.blocked = false
         M.applyCommand(event[2], event[3])
         beacon.cmdSeq = lastSeq

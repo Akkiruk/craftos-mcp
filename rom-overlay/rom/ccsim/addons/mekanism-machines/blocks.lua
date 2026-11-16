@@ -66,6 +66,11 @@ return function(E, core)
         for _, m in ipairs(c.modes) do info.modes[m] = true end
         for _, side in ipairs(SIDES) do info.sides[side] = c.fill or "NONE" end
         for side, m in pairs(c.sides or {}) do info.sides[side] = m end
+        -- ConfigInfo.addDisabledSides: the side reads NONE and setDataType leaves it alone
+        if o.disabledSides then
+          info.disabled = {}
+          for _, side in ipairs(o.disabledSides) do info.disabled[side] = true; info.sides[side] = "NONE" end
+        end
         b.config[c.type] = info
         b.configOrder[#b.configOrder + 1] = c.type
       end
@@ -82,18 +87,36 @@ return function(E, core)
 
   function B.upgrades(b, u) return b.upgrades and b.upgrades[u] or 0 end
   local function fraction(b, u) return B.upgrades(b, u) / B.UPGRADE_MAX[u] end
-  --- MekanismUtils.getTicks / getEnergyPerTick / getMaxEnergy
+  --- MekanismUtils.getTicks / getEnergyPerTick / getMaxEnergy (kept per block until its upgrades change: every
+  --- machine asks each tick)
+  local function cache(b, key)
+    local c = b.upgradeCache
+    if not c then c = { t = {}, e = {}, m = {} }; b.upgradeCache = c end
+    return c[key]
+  end
   function B.ticks(b, def)
     if not b.upgrades then return def end
-    return E.toInt(def * B.MAX_UPGRADE_MULTIPLIER ^ (-fraction(b, "SPEED")))
+    local c = cache(b, "t")
+    local v = c[def]
+    if v == nil then v = E.toInt(def * B.MAX_UPGRADE_MULTIPLIER ^ (-fraction(b, "SPEED"))); c[def] = v end
+    return v
   end
   function B.energyPerTick(b, def)
     if not b.upgrades then return def end
-    return FL.multiply(def, FL.create(B.MAX_UPGRADE_MULTIPLIER ^ (2 * fraction(b, "SPEED") - fraction(b, "ENERGY"))))
+    local c = cache(b, "e")
+    local v = c[def]
+    if v == nil then
+      v = FL.multiply(def, FL.create(B.MAX_UPGRADE_MULTIPLIER ^ (2 * fraction(b, "SPEED") - fraction(b, "ENERGY"))))
+      c[def] = v
+    end
+    return v
   end
   function B.maxEnergy(b, def)
     if not b.upgrades then return def end
-    return FL.multiply(def, FL.create(B.MAX_UPGRADE_MULTIPLIER ^ fraction(b, "ENERGY")))
+    local c = cache(b, "m")
+    local v = c[def]
+    if v == nil then v = FL.multiply(def, FL.create(B.MAX_UPGRADE_MULTIPLIER ^ fraction(b, "ENERGY"))); c[def] = v end
+    return v
   end
 
   --- MekanismUtils.canFunction
@@ -225,17 +248,17 @@ return function(E, core)
       if not info.modes[mode] then
         err(("This machine does not support mode '%s' for transmission type '%s'."):format(mode, t))
       end
-      info.sides[side] = mode
+      if not (info.disabled and info.disabled[side]) then info.sides[side] = mode end
     end),
     incrementMode = E.void({ "TransmissionType", "RelativeSide" }, function(c, t, side)
       B.requirePublic(c.mb.block)
       local info = configOf(c, t)
-      info.sides[side] = nextMode(info, info.sides[side], 1)
+      if not (info.disabled and info.disabled[side]) then info.sides[side] = nextMode(info, info.sides[side], 1) end
     end),
     decrementMode = E.void({ "TransmissionType", "RelativeSide" }, function(c, t, side)
       B.requirePublic(c.mb.block)
       local info = configOf(c, t)
-      info.sides[side] = nextMode(info, info.sides[side], -1)
+      if not (info.disabled and info.disabled[side]) then info.sides[side] = nextMode(info, info.sides[side], -1) end
     end),
   }
 
@@ -282,7 +305,7 @@ return function(E, core)
   function B.groups(tile, o)
     local g = { tile }
     if o.upgrades then g[#g + 1] = UPGRADE end
-    g[#g + 1] = SECURITY -- every block here has the Security attribute
+    if not o.noSecurity then g[#g + 1] = SECURITY end -- the Security attribute (bins, chargepads have none)
     if o.config then g[#g + 1] = CONFIG end
     if o.ejector then g[#g + 1] = EJECTOR end
     return g
@@ -329,7 +352,7 @@ return function(E, core)
       security = function(v) b.security = enumOf({ "PUBLIC", "PRIVATE", "TRUSTED" }, v, "PUBLIC", "security mode") end,
       upgrades = function(v)
         if not b.upgrades then error("this block takes no upgrades", 0) end
-        b.upgrades = {}
+        b.upgrades, b.upgradeCache = {}, nil
         for k, n in pairs(v) do
           local u = tostring(k):upper()
           if not indexOf(b.o.upgrades, u) then error("this block takes no " .. u .. " upgrade", 0) end
@@ -338,6 +361,43 @@ return function(E, core)
         end
       end,
     }
+  end
+
+  -- ===== side config builders (TileComponentConfig.setup*Config, ConfigInfo.setDefaults) =====
+
+  B.cfg = {}
+  --- setupItemIOConfig / setupItemIOExtraConfig: input everywhere, output right, extra bottom, energy back.
+  function B.cfg.itemIO(extra)
+    local c = { type = "ITEM", modes = { "INPUT", "OUTPUT", "INPUT_OUTPUT", "ENERGY" }, fill = "INPUT",
+      sides = { RIGHT = "OUTPUT", BACK = "ENERGY" } }
+    if extra then c.modes[#c.modes + 1] = "EXTRA"; c.sides.BOTTOM = "EXTRA" end
+    return c
+  end
+  --- setupInputConfig: input everywhere, never ejects.
+  function B.cfg.input(t) return { type = t, modes = { "INPUT" }, fill = "INPUT", canEject = false } end
+  --- setupOutputConfig: output on the sides given (none: every side NONE).
+  function B.cfg.output(t, ...)
+    local c = { type = t, modes = { "OUTPUT" }, sides = {} }
+    for _, side in ipairs({ ... }) do c.sides[side] = "OUTPUT" end
+    return c
+  end
+  --- setupIOConfig: input everywhere, output on one side.
+  function B.cfg.io(t, side, ejecting)
+    return { type = t, modes = { "INPUT", "OUTPUT", "INPUT_OUTPUT" }, fill = "INPUT", sides = { [side] = "OUTPUT" },
+      ejecting = ejecting == true }
+  end
+  --- The two-input layout of the chemical infuser and pigment mixer.
+  function B.cfg.twoInputs(t, energy, ejecting)
+    local c = { type = t, modes = { "INPUT_1", "INPUT_2", "OUTPUT", "INPUT_OUTPUT" },
+      sides = { LEFT = "INPUT_1", RIGHT = "INPUT_2", FRONT = "OUTPUT" }, ejecting = ejecting == true }
+    if energy then c.modes[#c.modes + 1] = "ENERGY"; c.sides.BACK = "ENERGY" end
+    return c
+  end
+
+  --- A fixture slot: { name, count } or nil.
+  function B.stack(spec)
+    if type(spec) ~= "table" or not spec.name or (tonumber(spec.count) or 1) <= 0 then return nil end
+    return { name = J.resourceLocation(spec.name) or spec.name, count = floor(tonumber(spec.count) or 1) }
   end
 
   --- The powered input is per block: mekSetRedstone reaches it through the peripheral's ctx.block.

@@ -22,12 +22,28 @@ if(WIN32)
 endif()
 set_target_properties(lua52 PROPERTIES OUTPUT_NAME lua52 WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
+# zlib first: Poco's and libpng's exported targets link ZLIB::ZLIB, so it must exist before they load. On a static
+# triplet (vcpkg x64-linux) the find module can leave no target behind, so make one from its variables.
+find_package(ZLIB REQUIRED)
+if(NOT TARGET ZLIB::ZLIB)
+  add_library(ZLIB::ZLIB UNKNOWN IMPORTED)
+  set_target_properties(ZLIB::ZLIB PROPERTIES
+    IMPORTED_LOCATION "${ZLIB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIRS}")
+endif()
+# expat likewise, for Poco::XML (pulled in by Poco::Util)
+find_package(EXPAT)
+if(EXPAT_FOUND AND NOT TARGET EXPAT::EXPAT)
+  add_library(EXPAT::EXPAT UNKNOWN IMPORTED)
+  set_target_properties(EXPAT::EXPAT PROPERTIES
+    IMPORTED_LOCATION "${EXPAT_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${EXPAT_INCLUDE_DIRS}")
+endif()
 find_package(SDL2 CONFIG REQUIRED)
 find_package(SDL2_mixer CONFIG REQUIRED)
-find_package(Poco CONFIG REQUIRED COMPONENTS Foundation Net NetSSL JSON Util)
 find_package(OpenSSL REQUIRED)
-find_package(ZLIB REQUIRED)
 find_package(PNG REQUIRED)
+find_package(Poco CONFIG REQUIRED COMPONENTS Foundation Net NetSSL JSON Util)
 find_package(WebP CONFIG REQUIRED)
 find_package(unofficial-libharu CONFIG REQUIRED)
 find_path(PNGPP_INCLUDE png++/png.hpp REQUIRED)
@@ -120,7 +136,8 @@ endif()
 
 target_link_libraries(craftos PRIVATE
   SDL2::SDL2
-  SDL2_mixer::SDL2_mixer
+  # a static triplet names it SDL2_mixer::SDL2_mixer-static (vcpkg's own usage note)
+  $<IF:$<TARGET_EXISTS:SDL2_mixer::SDL2_mixer>,SDL2_mixer::SDL2_mixer,SDL2_mixer::SDL2_mixer-static>
   Poco::Foundation Poco::Net Poco::NetSSL Poco::JSON Poco::Util
   OpenSSL::SSL OpenSSL::Crypto
   ZLIB::ZLIB

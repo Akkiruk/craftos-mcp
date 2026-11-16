@@ -285,11 +285,173 @@ everywhere, output right, extra bottom, energy back; cubes and tanks output at t
   `chemicalInput`/`chemicalOutput`, `waterInput`, `leftOutput`/`rightOutput`, `lavaInput`, `bioFuelInput`,
   `fuelInput`, `infuseInput`. Slots: `input`, `output`, `energyItem`, `fuelItem`, ... as `{ name, count }`.
 
+## Factories, bins, dynamic tank, evaporation plant, SPS, digital miner and the rest
+
+Every other Mekanism 10.2.5 block with computer methods is now a peripheral too. All addon `mekanism`.
+
+| Types                                                                                                                                                                                                                                                                                                                                                                                                                                      | Code               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| `basicSmeltingFactory` … `ultimateSawingFactory`: tiers basic, advanced, elite, ultimate × Smelting, Enriching, Crushing, Compressing, Combining, Purifying, Injecting, Infusing, Sawing (36)                                                                                                                                                                                                                                              | `factories.lua`    |
+| `basicBin`, `advancedBin`, `eliteBin`, `ultimateBin`, `creativeBin`                                                                                                                                                                                                                                                                                                                                                                        | `bins.lua`         |
+| `dynamicValve`                                                                                                                                                                                                                                                                                                                                                                                                                             | `dynamic.lua`      |
+| `thermalEvaporationController`, `thermalEvaporationValve`                                                                                                                                                                                                                                                                                                                                                                                  | `evaporation.lua`  |
+| `spsPort`                                                                                                                                                                                                                                                                                                                                                                                                                                  | `sps.lua`          |
+| `digitalMiner`                                                                                                                                                                                                                                                                                                                                                                                                                             | `miner.lua`        |
+| `precisionSawmill`, `osmiumCompressor`, `purificationChamber`, `chemicalInjectionChamber`, `combiner`, `pressurizedReactionChamber`, `chemicalCrystallizer`, `chemicalDissolutionChamber`, `chemicalInfuser`, `chemicalOxidizer`, `chemicalWasher`, `rotaryCondensentrator`, `isotopicCentrifuge`, `nutritionalLiquifier`, `antiprotonicNucleosynthesizer`, `pigmentExtractor`, `pigmentMixer`, `paintingMachine`, `solarNeutronActivator` | `recipes.lua`      |
+| `electricPump`, `fluidicPlenisher`, `resistiveHeater`, `fuelwoodHeater`, `seismicVibrator`, `laser`, `laserAmplifier`, `laserTractorBeam`, `teleporter`, `chargepad`, `logisticalSorter`, `oredictionificator`, `formulaicAssemblicator`, `modificationStation`, `dimensionalStabilizer`                                                                                                                                                   | `misc.lua`         |
+| `basicUniversalCable` … `ultimateUniversalCable`, `…MechanicalPipe`, `…PressurizedTube`, `diversionTransporter`                                                                                                                                                                                                                                                                                                                            | `transmitters.lua` |
+
+Filters (miner, sorter, oredictionificator) and the `FloatingLong` / `Item` arguments are in `filters.lua`. The
+block names are the ones `withComputerSupport` gives (`registries/MekanismBlockTypes`, `content/blocktype/Factory`
+line 61: tier + type + `Factory`; transmitters: tier + `UniversalCable` etc., `diversionTransporter`).
+
+**Method surface.** The test file holds, per class, what `javap -p -v` shows annotated in the jar (the `JAR`
+table), then adds the `TileEntityMekanism` methods each block's attributes allow and the components it has. All 135
+types match `peripheral.getMethods` exactly, formed and unformed. Notes from the jar:
+
+- A bin is a Mekanism peripheral (`getStored`, `getCapacity`, `getDirection`, `getComparatorLevel`), not CC's
+  generic inventory: CC prefers the block's own peripheral, so `pushItems` cannot reach a bin. No security, no
+  redstone control, no upgrades.
+- Transmitters are not `TileEntityMekanism`: only their four (cables, pipes, tubes) or four (diversion) methods.
+- `getSupportedUpgrades` lists in the `Upgrade` enum order (`SPEED, ENERGY, FILTER, GAS, MUFFLING, ANCHOR,
+STONE_GENERATOR`), not the order the block type names them.
+- The thermal evaporation controller has `getDirection` and no comparator; its valve the other way round. The SPS
+  port has its own four energy methods (its 1 GJ buffer, not the multiblock's) and no comparator.
+
+**Fixtures.** Single blocks take their fields on the peripheral; the three multiblocks go in
+`world.mekanism.multiblocks` with `kind = "dynamicTank" | "evaporation" | "sps"` (or inline on one valve). Slots
+are `{ name, count }`, tanks a number or `{ name, amount }`. Rates (per tick) are fixture fields; `mekSet` changes
+any listed field mid-run, `mekAddTank` the named tank, `mekSetFormed` forms or unforms.
+
+```json
+{ "name": "f", "type": "basicSmeltingFactory", "energy": 30000, "energyInput": 150, "sorting": true,
+  "inputs": [{ "name": "minecraft:iron_ore", "count": 4 }], "recipes": { "minecraft:iron_ore": "minecraft:iron_ingot" } }
+{ "kind": "evaporation", "height": 18, "input": 2000000, "inputRate": 400, "outputRate": 50, "solars": 4, "heatInput": 300 }
+{ "kind": "sps", "input": 2000, "poloniumInput": 4, "antimatterOutput": 1, "coils": 2 }
+{ "name": "port", "type": "spsPort", "multiblock": "sps", "energyInput": 4000000, "mode": "output", "coil": true }
+{ "name": "m", "type": "digitalMiner", "running": true, "ores": 400, "drop": "minecraft:iron_ore", "energyInput": 2000 }
+```
+
+- Factories: `inputs` / `outputs` (per process), `secondaryOutputs` (sawing), `extraItem` or `secondaryInput`
+  (the extra slot), `chemical` + `chemicalPerTick` (compressing, purifying, injecting), `infuse` +
+  `infusePerOperation` (infusing, default 10), `secondaryPerOperation` (combining, default 1), `sorting`,
+  `recipeOutput` (any input) or `recipes` (`{ [input] = output | { output, count, input, secondary = { name,
+chance } } }`), `energy`, `upgrades`, `energyInput`, `chemicalInput`, `infuseInput`. Without either recipe field an
+  input becomes itself.
+- Bins: `item`, `active` (the sneak-click toggle), `below` (a block below takes what it pushes).
+- Dynamic tank: `fluid` or `chemical` (`{ name, amount, type = "GAS" | "INFUSION" | "PIGMENT" | "SLURRY" }`),
+  `editMode`, `fluidInput` / `fluidOutput` / `chemicalInput` / `chemicalOutput`, size (3 × 3 × 3 default).
+- Evaporation: `height` (3-18, default 18), `input`, `output`, `temperature`, `ambientTemperature` (300), `solars`
+  (advanced solar generators on the four corners), `heatInput` (J/t from heaters on the valves), `inputRate`,
+  `outputRate`, `recipes` (`{ [fluid] = { input, output, amount } }`; water → brine and brine → lithium built in).
+- SPS: `input`, `output`, `inputProcessed`, `coils` (coil ports no computer sees), `energyInput` (J/t straight
+  to those coils), `poloniumInput`, `antimatterOutput`. A port: `energyInput`, `energy`, `mode` (`"output"`),
+  `coil` (default true).
+- Digital miner: `radius`, `minY`, `maxY`, `silkTouch`, `autoEject`, `autoPull`, `inverse`,
+  `inverseRequiresReplacement`, `inverseReplaceTarget`, `filters`, `items` (27 slots), `ores` (blocks the search
+  finds), `drop` (what one gives), `running` (start already finished searching), `minBuildHeight` (-64),
+  `maxBuildHeight` (320), `energy`, `energyInput`, `upgrades`.
+- Recipe machines: their slots and tanks by the names in the methods (`input`, `output`, `leftInput`,
+  `inputFluid`, ...), `recipe` (`{ [slot or tank] = amount | { name, amount, chance }, duration, energy }` over each
+  machine's default recipe), `<tank>Input` / `<tank>Output`, `energyInput`, `condensentrating` (rotary), the SNA's
+  `canSeeSky`, `biomeTemperature`, `downfall`, `precipitation`.
+- Others: `energyUsage` (resistive heater), `fuelItem` + `fuelBurnTime` (fuelwood heater), `heatOutput`,
+  `blocks` (pump: source blocks, plenisher: blocks to fill), `fluidType`, `delay`, `minThreshold`,
+  `maxThreshold`, `redstoneOutputMode`, `digging` (lasers), `frequency`, `frame`, `x`, `y`, `z`, `dimension`
+  (teleporter; public frequencies also in `world.mekanism.teleporterFrequencies`), `defaultColor`, `autoMode`,
+  `roundRobin`, `single`, `filters` (sorter, oredictionificator), `formula` (`{ valid, encoded }`), `hasRecipe`
+  (assemblicator), `chunks` (stabilizer offsets), `charging` (chargepad), `network` and `buffer` (transmitters),
+  `modes` (diversion: `{ down = "HIGH", ... }`).
+
+**Behaviour.**
+
+- Factory (`tile/factory/TileEntityFactory` `onUpdateServer` line 216): sort first (when sorting is on and an
+  input changed), then each process's cached recipe in turn. A process runs when its input has enough items, its
+  output has room, the factory can function and the energy for one tick is there; each running process takes
+  `usage × 10^(2 speed/8 − energy/8)` that tick, so `getEnergyUsage` (the energy used last tick, `lastUsage`) is
+  that times the busy processes. 200 ticks an operation (`getTicks`). Storage `max(storage / 2, usage) ×
+processes` (`content/blocktype/Factory` line 42). `validateValidProcess` line 484: "Process: '%d' is out of
+  bounds, as this factory only has '%d' processes (zero indexed)." Sorting (`sortInventory` line 518): each item
+  type is spread evenly over its processes and over empty ones it fits, the remainder one by one from the first.
+  Compressing spreads its 200 mB base gas use over the operation (`ChemicalUsageMultiplier`, line 91: 1 mB a tick,
+  10 at speed 8); purifying and injecting use the mean of `inversePoisson(10^(2 speed/8 − gas/8))` a tick. Gas
+  tank 210 × processes, infuse tank 1000 × processes. Infusing takes `infusePerOperation` at the end of an
+  operation; sawing gives the secondary output with its chance (the seeded RNG).
+- Bin (`tile/TileEntityBin` line 82): while active it hands its bottom stack (64) to the block below whenever
+  `delayTicks` reaches 0, then waits 10, counted down twice a tick: a push every 6 ticks. A creative bin never
+  empties. `getCapacity` is the tier's (4096, 8192, 32768, 262144, 2147483647).
+- Dynamic tank (`content/tank/TankMultiblockData`): one merged tank; capacity `volume × 350000` mB of fluid or
+  `volume × 16000000` mB of chemical (pack config; volume = length × width × height, `setVolume` line 138).
+  `getStored` is the stack, `FluidStack.EMPTY` (`minecraft:empty`) when empty; `getFilledPercentage` uses the
+  chemical capacity when it holds no fluid. A chemical cannot go in while it holds a fluid. The edit mode has no
+  security check.
+- Evaporation (`content/evaporation/EvaporationMultiblockData.tick` line 136): `simulateEnvironment` (line 174:
+  - solars × 0.2 × capacity; − 0.02 × √|T − ambient| × capacity, the loss reported), heat applied, then
+    `tempMultiplier = (min(3000, T) − 300) × 0.4 × height / 18`. Below 1: one operation every `ceil(1/m)` ticks
+    (`getProductionAmount` = `1 / ceil(1/m)`), above: `floor(m)` operations a tick (`getProductionAmount` = m,
+    line 236). An operation is 10 mB water → 1 mB brine. Heat capacity 100 × height; input tank `height × 4 × 64000`
+    (line 198), output 10000. `getActiveSolars` counts corners whose solar can see the sun (`skyDarken < 4`).
+- SPS (`content/sps/SPSMultiblockData.tick` line 85): with polonium in and room for antimatter, the energy the
+  coils received last tick processes `energy / 1000000` mB of polonium (fractions carried in `progress`); every
+  1000 mB processed is 1 mB of antimatter (`process` line 144). Input tank 2000, output 1000. Each port
+  (`TileEntitySPSPort.onUpdateServer` line 38) hands its whole buffer to its coil while the SPS can work; in output
+  mode it emits antimatter. `getProcessRate` = processed last tick / 1000, rounded to 3 decimals (line 200).
+- Digital miner (`tile/machine/TileEntityDigitalMiner.onUpdateServer` line 208): while it can function, runs, has
+  finished searching and has blocks left, it takes its energy per tick, counts `delay` down and mines a block at 0,
+  then waits `getTicks(80)`. Energy per tick (`MinerEnergyContainer.updateMinerEnergyPerTick` line 49): `usage ×
+silk 12 × (1 + max((radius − 10) / 22, 0)) × (1 + max((maxY − minY − 60) / 323, 0))`. `start` (line 670) moves
+  IDLE to SEARCHING (here finished on the next tick, with `ores` found); `stop` interrupts a search or stops a
+  finished miner; `reset` back to IDLE. Configuration setters need IDLE (line 1210: "Miner must be stopped and reset
+  before its targeting configuration is changed."), then range errors (line 1219 on). Auto-eject every 10 ticks
+  empties the slots to the inventory behind.
+- Recipe machines (`recipes.lua` header lists each source file): progress machines (sawmill, compressor,
+  purification, injection, combiner, PRC, crystallizer, dissolution, oxidizer, liquifier, antiprotonic, pigment
+  extractor, painting) count ticks to `getTicks(base)` (200; 100 for dissolution, oxidizer, liquifier, extractor,
+  PRC; 400 antiprotonic) and take their energy per tick while active; the others (chemical infuser, washer, rotary,
+  centrifuge, pigment mixer) do `2^speed` operations a tick, `getEnergyUsage` being what they used last tick. The
+  SNA (`recalculateProductionRate` line 175) runs `64 × (1 + 0.3 × (0.8 − temperature) − 0.3 × downfall) × sun
+brightness` operations (× 0.2 in rain; none when it cannot see the sun). Rotary: `setCondensentrating(v)` sets the
+  internal `mode` flag to v and `isCondensentrating` returns `!mode` (line 291-302), so `setCondensentrating(true)`
+  makes it decondensentrate; this is in the source and copied as is. Side configs and ejection defaults are each
+  constructor's (`setupItemIOConfig`, `setupItemIOExtraConfig`, `setupIOConfig`, `setupOutputConfig`, the two-input
+  layouts, `addDisabledSides(TOP)` for the centrifuge and SNA: a disabled side stays NONE).
+- Others (`misc.lua`): the resistive heater turns its energy per tick (settable, `setEnergyUsage`; storage 400 ×
+  it) into heat at 0.6; the fuelwood heater burns a fuel item for `fuelBurnTime` ticks at 400 heat a tick; both
+  lose heat to the air like `BasicHeatCapacitor` (100 capacity, 5 conduction, 100 / 10 insulation). The pump moves
+  1000 mB a source block every `getTicks(19)` ticks, the plenisher places 1000 mB every `getTicks(20)`. Lasers fire
+  what they hold (the laser up to 10 kJ a tick; the amplifier after `delay` ticks, between its thresholds). The
+  teleporter's status: "no frequency", "no frame", "no link" (fewer than two teleporters on it), "needs energy"
+  (under 1000 J), "ready"; frequencies are public, colour PURPLE to start. The stabilizer costs 5000 J × chunks
+  loaded a tick. The sorter, oredictionificator and assemblicator keep their settings and check them like the
+  source; their item movement is not simulated.
+- Transmitters: `getCapacity` is the network's (`network` × the tier's), `getBuffer` the network's buffer
+  (`FloatingLong` for cables, a stack for pipes and tubes, empty `minecraft:empty` / `mekanism:empty`).
+
 ## Not simulated / not confirmed
 
 - **Not confirmed in game.** Everything comes from source and jar; nothing was measured on a live server.
-- **Other blocks** (factories, the other machines, dynamic tank, SPS, evaporation plant, bins, digital miner) are
-  not emulated.
+- **Recipes are fixtures** for every machine here, factories included: one recipe per machine (or per input item
+  for factories), not the registry. Item and chemical slots that fill or drain tanks (`fillTankOrConvert`) and
+  energy items do nothing.
+- **Factories:** sorting groups by item name in first-seen order (the source iterates a `HashMap<HashedItem>`);
+  purifying and injecting use the mean gas per tick with its fraction carried, not a Poisson draw; recipe errors
+  (`getRecipeError`-style warnings) are not tracked.
+- **Bins** push whole stacks to a `below` that takes everything; no transporter.
+- **Dynamic tank and evaporation valves:** their item slots are fixture-only; no valve-specific output modes exist
+  in 10.2.5, so rates stand in for pipes. Evaporation biome temperature is one fixture value (the source averages
+  the bounds); solars all see the same sky; `lastGain` resets to 0 when there is no recipe.
+- **SPS:** coils are fixture flags, entities in the chamber are not hurt, coil visuals are not tracked.
+- **Digital miner:** no world scan, no real filters applied to blocks, no replace blocks used, no missing-stack
+  state; the search finishes on the next tick; auto-pull does nothing.
+- **Antiprotonic nucleosynthesizer** takes its antimatter at the end of an operation (the source uses it per tick);
+  the PRC's extra recipe energy is a fixture `recipe.energy`.
+- **Pump, plenisher, lasers, teleporter, sorter, oredictionificator, assemblicator, modification station,
+  seismic vibrator, chargepad** answer every method but move nothing in the world: counts and flags only.
+- **Item `itemNBT`** in filters is dropped; items are not checked against a registry (an unknown item would be air
+  in game).
+- **The radioactive waste barrel** has computer methods in the jar but no `withComputerSupport`, so it is not a
+  peripheral in game either.
+- **Other blocks**: none left with computer methods in the two jars.
 - **Single blocks are simplified**: recipes are fixture-given, one item at a time; item ejection just removes the
   output; inventory comparator levels count 64 per slot; heat generators have no neighbour below; solar panels see
   the same sky at all nine positions; rain and thunder switch at once (vanilla fades them in); cube and machine

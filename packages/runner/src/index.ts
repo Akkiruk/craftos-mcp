@@ -10,6 +10,7 @@ export * from "./sessions.js";
 export * from "./snapshots.js";
 export * from "./tests.js";
 export * from "./ui.js";
+export * from "./webapp.js";
 export * from "./wired.js";
 export * from "./workspace.js";
 export * from "./world.js";

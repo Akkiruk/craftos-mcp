@@ -36,6 +36,9 @@ type of an addon that is off before the computer boots.
   and every method waits.
 - `validate(method, args)` and `run(method, args)`: instead of `methods`' own checks, Mekanism's way
   (`../mek/java.lua`): arguments checked on the computer thread, then run on the server tick.
+- `exactReturns`: true to return exactly the values each method returns. Without it trailing nils are trimmed (the
+  older fakes rely on that). Java's `MethodResult.of(null)` is one nil and an empty `Object[]` is none, so a module
+  written from its source should set it and return accordingly.
 - `state()`: this block's state, in sim state under `peripherals.<name>`.
 - `detach()`: the block went away.
 

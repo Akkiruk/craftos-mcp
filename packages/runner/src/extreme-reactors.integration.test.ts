@@ -733,6 +733,7 @@ ccunit.test("reactor getters", function()
   ccunit.eq(select("#", r.getControlRodLevel(-1)), 0)
   ccunit.eq(r.getControlRodsLevels(), { [0] = 10, [1] = 20, [2] = 0, [3] = 0 })
   ccunit.eq(r.getControlRodLocation(0), nil) -- a BlockPos: CC cannot convert it
+  ccunit.eq(select("#", r.getControlRodLocation(0)), 1) -- one nil, as MethodResult.of(null) gives
   ccunit.eq(r.isActivelyCooled(), false)
   ccunit.eq(r.getCoolantAmount(), 0)
   ccunit.eq(r.getCoolantAmountMax(), 0)

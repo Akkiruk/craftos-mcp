@@ -1,0 +1,72 @@
+{
+  "simProgram": true,
+  "addons": ["create"],
+  "create": {
+    "dayTime": 8000,
+    "stations": ["Farm"],
+    "distances": { "Central|Mine": 400, "Central|Farm": 250, "Mine|Farm": 500 },
+    "trains": [
+      {
+        "name": "Harvest",
+        "at": "Farm",
+        "schedule": {
+          "cyclic": true,
+          "entries": [
+            {
+              "instruction": {
+                "id": "create:destination",
+                "data": { "text": "Farm" }
+              },
+              "conditions": [
+                [
+                  {
+                    "id": "create:delay",
+                    "data": { "value": 600, "time_unit": 1 }
+                  }
+                ]
+              ]
+            },
+            {
+              "instruction": {
+                "id": "create:destination",
+                "data": { "text": "Central" }
+              },
+              "conditions": [
+                [
+                  {
+                    "id": "create:delay",
+                    "data": { "value": 20, "time_unit": 1 }
+                  }
+                ]
+              ]
+            },
+            {
+              "instruction": {
+                "id": "create:destination",
+                "data": { "text": "Mine" }
+              },
+              "conditions": [
+                [
+                  {
+                    "id": "create:delay",
+                    "data": { "value": 20, "time_unit": 1 }
+                  }
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      { "name": "Ore Express", "at": "Mine" }
+    ]
+  },
+  "peripherals": [
+    {
+      "name": "Create_Station_0",
+      "type": "Create_Station",
+      "station": "Central"
+    },
+    { "name": "Create_Station_1", "type": "Create_Station", "station": "Mine" },
+    { "name": "Create_Station_2", "type": "Create_Station", "station": "Farm" }
+  ]
+}

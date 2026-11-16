@@ -1,5 +1,5 @@
 {
-  "name": "craftos-agent",
+  "name": "craftos-mcp",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,10 +15,11 @@
     "build": "tsc -b",
     "check": "npm run format:check && npm run typecheck && npm test",
     "clean": "tsc -b --clean",
-    "dev": "npm run dev --workspace=@craftos-agent/mcp-server",
+    "dev": "npm run dev --workspace=@craftos-mcp/mcp-server",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "start": "npm run start --workspace=@craftos-agent/mcp-server",
+    "setup": "node scripts/setup.mjs",
+    "start": "npm run start --workspace=@craftos-mcp/mcp-server",
     "test": "vitest run",
     "typecheck": "tsc -b --pretty false"
   },

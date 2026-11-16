@@ -1,5 +1,5 @@
 {
-  "name": "@craftos-agent/runner",
+  "name": "@craftos-mcp/runner",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     }
   },
   "dependencies": {
-    "@craftos-agent/rawterm": "0.0.0"
+    "@craftos-mcp/rawterm": "0.0.0"
   },
   "scripts": {
     "build": "tsc -b",

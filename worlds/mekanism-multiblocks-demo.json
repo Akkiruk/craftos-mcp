@@ -99,6 +99,308 @@
       "name": "gasBurningGenerator_0",
       "type": "gasBurningGenerator",
       "fuel": { "name": "mekanism:ethene", "amount": 9000 }
+    },
+    {
+      "name": "basicSmeltingFactory_0",
+      "type": "basicSmeltingFactory",
+      "energyInput": 300,
+      "sorting": true,
+      "inputs": [{ "name": "minecraft:iron_ore", "count": 48 }],
+      "recipes": { "minecraft:iron_ore": "minecraft:iron_ingot" }
+    },
+    {
+      "name": "advancedEnrichingFactory_0",
+      "type": "advancedEnrichingFactory",
+      "energyInput": 500,
+      "inputs": [
+        { "name": "minecraft:gold_ore", "count": 20 },
+        { "name": "minecraft:gold_ore", "count": 20 }
+      ],
+      "recipeOutput": "mekanism:enriched_gold"
+    },
+    {
+      "name": "eliteCrushingFactory_0",
+      "type": "eliteCrushingFactory",
+      "energyInput": 500
+    },
+    {
+      "name": "ultimateCompressingFactory_0",
+      "type": "ultimateCompressingFactory",
+      "energyInput": 2000,
+      "chemical": 1800,
+      "inputs": [{ "name": "mekanism:dust_refined_obsidian", "count": 9 }],
+      "recipeOutput": "mekanism:ingot_refined_obsidian"
+    },
+    {
+      "name": "basicCombiningFactory_0",
+      "type": "basicCombiningFactory",
+      "energyInput": 200,
+      "secondaryInput": { "name": "minecraft:cobblestone", "count": 32 },
+      "inputs": [{ "name": "mekanism:dust_diamond", "count": 8 }],
+      "recipes": {
+        "mekanism:dust_diamond": {
+          "output": "minecraft:diamond_ore",
+          "input": 2
+        }
+      }
+    },
+    {
+      "name": "advancedPurifyingFactory_0",
+      "type": "advancedPurifyingFactory",
+      "chemical": 600
+    },
+    { "name": "eliteInjectingFactory_0", "type": "eliteInjectingFactory" },
+    {
+      "name": "ultimateInfusingFactory_0",
+      "type": "ultimateInfusingFactory",
+      "energyInput": 500,
+      "infuse": { "name": "mekanism:redstone", "amount": 9000 },
+      "inputs": [{ "name": "minecraft:iron_ingot", "count": 16 }],
+      "recipeOutput": "mekanism:alloy_infused"
+    },
+    {
+      "name": "basicSawingFactory_0",
+      "type": "basicSawingFactory",
+      "energyInput": 200,
+      "inputs": [{ "name": "minecraft:oak_log", "count": 10 }],
+      "recipes": {
+        "minecraft:oak_log": {
+          "output": "minecraft:oak_planks",
+          "count": 6,
+          "secondary": { "name": "mekanism:sawdust", "chance": 0.25 }
+        }
+      }
+    },
+    {
+      "name": "basicBin_0",
+      "type": "basicBin",
+      "item": { "name": "minecraft:cobblestone", "count": 3000 }
+    },
+    { "name": "advancedBin_0", "type": "advancedBin" },
+    {
+      "name": "eliteBin_0",
+      "type": "eliteBin",
+      "item": { "name": "minecraft:redstone", "count": 20000 }
+    },
+    { "name": "ultimateBin_0", "type": "ultimateBin" },
+    {
+      "name": "creativeBin_0",
+      "type": "creativeBin",
+      "item": { "name": "minecraft:diamond", "count": 1 }
+    },
+    { "name": "dynamicValve_0", "type": "dynamicValve", "multiblock": "tank" },
+    {
+      "name": "thermalEvaporationController_0",
+      "type": "thermalEvaporationController",
+      "multiblock": "plant"
+    },
+    {
+      "name": "thermalEvaporationValve_0",
+      "type": "thermalEvaporationValve",
+      "multiblock": "plant"
+    },
+    {
+      "name": "spsPort_0",
+      "type": "spsPort",
+      "multiblock": "sps",
+      "energyInput": 4000000
+    },
+    {
+      "name": "spsPort_1",
+      "type": "spsPort",
+      "multiblock": "sps",
+      "mode": "output",
+      "coil": false
+    },
+    {
+      "name": "digitalMiner_0",
+      "type": "digitalMiner",
+      "running": true,
+      "ores": 400,
+      "drop": "minecraft:iron_ore",
+      "energyInput": 2000
+    },
+    {
+      "name": "precisionSawmill_0",
+      "type": "precisionSawmill",
+      "energyInput": 100,
+      "input": { "name": "minecraft:oak_log", "count": 32 }
+    },
+    {
+      "name": "osmiumCompressor_0",
+      "type": "osmiumCompressor",
+      "energyInput": 200,
+      "chemical": 200
+    },
+    {
+      "name": "purificationChamber_0",
+      "type": "purificationChamber",
+      "chemical": 200
+    },
+    {
+      "name": "chemicalInjectionChamber_0",
+      "type": "chemicalInjectionChamber"
+    },
+    { "name": "combiner_0", "type": "combiner" },
+    {
+      "name": "pressurizedReactionChamber_0",
+      "type": "pressurizedReactionChamber"
+    },
+    {
+      "name": "chemicalCrystallizer_0",
+      "type": "chemicalCrystallizer",
+      "input": 4000,
+      "energyInput": 800
+    },
+    {
+      "name": "chemicalDissolutionChamber_0",
+      "type": "chemicalDissolutionChamber"
+    },
+    {
+      "name": "chemicalInfuser_0",
+      "type": "chemicalInfuser",
+      "leftInput": 5000,
+      "rightInput": 5000,
+      "energyInput": 400
+    },
+    {
+      "name": "chemicalOxidizer_0",
+      "type": "chemicalOxidizer",
+      "energyInput": 400,
+      "input": { "name": "mekanism:dust_sulfur", "count": 64 }
+    },
+    {
+      "name": "chemicalWasher_0",
+      "type": "chemicalWasher",
+      "fluid": 10000,
+      "slurryInput": 5000,
+      "energyInput": 400
+    },
+    {
+      "name": "rotaryCondensentrator_0",
+      "type": "rotaryCondensentrator",
+      "gas": 8000,
+      "energyInput": 100
+    },
+    {
+      "name": "isotopicCentrifuge_0",
+      "type": "isotopicCentrifuge",
+      "input": 6000,
+      "energyInput": 400
+    },
+    { "name": "nutritionalLiquifier_0", "type": "nutritionalLiquifier" },
+    {
+      "name": "antiprotonicNucleosynthesizer_0",
+      "type": "antiprotonicNucleosynthesizer"
+    },
+    { "name": "pigmentExtractor_0", "type": "pigmentExtractor" },
+    { "name": "pigmentMixer_0", "type": "pigmentMixer" },
+    { "name": "paintingMachine_0", "type": "paintingMachine" },
+    {
+      "name": "solarNeutronActivator_0",
+      "type": "solarNeutronActivator",
+      "input": 10000
+    },
+    {
+      "name": "electricPump_0",
+      "type": "electricPump",
+      "blocks": 500,
+      "energyInput": 200
+    },
+    {
+      "name": "fluidicPlenisher_0",
+      "type": "fluidicPlenisher",
+      "fluid": 5000,
+      "blocks": 20,
+      "energyInput": 200
+    },
+    {
+      "name": "resistiveHeater_0",
+      "type": "resistiveHeater",
+      "energyInput": 100
+    },
+    {
+      "name": "fuelwoodHeater_0",
+      "type": "fuelwoodHeater",
+      "fuelItem": { "name": "minecraft:charcoal", "count": 16 },
+      "fuelBurnTime": 1600
+    },
+    {
+      "name": "seismicVibrator_0",
+      "type": "seismicVibrator",
+      "energyInput": 50
+    },
+    { "name": "laser_0", "type": "laser", "energyInput": 10000 },
+    { "name": "laserAmplifier_0", "type": "laserAmplifier", "delay": 20 },
+    { "name": "laserTractorBeam_0", "type": "laserTractorBeam" },
+    {
+      "name": "teleporter_0",
+      "type": "teleporter",
+      "frequency": "base",
+      "x": 10,
+      "y": 64,
+      "z": 10,
+      "energyInput": 2000
+    },
+    {
+      "name": "teleporter_1",
+      "type": "teleporter",
+      "frequency": "base",
+      "x": 300,
+      "y": 70,
+      "z": -40
+    },
+    { "name": "chargepad_0", "type": "chargepad" },
+    {
+      "name": "logisticalSorter_0",
+      "type": "logisticalSorter",
+      "defaultColor": "red",
+      "filters": [
+        {
+          "type": "SORTER_TAG_FILTER",
+          "tag": "forge:ingots/*",
+          "color": "blue",
+          "max": 64
+        }
+      ]
+    },
+    {
+      "name": "oredictionificator_0",
+      "type": "oredictionificator",
+      "filters": [
+        {
+          "type": "OREDICTIONIFICATOR_ITEM_FILTER",
+          "target": "forge:ingots/copper"
+        }
+      ]
+    },
+    { "name": "formulaicAssemblicator_0", "type": "formulaicAssemblicator" },
+    { "name": "modificationStation_0", "type": "modificationStation" },
+    {
+      "name": "dimensionalStabilizer_0",
+      "type": "dimensionalStabilizer",
+      "chunks": [{ "x": 1, "z": 0 }]
+    },
+    {
+      "name": "basicUniversalCable_0",
+      "type": "basicUniversalCable",
+      "network": 12,
+      "buffer": 40000
+    },
+    {
+      "name": "advancedMechanicalPipe_0",
+      "type": "advancedMechanicalPipe",
+      "buffer": 2000
+    },
+    {
+      "name": "elitePressurizedTube_0",
+      "type": "elitePressurizedTube",
+      "buffer": { "name": "mekanism:oxygen", "amount": 5000 }
+    },
+    {
+      "name": "diversionTransporter_0",
+      "type": "diversionTransporter",
+      "modes": { "down": "HIGH" }
     }
   ],
   "mekanism": {
@@ -161,7 +463,31 @@
         "tritiumInput": 4,
         "waterInput": 100000,
         "energyTo": "matrix"
+      },
+      "tank": {
+        "kind": "dynamicTank",
+        "length": 5,
+        "width": 5,
+        "height": 5,
+        "fluid": 10000000,
+        "fluidInput": 500
+      },
+      "plant": {
+        "kind": "evaporation",
+        "height": 18,
+        "input": 2000000,
+        "inputRate": 400,
+        "outputRate": 50,
+        "solars": 4,
+        "heatInput": 300
+      },
+      "sps": {
+        "kind": "sps",
+        "input": 2000,
+        "poloniumInput": 4,
+        "antimatterOutput": 1
       }
-    }
+    },
+    "teleporterFrequencies": ["base", { "name": "mine", "color": "yellow" }]
   }
 }

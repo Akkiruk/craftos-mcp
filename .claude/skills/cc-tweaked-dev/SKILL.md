@@ -5,7 +5,7 @@ description: Design, run and test ComputerCraft (CC:Tweaked 1.101.3) Lua program
 
 # CC:Tweaked development loop
 
-The `craftos-agent` MCP server runs a forked CraftOS-PC engine (no Minecraft, no GUI) with the CC:Tweaked
+The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no GUI) with the CC:Tweaked
 **1.101.3** ROM (Minecraft 1.18.2). Call `craftos_info` first; it lists anything missing.
 
 ## Workflow

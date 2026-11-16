@@ -746,6 +746,8 @@ return function()
       if J.isMap(value) then return ctx.filter(value) end
       return nil
     end
+    -- other parameter types a module knows (FloatingLong, Item, its filters): ctx.convert(expected, value)
+    if ctx and ctx.convert then return ctx.convert(expected, value) end
     return nil
   end
 

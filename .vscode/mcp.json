@@ -1,6 +1,6 @@
 {
   "servers": {
-    "craftos-agent": {
+    "craftos-mcp": {
       "type": "stdio",
       "command": "node",
       "args": [

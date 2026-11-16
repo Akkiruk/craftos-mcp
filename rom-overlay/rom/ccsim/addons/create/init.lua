@@ -586,7 +586,8 @@ return function(core, host)
     for _, name in ipairs(decl) do
       if not mainThread[name] then computerThread[name] = true end
     end
-    local p = { methods = methods, methodOrder = order(decl), computerThread = computerThread, sim = o }
+    local p = { methods = methods, methodOrder = order(decl), computerThread = computerThread, sim = o,
+      exactReturns = true } -- every method returns exactly what its Java does (all are void or a non-null value)
     function p.state()
       if o.kind == "Create_Speedometer" then return { speed = o.getSpeed(), network = o.network } end
       if o.kind == "Create_Stressometer" then

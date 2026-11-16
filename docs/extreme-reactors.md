@@ -197,8 +197,6 @@ rotor speed and energy, flow, vent, inductor) and `addons["extreme-reactors"].ga
 - Rods are always vertical (control rods on top). Every layer of the interior is the same layout.
 - Access ports, power taps, fluid ports and coolant pumps are fixture numbers, not blocks: no item stacks, no slot
   limits, no per-port split (`distributeEnergyEqually` divides by port count).
-- `getControlRodLocation` returns no value at all here; the real one returns one nil (the emulator drops trailing
-  nils for every addon method). The same goes for `getControlRodName`/`Level` with a negative index.
 - `getEnergyStoredAsText` below 0.001 FE uses `?` for the micro sign (CC's string encoding of `μ`), not confirmed.
 - Turbine fluid names come from the client language file (`Steam`, `Water`); a server in another language would
   differ. The reactor's steam name assumes ER's own `bigreactors:steam` is first in `forge:steam`; set `steamFluid`

@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { type KeyName, Keys, renderPng } from "@craftos-agent/rawterm";
+import { type KeyName, Keys, renderPng } from "@craftos-mcp/rawterm";
 import type { EngineHandle } from "./engine.js";
 import {
   type SettleOptions,

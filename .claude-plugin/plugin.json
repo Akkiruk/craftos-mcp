@@ -1,0 +1,36 @@
+{
+  "name": "craftos-mcp",
+  "displayName": "craftos-mcp: CC:Tweaked emulator",
+  "version": "0.1.0",
+  "description": "A headless CC:Tweaked 1.101.3 emulator for ComputerCraft Lua: run programs, touch monitors, run tests. Bundles the cc-tweaked-dev skill and the MCP server.",
+  "author": { "name": "craftos-mcp contributors" },
+  "homepage": "https://github.com/Akkiruk/craftos-mcp",
+  "repository": "https://github.com/Akkiruk/craftos-mcp",
+  "license": "MIT",
+  "keywords": [
+    "computercraft",
+    "cc-tweaked",
+    "minecraft",
+    "lua",
+    "emulator",
+    "mcp"
+  ],
+  "skills": ["./.claude/skills/"],
+  "mcpServers": {
+    "craftos": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/plugin-serve.mjs"],
+      "env": {
+        "CRAFTOS_ADDONS": "${user_config.addons}"
+      }
+    }
+  },
+  "userConfig": {
+    "addons": {
+      "type": "string",
+      "title": "Mods to simulate",
+      "description": "Which mods besides CC:Tweaked your modpack has: \"all\", \"none\", or ids separated by commas (advanced-peripherals, mekanism, mekanism-generators, create, create-additions, toms-peripherals, bigger-reactors, extreme-reactors).",
+      "default": "all"
+    }
+  }
+}

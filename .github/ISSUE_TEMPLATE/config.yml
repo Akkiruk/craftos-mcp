@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A mod or a version you would like supported
+    url: https://github.com/Akkiruk/craftos-mcp/discussions
+    about: Ask in Discussions which mods and Minecraft versions to add next.

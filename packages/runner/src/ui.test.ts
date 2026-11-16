@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TerminalFrame } from "@craftos-agent/rawterm";
+import type { TerminalFrame } from "@craftos-mcp/rawterm";
 import { describeFrame } from "./ui.js";
 
 const palette = new Uint8Array(16 * 3);

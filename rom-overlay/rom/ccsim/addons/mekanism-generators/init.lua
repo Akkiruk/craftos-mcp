@@ -10,5 +10,5 @@
 return function(core, host)
   if core.loadAddon then core.loadAddon("mekanism-machines") end
   core.mekMultiblocks = core.mekMultiblocks or dofile("/rom/ccsim/addons/mekanism-machines/engine.lua")(core, host)
-  return { peripheral = core.mekMultiblocks.peripheral }
+  return { peripheral = core.mekMultiblocks.peripheral, exactReturns = true }
 end

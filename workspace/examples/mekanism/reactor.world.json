@@ -1,0 +1,28 @@
+{
+  "simProgram": true,
+  "addons": ["mekanism", "mekanism-generators"],
+  "peripherals": [
+    {
+      "name": "fissionReactorLogicAdapter_0",
+      "type": "fissionReactorLogicAdapter",
+      "multiblock": "reactor"
+    },
+    {
+      "name": "fissionReactorPort_0",
+      "type": "fissionReactorPort",
+      "multiblock": "reactor",
+      "mode": "OUTPUT_COOLANT"
+    }
+  ],
+  "mekanism": {
+    "seed": 1,
+    "multiblocks": {
+      "reactor": {
+        "kind": "fission",
+        "fuel": 8000,
+        "burnRate": 0.1,
+        "active": true
+      }
+    }
+  }
+}

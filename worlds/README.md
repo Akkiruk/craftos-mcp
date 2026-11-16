@@ -8,6 +8,7 @@ give the same JSON inline as `world`.
 | -------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------- |
 | `generic-storage-demo.json`      | Blocks with CC's generic inventory, fluid and energy peripherals, levels moving over time | none                              |
 | `advanced-peripherals-demo.json` | One of every Advanced Peripherals block, with fixtures                                    | `advanced-peripherals`            |
+| `ap-extra-demo.json`             | Geo scanner and block reader in a block world, inventory manager, chunky turtle           | `advanced-peripherals`            |
 | `mekanism-qio-demo.json`         | A QIO network with drives, a dashboard, an importer, an exporter and an entangloporter    | `mekanism`                        |
 | `mekanism-multiblocks-demo.json` | Fission reactor, boiler, turbine, induction matrix and fusion reactor                     | `mekanism`, `mekanism-generators` |
 | `create-demo.json`               | Train stations, gauges, a display link and Crafts & Additions blocks                      | `create`, `create-additions`      |

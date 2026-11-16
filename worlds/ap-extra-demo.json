@@ -1,0 +1,66 @@
+{
+  "players": [{ "name": "Alice", "x": 2, "y": 64, "z": 0 }],
+  "ap": {
+    "players": {
+      "Alice": {
+        "inventory": {
+          "0": { "name": "minecraft:diamond_pickaxe", "count": 1 },
+          "1": { "name": "minecraft:cobblestone", "count": 32 }
+        },
+        "armor": { "head": { "name": "minecraft:iron_helmet" } },
+        "offhand": { "name": "minecraft:torch", "count": 16 },
+        "selected": 0
+      }
+    }
+  },
+  "turtle": {
+    "x": 0,
+    "y": 64,
+    "z": 0,
+    "facing": "north",
+    "fuel": 2000,
+    "left": "advancedperipherals:chunk_controller",
+    "right": "advancedperipherals:geo_scanner",
+    "inventory": { "1": { "name": "minecraft:coal", "count": 16 } }
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "fills": [
+    { "from": [4, 60, 4], "to": [5, 60, 5], "name": "minecraft:iron_ore" }
+  ],
+  "blocks": [
+    { "x": 2, "y": 64, "z": 3, "name": "minecraft:diamond_ore" },
+    {
+      "x": 3,
+      "y": 64,
+      "z": -1,
+      "name": "minecraft:chest",
+      "items": { "1": { "name": "minecraft:oak_log", "count": 12 } }
+    },
+    {
+      "x": 0,
+      "y": 64,
+      "z": 1,
+      "name": "advancedperipherals:block_reader",
+      "state": { "orientation": "east_up" }
+    },
+    { "x": 1, "y": 64, "z": 1, "name": "minecraft:furnace" }
+  ],
+  "peripherals": [
+    { "name": "geo", "type": "geoScanner", "x": 2, "y": 64, "z": 2 },
+    { "name": "reader", "type": "blockReader", "x": 3, "y": 64, "z": 0 },
+    {
+      "name": "inv",
+      "type": "inventoryManager",
+      "owner": "Alice",
+      "x": 3,
+      "y": 63,
+      "z": -1,
+      "adjacent": {}
+    }
+  ],
+  "loadedChunks": [[0, 0]]
+}

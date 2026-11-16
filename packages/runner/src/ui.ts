@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type TerminalFrame, type WindowState } from "@craftos-agent/rawterm";
+import { type TerminalFrame, type WindowState } from "@craftos-mcp/rawterm";
 import type { EngineHandle } from "./engine.js";
 
 /*

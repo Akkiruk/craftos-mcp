@@ -1,12 +1,28 @@
-# CraftOS Agent
+# craftos-mcp
 
-A headless CC:Tweaked emulator built for testing. Write a ComputerCraft program, run it, touch its monitors, check
-its screens and lock the behaviour in with tests, all without starting Minecraft. It speaks
-[MCP](https://modelcontextprotocol.io), so an AI coding agent (Claude Code, VS Code, Cursor, ...) can do the whole
-loop for you, and it works just as well from plain scripts and CI.
+> **Minecraft 1.18.2 and CC:Tweaked 1.101.3 only, for now.** Programs for newer versions (1.19, 1.20, 1.21) mostly
+> run, but where CC:Tweaked or a mod changed since, this emulator answers the way 1.18.2 does. Support for newer
+> versions is planned.
 
-It targets **CC:Tweaked 1.101.3 for Minecraft 1.18.2**: the engine passes 1189 of 1191 of CC:Tweaked's own tests at
-that version, and the ROM is built from the real CC:Tweaked jar.
+A CC:Tweaked emulator built for testing, with the world around the computer: other computers on modems, turtles in a
+block world, and peripherals from Create, Mekanism, Advanced Peripherals and more. Write a ComputerCraft program, run
+it, touch its monitors, check its screens and lock the behaviour in with tests, all without starting Minecraft.
+
+Use it the way you like:
+
+- **In a window**, like CraftOS-PC: `craftos-mcp window` ([Without an AI agent](#without-an-ai-agent)).
+- **In your browser**: `craftos-mcp app` opens computers, monitors and the world side by side.
+- **From the command line and CI**: `craftos-mcp test tests/` runs your `*.test.lua` files.
+- **With an AI agent**: it speaks [MCP](https://modelcontextprotocol.io), so Claude Code, VS Code, Cursor and others
+  can write, run and test your programs for you.
+
+The engine passes 1189 of 1191 of CC:Tweaked's own tests at 1.101.3, and the ROM is built from the real CC:Tweaked
+jar. [How exact is it](docs/accuracy.md) says, area by area, what was measured in game and what was written from
+source.
+
+![A Mekanism fission reactor controller on a monitor: the temperature climbs until the program scrams the reactor, then a RESET touch restarts it once it has cooled](docs/media/demo.gif)
+
+_The [reactor controller example](workspace/examples/mekanism/reactor.lua) running in the emulator on a simulated Mekanism reactor, with the clock sped up: it scrams the reactor before it is damaged, and RESET restarts it once it has cooled. The [test](workspace/examples/mekanism/reactor.test.lua) checks exactly that._
 
 ## What it does
 
@@ -34,13 +50,77 @@ that version, and the ROM is built from the real CC:Tweaked jar.
   - Bigger Reactors 0.6.0 and Extreme Reactors 2.0.71: reactors and turbines with their real heat, fuel and rotor
     physics.
 - **Determinism**: seed `math.random`, run the clock faster, or jump it forward so timers fire instantly.
-- **A live viewer** at <http://127.0.0.1:7878>: watch sessions, click monitors, type into terminals.
+- **Your way in**: a desktop window, a browser app (also the MCP server's live viewer at <http://127.0.0.1:7878>),
+  a command line, and an in-computer `sim` command to change the world by typing (`sim join Alice`).
+
+## Examples
+
+[`workspace/examples/`](workspace/examples/README.md) has complete programs for the mods above, each with a world and
+a test that proves it works: the reactor controller, a Create train departure board, an energy monitor for any
+modded battery, a Tom's Peripherals GPU demo, an Extreme Reactors rod controller, an Advanced Peripherals player
+greeter and a rednet chat between two computers. These pictures are rendered from real runs (`node
+scripts/make-demo-gif.mjs` makes them again).
+
+|                                                                                 |                                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| ![Create train departure board](docs/media/train-board.png)                     | ![Tom's Peripherals GPU demo](docs/media/gpu-demo.png)                     |
+| Train departure board: platform, train, status and schedule for each station    | GPU demo: a spinning cube, a sine ribbon and ripples where you right-click |
+| ![Power monitor for generic energy storage](docs/media/power-monitor.png)       | ![Reactor scrammed on a monitor](docs/media/reactor-scram.png)             |
+| Power monitor: any block with an energy store, with rates and a low-power alarm | The reactor controller after it has scrammed on temperature                |
 
 ## Setup
 
 You need Node.js 22 or newer.
 
-### 1. The engine
+### Quick start
+
+```sh
+git clone https://github.com/Akkiruk/craftos-mcp
+cd craftos-mcp
+npm run setup
+```
+
+`npm run setup` installs the packages, builds the tools, builds the ROM from the real CC:Tweaked jar (and Tom's
+Peripherals' fonts), downloads the prebuilt engine for your OS from the latest release, checks everything and prints
+the line that connects your agent. Run it again any time: finished steps are skipped. If the release has no engine for
+your OS it tells you how to build one (below).
+
+### Claude Code plugin
+
+One install gives Claude Code the `cc-tweaked-dev` skill and the `craftos` MCP server:
+
+```text
+/plugin marketplace add Akkiruk/craftos-mcp
+/plugin install craftos-mcp@craftos-mcp
+```
+
+Claude Code keeps a copy of this repository for the plugin, which has no engine or ROM yet, so the first time the
+server starts it runs the setup above in the background (a few minutes: it downloads the jar and the engine). If
+`/mcp` shows the server as failed on that first try, wait a minute and reconnect; setup carries on without it. Progress
+is in `.cache/setup.log` inside the plugin's folder. The plugin asks which mods your pack has (the addon list below),
+and the server's workspace is the folder you start Claude Code in.
+
+### The command line
+
+`craftos-mcp` runs without an agent, so it works in scripts and CI. Run it from your Lua project folder (`--dir`
+changes that):
+
+```sh
+craftos-mcp test                         # every *.test.lua below here, ccunit harness; exits 1 on a failure
+craftos-mcp test tests/ --addons create --timescale 10
+craftos-mcp run clock.lua --monitor top:2x2 --screenshot shot.png   # terminal and monitors as text, PNGs saved
+craftos-mcp run sort.lua --world worlds/chests.json --timeout 20 -- --verbose
+craftos-mcp info                         # engine, ROM and addons status
+craftos-mcp serve                        # the MCP server over stdio
+```
+
+Inside a clone use `npx craftos-mcp ...`, or `node apps/cli/dist/index.js ...`. `craftos-mcp help <command>` lists the
+options. A `--world` is a JSON file or the name of one in `worlds/`; `--addons` is `all`, `none` or ids separated by
+commas.
+
+### Doing it by hand
+
+#### 1. The engine
 
 Download the prebuilt engine for your OS from the
 [latest release](../../releases/latest) and unzip it over the repository, or build it yourself:
@@ -51,7 +131,7 @@ Download the prebuilt engine for your OS from the
 
 macOS is not supported yet.
 
-### 2. The ROM
+#### 2. The ROM
 
 CC:Tweaked's license does not allow its ROM to be redistributed with this project, so you build it on your own
 machine. This downloads CC:Tweaked 1.101.3 from Modrinth, checks its hash, and builds `rom/cc-1.101.3`:
@@ -65,19 +145,19 @@ If you already have the jar: `node scripts/build-rom.mjs path/to/cc-tweaked-1.18
 The same step downloads Tom's Peripherals 1.18.2-1.2.1 (MIT) and builds the GPU's fonts from it, since they are not
 shipped here either (`node scripts/build-toms-fonts.mjs` does it alone).
 
-### 3. The tools
+#### 3. The tools
 
 ```sh
 npm install
 npm run build
 ```
 
-### 4. Connect your agent
+#### 4. Connect your agent
 
 Claude Code:
 
 ```sh
-claude mcp add craftos -- node /path/to/craftos-agent/apps/mcp-server/dist/index.js
+claude mcp add craftos -- node /path/to/craftos-mcp/apps/mcp-server/dist/index.js
 ```
 
 VS Code: `.vscode/mcp.json` is already set up for this folder. Other MCP clients: run
@@ -85,6 +165,52 @@ VS Code: `.vscode/mcp.json` is already set up for this folder. Other MCP clients
 
 Point `CRAFTOS_WORKSPACE` at your own Lua project to work on it in place. Other settings: `CRAFTOS_ENGINE`,
 `CRAFTOS_ROM`, `CRAFTOS_RUNTIME_ROOT`, `CRAFTOS_VIEWER_PORT` (`off` turns the viewer off).
+
+## Without an AI agent
+
+`craftos-mcp window` opens the computer in a desktop window, with the same simulated world an agent gets:
+
+```sh
+craftos-mcp window worlds/generic-storage-demo.json --monitor top:3x2   # from your Lua project folder
+craftos-mcp window create-demo --dir path/to/project                    # a world from worlds/ by name
+```
+
+The computer's files are your folder (`--dir`, default the current one), live: edit in your own editor, then hold
+Ctrl+R in the window to reboot. Monitors open as windows of their own and a click is a touch; a world can list them
+under `"monitors"`. A world's speakers play real sound. F12 copies a screenshot to the clipboard. Turtle worlds and several computers on
+one network do not open in a window yet.
+
+Inside the computer, the `sim` program changes the world, as `craftos_sim_command` does for an agent. It is the
+emulator's own: a real CC:Tweaked computer has no `sim`.
+
+```text
+sim join Alice                      sim leave Alice
+sim chat Alice hello                sim advance 60          (jump the clock 60 seconds)
+sim item chest_0 1 minecraft:diamond 5
+sim state                           (players, peripherals, chat)
+sim createTrainArrive station=Create_Station_0 train=Express   (any command a mod's simulation knows)
+sim help                            (all of them)
+```
+
+### In your browser
+
+`craftos-mcp app` starts a local web page and opens it:
+
+```sh
+craftos-mcp app --dir path/to/project            # --port 7878 by default; --no-open just prints the address
+```
+
+**New computer** makes one: a normal, advanced, pocket or turtle computer, a world from `worlds/` or your own JSON,
+the mods your pack has, monitors and their sizes, and a program to run (or just the shell). Set **Computers** above 1
+for a network, each with a modem. Every computer gets a tab. Its terminal takes the keyboard, paste and mouse; the
+Ctrl+T, Ctrl+R and Ctrl+S buttons hold the keys for a second as CC needs (your browser keeps Ctrl+T for itself).
+Monitors and Tom's Peripherals GPU screens update live, and a click is a touch on that cell or pixel; **UI** outlines
+what the screens show as buttons. On the side: the world (players join, leave and chat, the clock jumps, items go
+into slots, and the whole sim state as a tree), a box for any sim command with the list of the ones this world knows,
+and the computer's files, which you can edit, or copy your project in again, and reboot.
+
+It listens on 127.0.0.1 only. The MCP server's live viewer (<http://127.0.0.1:7878>) is the same page, so you can
+watch and help while an agent works.
 
 ## Choose your mods
 
@@ -142,8 +268,8 @@ python -I tools/turtledata/extract.py --instance "<your instance>/minecraft"
 
 ```text
 engine/        Forked CraftOS-PC 2 (MIT, see engine/UPSTREAM.md)
-packages/      rawterm (engine protocol, PNG renderer), runner (runs, tests, sessions, networks), protocol
-apps/          The MCP server and the web viewer
+packages/      rawterm (engine protocol, PNG renderer), runner (runs, tests, sessions, networks, browser app), protocol
+apps/          The craftos-mcp command line (window, app, test, run, info, serve) and the MCP server
 rom-overlay/   The simulation layered over the CC:Tweaked ROM (peripherals, modems, turtles)
 scripts/       ROM builder and CC:Tweaked conformance runner
 tools/         Data extraction for turtles
@@ -156,7 +282,7 @@ docs/          Architecture, security model, peripherals, turtles, conformance
 - One CC:Tweaked version: 1.101.3 (Minecraft 1.18.2). Newer versions changed APIs this emulator measures exactly.
 - Only the mods listed above are simulated, and each from its source: where a mechanic is too large to copy (Create's
   stress network and track graph, multiblock formation) it is a fixture instead. Each mod's doc ends with what is not
-  simulated or not confirmed. Advanced Peripherals' turtle and pocket upgrades are not simulated.
+  simulated or not confirmed. Pocket computer upgrades and most of Advanced Peripherals' turtle upgrades are not simulated (the geo scanner and chunky turtle are).
 - A pattern that never finishes inside one C function (a pathological `string.find`) cannot be aborted by the
   engine; the runner's timeout ends the process instead.
 - The virtual clock can run faster, but it is not a fully deterministic scheduler.

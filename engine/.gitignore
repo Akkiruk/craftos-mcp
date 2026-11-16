@@ -48,3 +48,4 @@ vcpkg_installed
 # Local build output
 /build/
 /vcpkg_installed/
+/build-*/

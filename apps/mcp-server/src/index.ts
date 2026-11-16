@@ -3,8 +3,8 @@
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { protocolVersion } from "@craftos-agent/protocol";
-import { type KeyName, Keys } from "@craftos-agent/rawterm";
+import { protocolVersion } from "@craftos-mcp/protocol";
+import { type KeyName, Keys } from "@craftos-mcp/rawterm";
 import {
   type ComputerNetwork,
   type ScreenCapture,
@@ -47,7 +47,7 @@ import {
   runProgram,
   runTests,
   writeWorkspaceFile,
-} from "@craftos-agent/runner";
+} from "@craftos-mcp/runner";
 import { z } from "zod";
 import { startViewer } from "./viewer.js";
 
@@ -56,7 +56,7 @@ const sessions = new SessionManager(config);
 
 let lastRun: { label: string; screens: ScreenCapture[] } | undefined;
 
-const server = new McpServer({ name: "craftos-agent", version: "0.1.0" });
+const server = new McpServer({ name: "craftos-mcp", version: "0.1.0" });
 
 type Content =
   | { type: "text"; text: string }

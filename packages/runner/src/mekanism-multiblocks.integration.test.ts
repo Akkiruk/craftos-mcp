@@ -19,6 +19,7 @@ import {
   loadNamedWorld,
   runTests,
   sendAndWait,
+  sendCommandResult,
   SessionManager,
 } from "./index.js";
 
@@ -74,15 +75,16 @@ async function withSession(
   run: (
     step: (c: Record<string, unknown>) => Promise<SimState>,
   ) => Promise<void>,
+  timeoutMs = 10000,
 ): Promise<void> {
   const manager = new SessionManager(config);
   const s = manager.create([], 1, w);
   try {
     await s.handle.session.waitForText(">", 0, 20000);
     await run(async (c) => {
-      expect(await sendAndWait(s.handle, c as unknown as SimCommand)).toBe(
-        true,
-      );
+      expect(
+        await sendAndWait(s.handle, c as unknown as SimCommand, timeoutMs),
+      ).toBe(true);
       return s.handle.readState()!;
     });
   } finally {
@@ -318,6 +320,417 @@ const SOURCE: Record<string, { tile: string[]; multiblock?: string[] }> = {
   fusionReactorPort: { tile: ["getMode", "setMode", ...energy] },
 };
 
+/**
+ * The computer methods each class (with its Mekanism parents, less TileEntityMekanism, TileEntityMultiblock and
+ * MultiblockData) annotates in Mekanism-1.18.2-10.2.5.465.jar: javap -p -v, the ComputerMethod nameOverride, the
+ * WrappingComputerMethod methodNames and the SyntheticComputerMethod getters, in class order.
+ */
+const JAR: Record<string, string[]> = {
+  Factory: [
+    "getEnergyItem",
+    "isAutoSortEnabled",
+    "getEnergyUsage",
+    "getTicksRequired",
+    "setAutoSort",
+    "getRecipeProgress",
+    "getInput",
+    "getOutput",
+  ],
+  ItemStackGasToItemStackFactory: [
+    "getChemicalItem",
+    "getChemical",
+    "getChemicalCapacity",
+    "getChemicalNeeded",
+    "getChemicalFilledPercentage",
+    "dumpChemical",
+  ],
+  MetallurgicInfuserFactory: [
+    "getInfuseTypeItem",
+    "getInfuseType",
+    "getInfuseTypeCapacity",
+    "getInfuseTypeNeeded",
+    "getInfuseTypeFilledPercentage",
+    "dumpInfuseType",
+  ],
+  CombiningFactory: ["getSecondaryInput"],
+  SawingFactory: ["getSecondaryOutput"],
+  Bin: ["getStored", "getCapacity"],
+  TankMultiblockData: [
+    "getContainerEditMode",
+    "getInputItem",
+    "getOutputItem",
+    "getTankCapacity",
+    "getChemicalTankCapacity",
+    "setContainerEditMode",
+    "incrementContainerEditMode",
+    "decrementContainerEditMode",
+    "getStored",
+    "getFilledPercentage",
+  ],
+  EvaporationMultiblockData: [
+    "getInput",
+    "getInputCapacity",
+    "getInputNeeded",
+    "getInputFilledPercentage",
+    "getOutput",
+    "getOutputCapacity",
+    "getOutputNeeded",
+    "getOutputFilledPercentage",
+    "getProductionAmount",
+    "getEnvironmentalLoss",
+    "getInputItemInput",
+    "getInputItemOutput",
+    "getOutputItemInput",
+    "getOutputItemOutput",
+    "getTemperature",
+    "getActiveSolars",
+  ],
+  SPSMultiblockData: [
+    "getInput",
+    "getInputCapacity",
+    "getInputNeeded",
+    "getInputFilledPercentage",
+    "getOutput",
+    "getOutputCapacity",
+    "getOutputNeeded",
+    "getOutputFilledPercentage",
+    "getProcessRate",
+    "getCoils",
+  ],
+  SPSPort: ["getMode", "setMode"],
+  DigitalMiner: [
+    "getEnergyItem",
+    "getSilkTouch",
+    "getRadius",
+    "getMinY",
+    "getMaxY",
+    "getInverseMode",
+    "getInverseModeRequiresReplacement",
+    "getInverseModeReplaceTarget",
+    "getFilters",
+    "getToMine",
+    "isRunning",
+    "getAutoEject",
+    "getAutoPull",
+    "getEnergyUsage",
+    "getSlotCount",
+    "getItemInSlot",
+    "getState",
+    "setAutoEject",
+    "setAutoPull",
+    "setSilkTouch",
+    "start",
+    "stop",
+    "reset",
+    "getMaxRadius",
+    "setRadius",
+    "setMinY",
+    "setMaxY",
+    "setInverseMode",
+    "setInverseModeRequiresReplacement",
+    "setInverseModeReplaceTarget",
+    "clearInverseModeReplaceTarget",
+    "addFilter",
+    "removeFilter",
+  ],
+  PrecisionSawmill: [
+    "getInput",
+    "getOutput",
+    "getSecondaryOutput",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  AdvancedElectricMachine: [
+    "getChemical",
+    "getChemicalCapacity",
+    "getChemicalNeeded",
+    "getChemicalFilledPercentage",
+    "getInput",
+    "getOutput",
+    "getChemicalItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "dumpChemical",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  Combiner: [
+    "getMainInput",
+    "getSecondaryInput",
+    "getOutput",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  PressurizedReactionChamber: [
+    ...tank("InputFluid"),
+    ...tank("InputGas"),
+    ...tank("OutputGas"),
+    "getInputItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  ChemicalCrystallizer: [
+    "getInputItem",
+    "getOutput",
+    "getEnergyItem",
+    "getEnergyUsage",
+    ...tank("Input"),
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  ChemicalDissolutionChamber: [
+    ...tank("GasInput"),
+    "getInputGasItem",
+    "getInputItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    ...tank("Output"),
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  ChemicalInfuser: [
+    ...tank("LeftInput"),
+    ...tank("RightInput"),
+    ...tank("Output"),
+    "getLeftInputItem",
+    "getOutputItem",
+    "getRightInputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+  ],
+  ChemicalOxidizer: [
+    ...tank("Output"),
+    "getInput",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  ChemicalWasher: [
+    ...tank("Fluid"),
+    ...tank("SlurryInput"),
+    ...tank("SlurryOutput"),
+    "getFluidItemInput",
+    "getFluidItemOutput",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+  ],
+  RotaryCondensentrator: [
+    ...tank("Gas"),
+    ...tank("Fluid"),
+    "getGasItemInput",
+    "getGasItemOutput",
+    "getFluidItemInput",
+    "getFluidItemOutput",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "isCondensentrating",
+    "setCondensentrating",
+  ],
+  IsotopicCentrifuge: [
+    ...tank("Input"),
+    ...tank("Output"),
+    "getInputItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+  ],
+  NutritionalLiquifier: [
+    ...tank("Output"),
+    "getInput",
+    "getContainerFillItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  AntiprotonicNucleosynthesizer: [
+    ...tank("InputChemical"),
+    "getInputChemicalItem",
+    "getInputItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  PigmentExtractor: [
+    ...tank("Output"),
+    "getInput",
+    "getOutputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  PigmentMixer: [
+    ...tank("LeftInput"),
+    ...tank("RightInput"),
+    ...tank("Output"),
+    "getLeftInputItem",
+    "getOutputItem",
+    "getRightInputItem",
+    "getEnergyItem",
+    "getEnergyUsage",
+  ],
+  PaintingMachine: [
+    ...tank("PigmentInput"),
+    "getInputPigmentItem",
+    "getInputItem",
+    "getOutput",
+    "getEnergyItem",
+    "getEnergyUsage",
+    "getRecipeProgress",
+    "getTicksRequired",
+  ],
+  SolarNeutronActivator: [
+    ...tank("Input"),
+    ...tank("Output"),
+    "getPeakProductionRate",
+    "getProductionRate",
+    "getInputItem",
+    "getOutputItem",
+  ],
+  ElectricPump: [
+    ...tank("Fluid"),
+    "getInputItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "reset",
+  ],
+  FluidicPlenisher: [
+    ...tank("Fluid"),
+    "getInputItem",
+    "getOutputItem",
+    "getEnergyItem",
+    "reset",
+  ],
+  ResistiveHeater: [
+    "getTemperature",
+    "getEnergyItem",
+    "getEnvironmentalLoss",
+    "getEnergyUsage",
+    "setEnergyUsage",
+  ],
+  FuelwoodHeater: ["getFuelItem", "getTemperature", "getEnvironmentalLoss"],
+  SeismicVibrator: ["getEnergyItem"],
+  Laser: ["getDiggingPos"],
+  LaserAmplifier: [
+    "getRedstoneOutputMode",
+    "getDelay",
+    "getMinThreshold",
+    "getMaxThreshold",
+    "setRedstoneOutputMode",
+    "setDelay",
+    "setMinThreshold",
+    "setMaxThreshold",
+    "getDiggingPos",
+  ],
+  LaserTractorBeam: ["getSlotCount", "getItemInSlot", "getDiggingPos"],
+  Teleporter: [
+    "getEnergyItem",
+    "getFrequencies",
+    "hasFrequency",
+    "getFrequency",
+    "setFrequency",
+    "createFrequency",
+    "getFrequencyColor",
+    "setFrequencyColor",
+    "incrementFrequencyColor",
+    "decrementFrequencyColor",
+    "getActiveTeleporters",
+    "getStatus",
+  ],
+  Chargepad: [],
+  LogisticalSorter: [
+    "getDefaultColor",
+    "getAutoMode",
+    "isRoundRobin",
+    "isSingle",
+    "getFilters",
+    "setSingle",
+    "setRoundRobin",
+    "setAutoMode",
+    "clearDefaultColor",
+    "incrementDefaultColor",
+    "decrementDefaultColor",
+    "setDefaultColor",
+    "addFilter",
+    "removeFilter",
+  ],
+  Oredictionificator: [
+    "getInputItem",
+    "getOutputItem",
+    "getFilters",
+    "addFilter",
+    "removeFilter",
+  ],
+  FormulaicAssemblicator: [
+    "getExcessRemainingItems",
+    "getFormulaItem",
+    "getEnergyItem",
+    "hasRecipe",
+    "getRecipeProgress",
+    "getTicksRequired",
+    "getCraftingInputSlot",
+    "getCraftingOutputSlots",
+    "getCraftingOutputSlot",
+    "hasValidFormula",
+    "getSlots",
+    "getItemInSlot",
+    "encodeFormula",
+    "fillOrEmptyGrid",
+    "craftSingleItem",
+    "craftAvailableItems",
+    "getStockControl",
+    "setStockControl",
+    "getAutoMode",
+    "setAutoMode",
+  ],
+  ModificationStation: ["getEnergyItem", "getModuleItem", "getContainerItem"],
+  DimensionalStabilizer: [
+    "getChunksLoaded",
+    "getEnergyItem",
+    "isChunkLoadingAt",
+    "toggleChunkLoadingAt",
+    "setChunkLoadingAt",
+  ],
+  Transmitter: ["getBuffer", "getCapacity", "getNeeded", "getFilledPercentage"],
+  DiversionTransporter: [
+    "getMode",
+    "setMode",
+    "incrementMode",
+    "decrementMode",
+  ],
+};
+SOURCE.dynamicValve = {
+  tile: ["isFormed", "getComparatorLevel"],
+  multiblock: [...JAR.TankMultiblockData!, ...shape],
+};
+SOURCE.thermalEvaporationController = {
+  tile: ["isFormed", "getDirection"],
+  multiblock: [...JAR.EvaporationMultiblockData!, ...shape],
+};
+SOURCE.thermalEvaporationValve = {
+  tile: ["isFormed", "getComparatorLevel"],
+  multiblock: [...JAR.EvaporationMultiblockData!, ...shape],
+};
+SOURCE.spsPort = {
+  tile: [...JAR.SPSPort!, "isFormed", ...energy],
+  multiblock: [...JAR.SPSMultiblockData!, ...shape],
+};
+
 /** java.util.HashMap iteration order for String keys put in this order into new HashMap<>(initialCapacity). */
 function javaHashMapOrder(keys: string[], initialCapacity: number): string[] {
   const hash = (s: string) => {
@@ -501,6 +914,90 @@ SINGLES.gasBurningGenerator = [
   UPG,
   SEC,
 ];
+
+/**
+ * The other single blocks: the jar's methods, the TileEntityMekanism ones their block attributes allow (D facing,
+ * R redstone, C comparator, E energy containers), then upgrade, security, side config and ejector as they have them.
+ */
+function single(own: string[], attrs: string, comps: string): string[][] {
+  const tile = [...own];
+  if (attrs.includes("D")) tile.push(...dir);
+  if (attrs.includes("R")) tile.push(...red);
+  if (attrs.includes("C")) tile.push(...cmp);
+  if (attrs.includes("E")) tile.push(...energy);
+  const groups = [tile];
+  if (comps.includes("U")) groups.push(UPG);
+  if (comps.includes("S")) groups.push(SEC);
+  if (comps.includes("F")) groups.push(CFG);
+  if (comps.includes("J")) groups.push(EJ);
+  return groups;
+}
+const FACTORY_TYPES: Record<string, string[]> = {
+  Smelting: [],
+  Enriching: [],
+  Crushing: [],
+  Compressing: JAR.ItemStackGasToItemStackFactory!,
+  Combining: JAR.CombiningFactory!,
+  Purifying: JAR.ItemStackGasToItemStackFactory!,
+  Injecting: JAR.ItemStackGasToItemStackFactory!,
+  Infusing: JAR.MetallurgicInfuserFactory!,
+  Sawing: JAR.SawingFactory!,
+};
+for (const t of ["basic", "advanced", "elite", "ultimate"])
+  for (const [f, own] of Object.entries(FACTORY_TYPES))
+    SINGLES[`${t}${f}Factory`] = single(
+      [...own, ...JAR.Factory!],
+      "DRCE",
+      "USFJ",
+    );
+for (const t of tiers) SINGLES[`${t}Bin`] = single(JAR.Bin!, "DC", "");
+const MACHINES: Record<string, [string, string, string]> = {
+  digitalMiner: ["DigitalMiner", "DRCE", "US"],
+  precisionSawmill: ["PrecisionSawmill", "DRCE", "USFJ"],
+  osmiumCompressor: ["AdvancedElectricMachine", "DRCE", "USFJ"],
+  purificationChamber: ["AdvancedElectricMachine", "DRCE", "USFJ"],
+  chemicalInjectionChamber: ["AdvancedElectricMachine", "DRCE", "USFJ"],
+  combiner: ["Combiner", "DRCE", "USFJ"],
+  pressurizedReactionChamber: ["PressurizedReactionChamber", "DRCE", "USFJ"],
+  chemicalCrystallizer: ["ChemicalCrystallizer", "DRCE", "USFJ"],
+  chemicalDissolutionChamber: ["ChemicalDissolutionChamber", "DRCE", "USFJ"],
+  chemicalInfuser: ["ChemicalInfuser", "DRCE", "USFJ"],
+  chemicalOxidizer: ["ChemicalOxidizer", "DRCE", "USFJ"],
+  chemicalWasher: ["ChemicalWasher", "DRCE", "USFJ"],
+  rotaryCondensentrator: ["RotaryCondensentrator", "DRCE", "USFJ"],
+  isotopicCentrifuge: ["IsotopicCentrifuge", "DRCE", "USFJ"],
+  nutritionalLiquifier: ["NutritionalLiquifier", "DRCE", "USFJ"],
+  antiprotonicNucleosynthesizer: [
+    "AntiprotonicNucleosynthesizer",
+    "DRCE",
+    "USFJ",
+  ],
+  pigmentExtractor: ["PigmentExtractor", "DRCE", "USFJ"],
+  pigmentMixer: ["PigmentMixer", "DRCE", "USFJ"],
+  paintingMachine: ["PaintingMachine", "DRCE", "USFJ"],
+  solarNeutronActivator: ["SolarNeutronActivator", "DRC", "SFJ"],
+  electricPump: ["ElectricPump", "DRCE", "US"],
+  fluidicPlenisher: ["FluidicPlenisher", "DRCE", "US"],
+  resistiveHeater: ["ResistiveHeater", "DRE", "S"],
+  fuelwoodHeater: ["FuelwoodHeater", "D", "S"],
+  seismicVibrator: ["SeismicVibrator", "DRE", "S"],
+  laser: ["Laser", "DE", "S"],
+  laserAmplifier: ["LaserAmplifier", "DRCE", "S"],
+  laserTractorBeam: ["LaserTractorBeam", "DCE", "S"],
+  teleporter: ["Teleporter", "RCE", "US"],
+  chargepad: ["Chargepad", "DE", ""],
+  logisticalSorter: ["LogisticalSorter", "DRC", "US"],
+  oredictionificator: ["Oredictionificator", "DR", "SFJ"],
+  formulaicAssemblicator: ["FormulaicAssemblicator", "DRCE", "USFJ"],
+  modificationStation: ["ModificationStation", "DRE", "S"],
+  dimensionalStabilizer: ["DimensionalStabilizer", "RCE", "US"],
+  diversionTransporter: ["DiversionTransporter", "", ""],
+};
+for (const [type, [cls, attrs, comps]] of Object.entries(MACHINES))
+  SINGLES[type] = single(JAR[cls]!, attrs, comps);
+for (const t of ["basic", "advanced", "elite", "ultimate"])
+  for (const f of ["UniversalCable", "MechanicalPipe", "PressurizedTube"])
+    SINGLES[`${t}${f}`] = [JAR.Transmitter!];
 
 const surface = JSON.parse(
   readFileSync(
@@ -1498,9 +1995,13 @@ ccunit.test("demo", function()
   for _, ty in ipairs({ "fissionReactorLogicAdapter", "fissionReactorPort", "turbineValve", "boilerValve", "inductionPort",
       "fusionReactorLogicAdapter", "fusionReactorPort", "eliteEnergyCube", "ultimateFluidTank", "basicChemicalTank",
       "enrichmentChamber", "electrolyticSeparator", "solarGenerator", "advancedSolarGenerator", "windGenerator", "heatGenerator",
-      "bioGenerator", "gasBurningGenerator" }) do
+      "bioGenerator", "gasBurningGenerator", "basicSmeltingFactory", "ultimateInfusingFactory", "basicSawingFactory", "basicBin",
+      "creativeBin", "dynamicValve", "thermalEvaporationController", "thermalEvaporationValve", "spsPort", "digitalMiner",
+      "chemicalInfuser", "solarNeutronActivator", "teleporter", "logisticalSorter", "basicUniversalCable", "diversionTransporter" }) do
     ccunit.truthy(peripheral.find(ty), ty)
   end
+  ccunit.eq(peripheral.wrap("teleporter_0").getStatus(), "ready")
+  ccunit.eq(peripheral.wrap("dynamicValve_0").getStored().name, "minecraft:water")
   ccunit.eq(peripheral.find("fissionReactorLogicAdapter").isFormed(), true)
 end)
 `,
@@ -1518,14 +2019,22 @@ end)
       join(fileURLToPath(new URL("../../..", import.meta.url)), "worlds"),
       "mekanism-multiblocks-demo",
     );
-    await withSession(demo, async (step) => {
-      const t0 = Date.now();
-      const state = await step({ cmd: "advance", seconds: 3600 });
-      expect(Date.now() - t0).toBeLessThan(30_000);
-      expect(gameTime(state, "")).toBeGreaterThanOrEqual(72_000 - 1);
-      const matrix = mbState(state, "", "matrix");
-      expect(matrix.lastOutput).toBe(1_000_000);
-    });
+    await withSession(
+      demo,
+      async (step) => {
+        const t0 = Date.now();
+        const state = await step({ cmd: "advance", seconds: 3600 });
+        expect(Date.now() - t0).toBeLessThan(30_000);
+        expect(gameTime(state, "")).toBeGreaterThanOrEqual(72_000 - 1);
+        const matrix = mbState(state, "", "matrix");
+        expect(matrix.lastOutput).toBe(1_000_000);
+        // the single blocks ran all hour too
+        expect(mbState(state, "", "basicSmeltingFactory_0").processed).toBe(48);
+        expect(mbState(state, "", "digitalMiner_0").mined).toBe(400);
+        expect(mbState(state, "", "sps").antimatterMade).toBeGreaterThan(0);
+      },
+      60000,
+    ); // ~6 s on a quiet machine: an hour of 140 blocks, tick by tick
   }, 120000);
 
   it("fails cleanly with the addon off", async () => {
@@ -1626,6 +2135,8 @@ end)
 ccunit.test("ejector", function()
   ccunit.eq(c.hasStrictInput(), false)
   ccunit.eq(c.getOutputColor(), nil)
+  ccunit.eq(select("#", c.getOutputColor()), 1) -- a null return is one nil, not no values
+  ccunit.eq(select("#", c.setOutputColor("red")), 0) -- void: no values
   c.setOutputColor("red")
   ccunit.eq(c.getOutputColor(), "RED")
   ccunit.eq(err(c.setOutputColor, "WHITE"), "Color 'WHITE' is not a supported transporter color.")
@@ -1907,5 +2418,948 @@ end)
       "generators.test.lua",
     );
     expectAllPassed(result);
+  }, 60000);
+});
+
+// ───────────── factories, bins, dynamic tank, evaporation, SPS, miner, other machines ─────────────
+
+describe.skipIf(!ready)("factories", () => {
+  it("methods, process bounds, side config, security, chemical and infuse tanks", async () => {
+    const result = await lua(
+      `
+local f = peripheral.wrap("smelt")
+local g = peripheral.wrap("compress")
+local inf = peripheral.wrap("infuse")
+local saw = peripheral.wrap("saw")
+local locked = peripheral.wrap("locked")
+ccunit.test("readings", function()
+  ccunit.eq(f.getTicksRequired(), 200)
+  ccunit.eq(f.getMaxEnergy(), 30000) -- max(20000 / 2, 50) x 3 processes
+  ccunit.eq(peripheral.wrap("ult").getMaxEnergy(), 90000)
+  ccunit.eq(f.isAutoSortEnabled(), false)
+  ccunit.eq(f.getEnergyUsage(), 0)
+  ccunit.eq(f.getInput(0), { name = "minecraft:iron_ore", count = 5 })
+  ccunit.eq(f.getOutput(2), { name = "minecraft:air", count = 0 })
+  ccunit.eq(f.getRecipeProgress(1), 0)
+  ccunit.eq(f.getSupportedUpgrades(), { "SPEED", "ENERGY", "MUFFLING" })
+  ccunit.eq(g.getSupportedUpgrades(), { "SPEED", "ENERGY", "MUFFLING" })
+  ccunit.eq(peripheral.wrap("inject").getSupportedUpgrades(), { "SPEED", "ENERGY", "GAS", "MUFFLING" })
+  ccunit.eq(f.getDirection(), "NORTH")
+end)
+ccunit.test("process bounds", function()
+  ccunit.eq(err(f.getInput, 3), "Process: '3' is out of bounds, as this factory only has '3' processes (zero indexed).")
+  ccunit.eq(err(f.getRecipeProgress, -1), "Process: '-1' is out of bounds, as this factory only has '3' processes (zero indexed).")
+  ccunit.eq(peripheral.wrap("ult").getOutput(8), { name = "minecraft:air", count = 0 })
+  ccunit.eq(err(f.getInput), "Mismatched parameter count. getInput expected: '1' arguments, but received: '0' arguments.")
+end)
+ccunit.test("side config", function()
+  ccunit.eq(f.getConfigurableTypes(), { "ITEM", "ENERGY" })
+  ccunit.eq(g.getConfigurableTypes(), { "ITEM", "ENERGY", "GAS" })
+  ccunit.eq(inf.getConfigurableTypes(), { "ITEM", "ENERGY", "INFUSION" })
+  ccunit.eq(f.getSupportedModes("ITEM"), { "NONE", "INPUT", "OUTPUT", "INPUT_OUTPUT", "ENERGY" })
+  ccunit.eq(g.getSupportedModes("ITEM"), { "NONE", "INPUT", "OUTPUT", "INPUT_OUTPUT", "ENERGY", "EXTRA" })
+  ccunit.eq(g.getMode("ITEM", "BOTTOM"), "EXTRA")
+  ccunit.eq(f.getMode("ITEM", "BOTTOM"), "INPUT")
+  ccunit.eq(f.getMode("ITEM", "RIGHT"), "OUTPUT")
+  ccunit.eq(inf.getMode("INFUSION", "RIGHT"), "OUTPUT")
+  ccunit.eq(inf.canEject("INFUSION"), false)
+  ccunit.eq(g.canEject("GAS"), false)
+end)
+ccunit.test("tanks", function()
+  ccunit.eq(g.getChemical(), { name = "mekanism:osmium", amount = 600 })
+  ccunit.eq(g.getChemicalCapacity(), 630) -- 210 a process
+  ccunit.eq(g.getChemicalItem(), { name = "minecraft:air", count = 0 })
+  ccunit.eq(inf.getInfuseType(), { name = "mekanism:empty_infuse_type", amount = 0 })
+  ccunit.eq(inf.getInfuseTypeCapacity(), 3000)
+  ccunit.eq(saw.getSecondaryOutput(0), { name = "minecraft:air", count = 0 })
+  ccunit.eq(peripheral.wrap("combine").getSecondaryInput(), { name = "minecraft:cobblestone", count = 3 })
+  g.dumpChemical()
+  ccunit.eq(g.getChemical(), { name = "mekanism:empty", amount = 0 })
+end)
+ccunit.test("security and auto sort", function()
+  f.setAutoSort(true)
+  ccunit.eq(f.isAutoSortEnabled(), true)
+  ccunit.eq(err(locked.setAutoSort, true), "Setter not available due to machine security not being public.")
+  ccunit.eq(err(locked.dumpChemical), "Setter not available due to machine security not being public.")
+end)
+`,
+      {
+        players: [{ name: "Alice" }],
+        peripherals: [
+          {
+            name: "smelt",
+            type: "basicSmeltingFactory",
+            inputs: [{ name: "minecraft:iron_ore", count: 5 }],
+          },
+          { name: "ult", type: "ultimateEnrichingFactory" },
+          { name: "compress", type: "basicCompressingFactory", chemical: 600 },
+          { name: "inject", type: "basicInjectingFactory" },
+          { name: "infuse", type: "basicInfusingFactory" },
+          { name: "saw", type: "basicSawingFactory" },
+          {
+            name: "combine",
+            type: "basicCombiningFactory",
+            secondaryInput: { name: "minecraft:cobblestone", count: 3 },
+          },
+          {
+            name: "locked",
+            type: "basicPurifyingFactory",
+            owner: "Alice",
+            security: "private",
+          },
+        ],
+      } as unknown as WorldConfig,
+      "factories.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("processes in parallel, one tick's energy per busy process; auto-sort spreads the inputs", async () => {
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "f",
+            type: "basicSmeltingFactory",
+            energy: 30000,
+            energyInput: 150,
+            sorting: true,
+            inputs: [
+              { name: "minecraft:iron_ore", count: 4 },
+              { name: "minecraft:iron_ore", count: 4 },
+            ],
+            recipeOutput: "minecraft:iron_ingot",
+          },
+          {
+            name: "u",
+            type: "ultimateCompressingFactory",
+            energy: 0,
+            energyInput: "max",
+            chemical: 1890,
+            upgrades: { speed: 8 },
+            inputs: [{ name: "mekanism:ingot_osmium", count: 5 }],
+            recipeOutput: "mekanism:ingot_refined_obsidian",
+          },
+        ],
+      } as unknown as WorldConfig,
+      async (step) => {
+        let state = await step({ cmd: "advance", seconds: 1 });
+        let s = mbState(state, "", "f");
+        // sorted over the empty third process: 3, 3, 2
+        expect(s.inputs).toEqual([
+          { name: "minecraft:iron_ore", count: 3 },
+          { name: "minecraft:iron_ore", count: 3 },
+          { name: "minecraft:iron_ore", count: 2 },
+        ]);
+        expect(s.energyUsage).toBe(150);
+        expect(s.energy).toBe(30000);
+        const t1 = gameTime(state, "") + 1;
+        expect(s.progress).toEqual([t1, t1, t1]);
+        state = await step({ cmd: "advance", seconds: 10 });
+        s = mbState(state, "", "f");
+        const t = gameTime(state, "") + 1;
+        const ops = Math.floor(t / 200);
+        expect(s.processed).toBe(3 * ops);
+        for (const o of s.outputs)
+          expect(o).toEqual({ name: "minecraft:iron_ingot", count: ops });
+        expect(s.progress).toEqual([t % 200, t % 200, t % 200]);
+        // speed 8: 20 ticks an operation, the 200 mB base usage spread over them (10 mB a tick)
+        const u = mbState(state, "", "u");
+        expect(u.ticksRequired).toBe(20);
+        const done = Math.min(5, Math.floor(t / 20));
+        expect(u.outputs[0]).toEqual({
+          name: "mekanism:ingot_refined_obsidian",
+          count: done,
+        });
+        expect(u.chemical.amount).toBe(1890 - 10 * Math.min(t, 100));
+      },
+    );
+  }, 90000);
+
+  it("sawing gives its secondary output, infusing uses its infuse type", async () => {
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "s",
+            type: "basicSawingFactory",
+            energy: 30000,
+            energyInput: 50,
+            inputs: [{ name: "minecraft:oak_log", count: 2 }],
+            recipes: {
+              "minecraft:oak_log": {
+                output: "minecraft:oak_planks",
+                count: 6,
+                secondary: { name: "mekanism:sawdust", chance: 1 },
+              },
+            },
+          },
+          {
+            name: "i",
+            type: "basicInfusingFactory",
+            energy: 30000,
+            energyInput: 50,
+            infuse: { name: "mekanism:redstone", amount: 100 },
+            inputs: [{ name: "minecraft:iron_ingot", count: 2 }],
+            recipeOutput: "mekanism:alloy_infused",
+          },
+        ],
+      } as unknown as WorldConfig,
+      async (step) => {
+        const state = await step({ cmd: "advance", seconds: 10.5 });
+        const s = mbState(state, "", "s");
+        expect(s.outputs[0]).toEqual({
+          name: "minecraft:oak_planks",
+          count: 6,
+        });
+        expect(s.secondaryOutputs[0]).toEqual({
+          name: "mekanism:sawdust",
+          count: 1,
+        });
+        const i = mbState(state, "", "i");
+        expect(i.outputs[0]).toEqual({
+          name: "mekanism:alloy_infused",
+          count: 1,
+        });
+        expect(i.infuse.amount).toBe(90);
+      },
+    );
+  }, 60000);
+});
+
+describe.skipIf(!ready)("bins", () => {
+  it("stored item, capacity, comparator; an active bin pushes a stack down every 6 ticks", async () => {
+    const result = await lua(
+      `
+local b, c = peripheral.wrap("bin"), peripheral.wrap("cbin")
+ccunit.test("bin", function()
+  ccunit.eq(b.getStored(), { name = "minecraft:cobblestone", count = 1000 })
+  ccunit.eq(b.getCapacity(), 4096)
+  ccunit.eq(c.getCapacity(), 2147483647)
+  ccunit.eq(peripheral.wrap("ebin").getStored(), { name = "minecraft:air", count = 0 })
+  ccunit.eq(b.getComparatorLevel(), math.floor(1000 / 4096 * 14) + 1)
+  ccunit.eq(b.getDirection(), "NORTH")
+  ccunit.eq(b.getOwnerName, nil) -- no security
+  ccunit.eq(b.getRedstoneMode, nil)
+  ccunit.eq({ peripheral.getType("bin") }, { "basicBin" }) -- not an inventory
+end)
+`,
+      {
+        peripherals: [
+          {
+            name: "bin",
+            type: "basicBin",
+            item: { name: "minecraft:cobblestone", count: 1000 },
+          },
+          {
+            name: "cbin",
+            type: "creativeBin",
+            item: { name: "minecraft:stone", count: 10 },
+          },
+          { name: "ebin", type: "eliteBin" },
+        ],
+      } as unknown as WorldConfig,
+      "bins.test.lua",
+    );
+    expectAllPassed(result);
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "bin",
+            type: "basicBin",
+            active: true,
+            below: true,
+            item: { name: "minecraft:cobblestone", count: 1000 },
+          },
+          {
+            name: "cbin",
+            type: "creativeBin",
+            active: true,
+            below: true,
+            item: { name: "minecraft:stone", count: 10 },
+          },
+        ],
+      } as unknown as WorldConfig,
+      async (step) => {
+        const state = await step({ cmd: "advance", seconds: 1 });
+        const t = gameTime(state, "") + 1;
+        const pushes = Math.floor((t - 1) / 6) + 1;
+        expect(mbState(state, "", "bin").pushed).toBe(64 * pushes);
+        expect(mbState(state, "", "bin").item.count).toBe(1000 - 64 * pushes);
+        expect(mbState(state, "", "cbin").item.count).toBe(10); // a creative bin never empties
+      },
+    );
+  }, 60000);
+});
+
+describe.skipIf(!ready)("dynamic tank", () => {
+  it("one merged tank, capacities from the volume, edit mode, formation", async () => {
+    const result = await lua(
+      `
+local v = peripheral.wrap("valve")
+local g = peripheral.wrap("gas")
+ccunit.test("readings", function()
+  ccunit.eq(v.isFormed(), true)
+  ccunit.eq(v.getStored(), { name = "minecraft:water", amount = 2000000 })
+  ccunit.eq(v.getTankCapacity(), 27 * 350000)
+  ccunit.eq(v.getChemicalTankCapacity(), 27 * 16000000)
+  near(v.getFilledPercentage(), 2000000 / (27 * 350000))
+  ccunit.eq(v.getComparatorLevel(), math.floor(2000000 / (27 * 350000) * 14) + 1)
+  ccunit.eq({ v.getLength(), v.getWidth(), v.getHeight() }, { 3, 3, 3 })
+  ccunit.eq(v.getInputItem(), { name = "minecraft:air", count = 0 })
+  ccunit.eq(g.getStored(), { name = "mekanism:hydrogen", amount = 5000 })
+  near(g.getFilledPercentage(), 5000 / (5 * 5 * 5 * 16000000))
+  ccunit.eq(peripheral.wrap("empty").getStored(), { name = "minecraft:empty", amount = 0 })
+  ccunit.eq(peripheral.wrap("empty").getFilledPercentage(), 0)
+end)
+ccunit.test("edit mode", function()
+  ccunit.eq(v.getContainerEditMode(), "BOTH")
+  v.incrementContainerEditMode()
+  ccunit.eq(v.getContainerEditMode(), "FILL")
+  v.setContainerEditMode("empty")
+  ccunit.eq(v.getContainerEditMode(), "EMPTY")
+  v.incrementContainerEditMode()
+  ccunit.eq(v.getContainerEditMode(), "BOTH")
+  ccunit.eq(err(v.setContainerEditMode, "x"), "Invalid argument 0, setContainerEditMode expected ContainerEditMode but received type String with value x.")
+end)
+`,
+      {
+        peripherals: [
+          { name: "valve", type: "dynamicValve", fluid: 2000000 },
+          {
+            name: "gas",
+            type: "dynamicValve",
+            length: 5,
+            width: 5,
+            height: 5,
+            chemical: { name: "mekanism:hydrogen", amount: 5000 },
+          },
+          { name: "empty", type: "dynamicValve" },
+        ],
+      } as unknown as WorldConfig,
+      "dynamic.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("pipes fill it; a chemical is refused while it holds a fluid; unforming drops the multiblock's methods", async () => {
+    const manager = new SessionManager(config);
+    const s = manager.create([], 1, {
+      peripherals: [{ name: "v", type: "dynamicValve", multiblock: "tank" }],
+      mekanism: {
+        multiblocks: {
+          tank: { kind: "dynamicTank", fluid: 1000, fluidInput: 100 },
+        },
+      },
+    } as unknown as WorldConfig);
+    try {
+      await s.handle.session.waitForText(">", 0, 20000);
+      expect(
+        await sendAndWait(s.handle, {
+          cmd: "advance",
+          seconds: 1,
+        } as unknown as SimCommand),
+      ).toBe(true);
+      let state = s.handle.readState()!;
+      const t = gameTime(state, "") + 1;
+      expect(mbState(state, "", "tank").stored).toEqual({
+        type: "FLUID",
+        name: "minecraft:water",
+        amount: 1000 + 100 * t,
+      });
+      const refused = await sendCommandResult(s.handle, {
+        cmd: "mekAddTank",
+        multiblock: "tank",
+        tank: "chemical",
+        amount: 10,
+        name: "mekanism:oxygen",
+      } as unknown as SimCommand);
+      expect(refused.error).toMatch(/does not take mekanism:oxygen/);
+      expect(
+        await sendAndWait(s.handle, {
+          cmd: "mekSetFormed",
+          multiblock: "tank",
+          formed: false,
+        } as unknown as SimCommand),
+      ).toBe(true);
+      state = s.handle.readState()!;
+      expect(mbState(state, "", "tank").formed).toBe(false);
+    } finally {
+      await manager.destroyAll();
+    }
+  }, 60000);
+});
+
+/** EvaporationMultiblockData.tick: environment, heat, temperature multiplier, 10 mB water to 1 mB brine. */
+function evaporationModel(
+  ticks: number,
+  o: { heatInput: number; height: number; water: number },
+) {
+  const cap = 100 * o.height;
+  let heat = cap * 300,
+    water = o.water,
+    brine = 0,
+    opTicks = 0,
+    gain = 0;
+  for (let i = 0; i < ticks; i++) {
+    let pending = o.heatInput;
+    const cur = heat / cap;
+    if (Math.abs(cur - 300) < 0.001) pending += 300 * cap - heat;
+    else {
+      let incr = 0.02 * Math.sqrt(Math.abs(cur - 300));
+      if (cur > 300) incr = -incr;
+      pending += cap * incr;
+    }
+    heat += pending;
+    const tm = (Math.min(3000, heat / cap) - 300) * 0.4 * (o.height / 18);
+    const required = tm > 0 && tm < 1 ? Math.ceil(1 / tm) : 1;
+    let ops = tm > 0 && tm < 1 ? 1 : Math.trunc(tm);
+    ops = Math.min(ops, Math.floor(water / 10), 10000 - brine);
+    if (ops > 0) {
+      gain = tm > 0 && tm < 1 ? 1 / Math.ceil(1 / tm) : tm;
+      opTicks++;
+      if (opTicks >= required) {
+        opTicks = 0;
+        water -= ops * 10;
+        brine += ops;
+      }
+    } else gain = 0;
+  }
+  return { temperature: heat / cap, water, brine, gain };
+}
+
+describe.skipIf(!ready)("thermal evaporation plant", () => {
+  it("readings through the controller and a valve", async () => {
+    const result = await lua(
+      `
+local c, v = peripheral.wrap("controller"), peripheral.wrap("valve")
+ccunit.test("readings", function()
+  ccunit.eq(c.isFormed(), true)
+  ccunit.eq(c.getDirection(), "EAST")
+  ccunit.eq(c.getComparatorLevel, nil)
+  ccunit.eq(v.getDirection, nil)
+  ccunit.eq(v.getComparatorLevel(), math.floor(400000 / 4608000 * 14) + 1)
+  ccunit.eq(c.getInput().name, "minecraft:water") -- the solars warm it, so it is already evaporating
+  ccunit.eq(c.getInputCapacity(), 18 * 4 * 64000)
+  ccunit.eq(c.getOutputCapacity(), 10000)
+  ccunit.truthy(c.getOutputNeeded() <= 10000)
+  ccunit.truthy(c.getTemperature() > 300)
+  ccunit.eq(c.getActiveSolars(), 4) -- noon, four advanced solar generators on the corners
+  ccunit.truthy(c.getProductionAmount() >= 0)
+  ccunit.eq({ c.getLength(), c.getWidth(), c.getHeight() }, { 4, 4, 18 })
+  ccunit.eq(c.getInputItemInput(), { name = "minecraft:air", count = 0 })
+end)
+`,
+      {
+        peripherals: [
+          {
+            name: "controller",
+            type: "thermalEvaporationController",
+            multiblock: "plant",
+            facing: "east",
+          },
+          {
+            name: "valve",
+            type: "thermalEvaporationValve",
+            multiblock: "plant",
+          },
+        ],
+        mekanism: {
+          dayTime: 6000,
+          daylightCycle: false,
+          multiblocks: {
+            plant: { kind: "evaporation", input: 400000, solars: 4 },
+          },
+        },
+      } as unknown as WorldConfig,
+      "evaporation.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("heats up and evaporates tick for tick like EvaporationMultiblockData.tick", async () => {
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "c",
+            type: "thermalEvaporationController",
+            multiblock: "plant",
+          },
+        ],
+        mekanism: {
+          multiblocks: {
+            plant: {
+              kind: "evaporation",
+              height: 9,
+              input: 1000000,
+              heatInput: 500,
+            },
+          },
+        },
+      } as unknown as WorldConfig,
+      async (step) => {
+        const state = await step({ cmd: "advance", seconds: 5 });
+        const t = gameTime(state, "") + 1;
+        const m = evaporationModel(t, {
+          heatInput: 500,
+          height: 9,
+          water: 1000000,
+        });
+        const s = mbState(state, "", "plant");
+        expect(s.temperature).toBeCloseTo(m.temperature, 9);
+        expect(s.input.amount).toBe(m.water);
+        expect(s.output?.amount ?? 0).toBe(m.brine);
+        expect(s.productionAmount).toBeCloseTo(m.gain, 9);
+        expect(m.brine).toBeGreaterThan(0);
+      },
+    );
+  }, 60000);
+});
+
+describe.skipIf(!ready)("supercritical phase shifter", () => {
+  it("coil energy turns polonium into antimatter at 1 MJ a mB, 1000 mB an antimatter", async () => {
+    const result = await lua(
+      `
+local p = peripheral.wrap("port")
+ccunit.test("readings", function()
+  ccunit.eq(p.isFormed(), true)
+  ccunit.eq(p.getMode(), false)
+  p.setMode(true)
+  ccunit.eq(p.getMode(), true)
+  ccunit.eq(p.getInputCapacity(), 2000)
+  ccunit.eq(p.getOutputCapacity(), 1000)
+  ccunit.eq(p.getInput(), { name = "mekanism:polonium", amount = 2000 })
+  ccunit.eq(p.getMaxEnergy(), 1000000000)
+  ccunit.eq(p.getCoils(), 2)
+  ccunit.eq({ p.getLength(), p.getWidth(), p.getHeight() }, { 7, 7, 7 })
+  ccunit.eq(p.getComparatorLevel, nil)
+end)
+`,
+      {
+        peripherals: [{ name: "port", type: "spsPort", multiblock: "sps" }],
+        mekanism: {
+          multiblocks: { sps: { kind: "sps", input: 2000, coils: 2 } },
+        },
+      } as unknown as WorldConfig,
+      "sps.test.lua",
+    );
+    expectAllPassed(result);
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "port",
+            type: "spsPort",
+            multiblock: "sps",
+            energyInput: 10000000,
+          },
+        ],
+        mekanism: { multiblocks: { sps: { kind: "sps", input: 2000 } } },
+      } as unknown as WorldConfig,
+      async (step) => {
+        const state = await step({ cmd: "advance", seconds: 6 });
+        const t = gameTime(state, "") + 1;
+        const processed = Math.min(2000, 10 * (t - 1)); // the first tick's energy is processed the next tick
+        const s = mbState(state, "", "sps");
+        expect(s.input?.amount ?? 0).toBe(2000 - processed);
+        expect(s.output?.amount ?? 0).toBe(Math.floor(processed / 1000));
+        expect(s.inputProcessed).toBe(processed % 1000);
+        expect(s.processRate).toBe(0.01);
+        expect(s.lastReceivedEnergy).toBe(10000000);
+        expect(s.coils).toBe(1);
+      },
+    );
+  }, 60000);
+});
+
+describe.skipIf(!ready)("digital miner", () => {
+  it("methods, configuration checks, filters", async () => {
+    const result = await lua(
+      `
+local m = peripheral.wrap("miner")
+ccunit.test("readings", function()
+  ccunit.eq(m.getState(), "IDLE")
+  ccunit.eq(m.getRadius(), 10)
+  ccunit.eq({ m.getMinY(), m.getMaxY() }, { 0, 60 })
+  ccunit.eq(m.getMaxRadius(), 32)
+  ccunit.eq(m.getSlotCount(), 27)
+  ccunit.eq(m.getItemInSlot(0), { name = "minecraft:air", count = 0 })
+  ccunit.eq(err(m.getItemInSlot, 27), "Slot: '27' is out of bounds, as this digital miner only has '27' slots (zero indexed).")
+  ccunit.eq(m.getSupportedUpgrades(), { "SPEED", "ENERGY", "ANCHOR", "STONE_GENERATOR" })
+  ccunit.eq(m.getMaxEnergy(), 50000)
+  ccunit.eq(m.getEnergyUsage(), 0)
+  ccunit.eq(m.getInverseModeReplaceTarget(), "minecraft:air")
+  ccunit.eq(m.getConfigurableTypes, nil)
+end)
+ccunit.test("configuration", function()
+  ccunit.eq(err(m.setRadius, 33), "Radius '33' is out of range must be between 0 and 32. (Inclusive)")
+  m.setRadius(32)
+  ccunit.eq(m.getRadius(), 32)
+  ccunit.eq(err(m.setMinY, 61), "Min Y '61' is out of range must be between -64 and 60. (Inclusive)")
+  ccunit.eq(err(m.setMaxY, 320), "Max Y '320' is out of range must be between 0 and 319. (Inclusive)")
+  m.setMinY(-64)
+  m.setSilkTouch(true)
+  m.setInverseModeReplaceTarget("minecraft:stone")
+  ccunit.eq(m.getInverseModeReplaceTarget(), "minecraft:stone")
+  m.clearInverseModeReplaceTarget()
+  ccunit.eq(m.getInverseModeReplaceTarget(), "minecraft:air")
+end)
+ccunit.test("filters", function()
+  local f = { type = "MINER_ITEMSTACK_FILTER", item = "minecraft:diamond_ore" }
+  ccunit.eq(m.addFilter(f), true)
+  ccunit.eq(m.addFilter(f), false)
+  ccunit.eq(m.addFilter({ type = "miner_tag_filter", tag = "Forge:Ores/*" }), true)
+  ccunit.eq(m.getFilters(), {
+    { type = "MINER_ITEMSTACK_FILTER", item = "minecraft:diamond_ore", requiresReplacement = false, replaceTarget = "minecraft:air" },
+    { type = "MINER_TAG_FILTER", tag = "forge:ores/*", requiresReplacement = false, replaceTarget = "minecraft:air" },
+  })
+  ccunit.truthy(err(m.addFilter, { type = "SORTER_TAG_FILTER", tag = "x" }):find("addFilter expected MinerFilter", 1, true))
+  ccunit.eq(m.removeFilter(f), true)
+  ccunit.eq(#m.getFilters(), 1)
+end)
+ccunit.test("start, then the configuration is locked", function()
+  m.start()
+  ccunit.eq(m.isRunning(), true)
+  ccunit.eq(m.getState(), "FINISHED")
+  ccunit.eq(m.getToMine(), 5)
+  ccunit.eq(err(m.setRadius, 5), "Miner must be stopped and reset before its targeting configuration is changed.")
+  m.stop()
+  ccunit.eq(m.isRunning(), false)
+  ccunit.eq(m.getState(), "FINISHED")
+  m.reset()
+  ccunit.eq(m.getState(), "IDLE")
+  ccunit.eq(m.getToMine(), 0)
+  m.setRadius(5)
+end)
+`,
+      {
+        peripherals: [{ name: "miner", type: "digitalMiner", ores: 5 }],
+      } as unknown as WorldConfig,
+      "miner.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("mines one block every 80 ticks at its energy per tick (silk touch x12, radius and height cost)", async () => {
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "m",
+            type: "digitalMiner",
+            running: true,
+            ores: 3,
+            drop: "minecraft:iron_ore",
+            energy: 50000,
+            energyInput: 2000,
+          },
+          {
+            name: "s",
+            type: "digitalMiner",
+            running: true,
+            ores: 100,
+            silkTouch: true,
+            radius: 32,
+            maxY: 120,
+            energy: 50000,
+          },
+        ],
+      } as unknown as WorldConfig,
+      async (step) => {
+        const state = await step({ cmd: "advance", seconds: 9 });
+        const t = gameTime(state, "") + 1;
+        const m = mbState(state, "", "m");
+        const mined = Math.min(3, Math.floor((t - 1) / 80) + 1);
+        expect(m.mined).toBe(mined);
+        expect(m.items[0]).toEqual({
+          name: "minecraft:iron_ore",
+          count: mined,
+        });
+        expect(m.toMine).toBe(3 - mined);
+        // 1000 x 12 x (1 + 22/22) x (1 + 60/323), FloatingLong steps of four decimals
+        const perTick = 24000 * (1 + 60 / 323);
+        const s = mbState(state, "", "s");
+        const ticksRun = Math.floor(50000 / perTick);
+        expect(s.energy).toBeCloseTo(50000 - perTick * ticksRun, 1);
+        expect(s.active).toBe(false); // out of energy
+      },
+    );
+  }, 60000);
+});
+
+describe.skipIf(!ready)("other recipe machines", () => {
+  it("readings, side config and the rotary condensentrator's inverted setter", async () => {
+    const result = await lua(
+      `
+ccunit.test("machines", function()
+  local o = peripheral.wrap("oxidizer")
+  ccunit.eq(o.getTicksRequired(), 100)
+  ccunit.eq(o.getOutputCapacity(), 10000)
+  ccunit.eq(o.getConfigurableTypes(), { "ITEM", "GAS", "ENERGY" })
+  ccunit.eq(o.getMode("GAS", "RIGHT"), "OUTPUT")
+  ccunit.eq(o.getMode("GAS", "LEFT"), "NONE")
+  local inf = peripheral.wrap("infuser")
+  ccunit.eq(inf.getMode("GAS", "LEFT"), "INPUT_1")
+  ccunit.eq(inf.getMode("ITEM", "BACK"), "ENERGY")
+  ccunit.eq(inf.isEjecting("GAS"), true)
+  ccunit.eq(inf.getSupportedModes("GAS"), { "NONE", "INPUT_1", "INPUT_2", "OUTPUT", "INPUT_OUTPUT" })
+  ccunit.eq(inf.getRecipeProgress, nil)
+  local c = peripheral.wrap("centrifuge")
+  ccunit.eq(c.getMode("GAS", "TOP"), "NONE")
+  c.setMode("GAS", "TOP", "OUTPUT") -- a disabled side stays NONE
+  ccunit.eq(c.getMode("GAS", "TOP"), "NONE")
+  local r = peripheral.wrap("rotary")
+  ccunit.eq(r.isCondensentrating(), true)
+  r.setCondensentrating(true) -- sets the mode flag, which is the opposite of condensentrating
+  ccunit.eq(r.isCondensentrating(), false)
+  local prc = peripheral.wrap("prc")
+  ccunit.eq(prc.getInputFluidCapacity(), 10000)
+  ccunit.eq(prc.getConfigurableTypes(), { "ITEM", "ENERGY", "FLUID", "GAS" })
+  ccunit.eq(prc.getTicksRequired(), 100)
+  local comp = peripheral.wrap("compressor")
+  ccunit.eq(comp.getChemicalCapacity(), 210)
+  ccunit.eq(comp.getMode("ITEM", "BOTTOM"), "EXTRA")
+  comp.dumpChemical()
+  ccunit.eq(comp.getChemical(), { name = "mekanism:empty", amount = 0 })
+  local sna = peripheral.wrap("sna")
+  near(sna.getPeakProductionRate(), 64 * (1 - 0.3 * 0.4))
+  ccunit.eq(sna.getMaxEnergy, nil)
+  ccunit.eq(sna.getSupportedUpgrades, nil)
+  ccunit.eq(peripheral.wrap("antiproton").getSupportedUpgrades(), { "MUFFLING" })
+  ccunit.eq(peripheral.wrap("antiproton").getTicksRequired(), 400)
+  ccunit.eq(peripheral.wrap("dissolver").getConfigurableTypes(), { "ITEM", "GAS", "INFUSION", "PIGMENT", "SLURRY", "ENERGY" })
+  ccunit.eq(peripheral.wrap("crystallizer").getConfigurableTypes(), { "ITEM", "ENERGY", "GAS", "INFUSION", "PIGMENT", "SLURRY" })
+end)
+`,
+      {
+        peripherals: [
+          { name: "oxidizer", type: "chemicalOxidizer" },
+          { name: "infuser", type: "chemicalInfuser" },
+          { name: "centrifuge", type: "isotopicCentrifuge" },
+          { name: "rotary", type: "rotaryCondensentrator" },
+          { name: "prc", type: "pressurizedReactionChamber" },
+          { name: "compressor", type: "osmiumCompressor", chemical: 200 },
+          { name: "sna", type: "solarNeutronActivator" },
+          { name: "antiproton", type: "antiprotonicNucleosynthesizer" },
+          { name: "dissolver", type: "chemicalDissolutionChamber" },
+          { name: "crystallizer", type: "chemicalCrystallizer" },
+        ],
+      } as unknown as WorldConfig,
+      "recipe-machines.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("progress machines finish every N ticks; recipe machines run 2^speed operations a tick; the SNA follows the sun", async () => {
+    await withSession(
+      {
+        peripherals: [
+          {
+            name: "o",
+            type: "chemicalOxidizer",
+            energy: 80000,
+            energyInput: 200,
+            input: { name: "mekanism:dust_sulfur", count: 10 },
+          },
+          {
+            name: "i",
+            type: "chemicalInfuser",
+            energy: 80000,
+            energyInput: "max",
+            upgrades: { speed: 2 },
+            leftInput: 1000,
+            rightInput: 1000,
+          },
+          {
+            name: "c",
+            type: "osmiumCompressor",
+            energy: 80000,
+            energyInput: 100,
+            chemical: 200,
+            input: { name: "mekanism:ingot_osmium", count: 2 },
+          },
+          { name: "n", type: "solarNeutronActivator", input: 10000 },
+        ],
+        mekanism: { dayTime: 6000, daylightCycle: false },
+      } as unknown as WorldConfig,
+      async (step) => {
+        const state = await step({ cmd: "advance", seconds: 6 });
+        const t = gameTime(state, "") + 1;
+        const o = mbState(state, "", "o");
+        expect(o.tanks.output.amount).toBe(100 * Math.floor(t / 100));
+        expect(o.progress).toBe(t % 100);
+        const i = mbState(state, "", "i");
+        expect(i.tanks.output.amount).toBe(4 * t);
+        expect(i.energyUsage).toBeCloseTo(4 * 200 * 3.1623, 4);
+        const c = mbState(state, "", "c");
+        expect(c.tanks.chemical?.amount ?? 0).toBe(200 - Math.min(t, 200));
+        // noon, clear: 64 x (1 + 0 - 0.12) x brightness 1, so 56 operations a tick
+        const n = mbState(state, "", "n");
+        expect(n.productionRate).toBeCloseTo(56.32, 4);
+        expect(n.tanks.output.amount).toBe(Math.min(10000, 56 * t));
+      },
+    );
+  }, 60000);
+});
+
+describe.skipIf(!ready)("other blocks", () => {
+  it("heaters, lasers, teleporter, sorter, oredictionificator, assemblicator, stabilizer, transmitters", async () => {
+    const result = await lua(
+      `
+ccunit.test("resistive heater", function()
+  local h = peripheral.wrap("heater")
+  ccunit.eq(h.getEnergyUsage(), 100)
+  ccunit.eq(h.getMaxEnergy(), 40000)
+  h.setEnergyUsage(1000)
+  ccunit.eq(h.getEnergyUsage(), 1000)
+  ccunit.eq(h.getMaxEnergy(), 400000)
+  ccunit.eq(h.getComparatorLevel, nil)
+  sleep(0.5)
+  ccunit.truthy(h.getTemperature() > 300)
+  ccunit.eq(peripheral.wrap("fuelwood").getTemperature(), 300)
+end)
+ccunit.test("laser amplifier", function()
+  local a = peripheral.wrap("amp")
+  ccunit.eq(a.getRedstoneOutputMode(), "OFF")
+  ccunit.eq(a.getMaxThreshold(), 5000000000)
+  ccunit.eq(err(a.setDelay, -1), "Delay cannot be negative. Received: -1")
+  a.setMaxThreshold("1000")
+  ccunit.eq(a.getMaxThreshold(), 1000)
+  a.setMinThreshold(5000)
+  ccunit.eq({ a.getMinThreshold(), a.getMaxThreshold() }, { 5000, 5000 })
+  ccunit.eq(err(a.setMinThreshold, -1), "Invalid argument 0, setMinThreshold expected FloatingLong but received type Double with value -1.0.")
+  a.setRedstoneOutputMode("ENERGY_CONTENTS")
+  ccunit.eq(a.getRedstoneOutputMode(), "ENERGY_CONTENTS")
+  ccunit.eq(peripheral.wrap("laser").getDiggingPos(), nil)
+  ccunit.eq(err(peripheral.wrap("tractor").getItemInSlot, 27), "Slot: '27' is out of bounds, as this laser amplifier only has '27' slots (zero indexed).")
+end)
+ccunit.test("teleporter", function()
+  local t = peripheral.wrap("tele")
+  ccunit.eq(t.hasFrequency(), false)
+  ccunit.eq(t.getStatus(), "no frequency")
+  ccunit.eq(err(t.getFrequency), "No frequency is currently selected.")
+  ccunit.eq(err(t.setFrequency, "nope"), "No public teleporter frequency with name 'nope' found.")
+  t.createFrequency("home")
+  ccunit.eq(err(t.createFrequency, "home"), "Unable to create public teleporter frequency with name 'home' as one already exists.")
+  ccunit.eq(t.getFrequency(), { key = "home", public = true })
+  ccunit.eq(t.getFrequencyColor(), "PURPLE")
+  t.incrementFrequencyColor()
+  ccunit.eq(t.getFrequencyColor(), "ORANGE")
+  ccunit.eq(t.getStatus(), "no link")
+  ccunit.eq(#t.getActiveTeleporters(), 1)
+  ccunit.eq(t.getFrequencies(), { { key = "home", public = true } })
+end)
+ccunit.test("logistical sorter", function()
+  local s = peripheral.wrap("sorter")
+  ccunit.eq(s.getDefaultColor(), nil)
+  s.incrementDefaultColor()
+  ccunit.eq(s.getDefaultColor(), "DARK_BLUE")
+  ccunit.eq(err(s.setDefaultColor, "white"), "Color 'WHITE' is not a supported transporter color.")
+  local f = { type = "SORTER_ITEMSTACK_FILTER", item = "minecraft:iron_ingot", color = "red", min = 1, max = 8 }
+  ccunit.eq(s.addFilter(f), true)
+  ccunit.eq(s.addFilter(f), false)
+  ccunit.eq(s.getFilters()[1], { type = "SORTER_ITEMSTACK_FILTER", item = "minecraft:iron_ingot", allowDefault = false, color = "RED",
+    size = false, min = 1, max = 8, fuzzy = false })
+  ccunit.truthy(err(s.addFilter, { type = "SORTER_ITEMSTACK_FILTER", item = "minecraft:iron_ingot", min = 9, max = 8 }):find("expected SorterFilter", 1, true))
+  s.setRoundRobin(true)
+  ccunit.eq(s.isRoundRobin(), true)
+end)
+ccunit.test("oredictionificator", function()
+  local o = peripheral.wrap("oredict")
+  ccunit.eq(o.addFilter({ type = "OREDICTIONIFICATOR_ITEM_FILTER", target = "forge:ingots/copper" }), true)
+  ccunit.eq(o.getFilters(), { { type = "OREDICTIONIFICATOR_ITEM_FILTER", target = "forge:ingots/copper", selected = "minecraft:air" } })
+  ccunit.truthy(err(o.addFilter, { type = "OREDICTIONIFICATOR_ITEM_FILTER", target = "minecraft:logs" }):find("expected OredictionificatorItemFilter", 1, true))
+  ccunit.eq(o.getConfigurableTypes(), { "ITEM" })
+end)
+ccunit.test("formulaic assemblicator", function()
+  local a = peripheral.wrap("assembler")
+  ccunit.eq(a.hasValidFormula(), false)
+  ccunit.eq(err(a.encodeFormula), "No formula found.")
+  ccunit.eq(err(a.getAutoMode), "Auto-Mode requires a valid formula.")
+  ccunit.eq(err(a.setStockControl, true), "Stock Control requires a valid formula.")
+  ccunit.eq(err(a.craftSingleItem), "Unable to perform craft as there is currently no matching recipe in the grid.")
+  ccunit.eq(a.getSlots(), 18)
+  ccunit.eq(err(a.getCraftingInputSlot, 9), "Crafting Input Slot '9' is out of bounds, must be between 0 and 9.")
+  ccunit.eq(a.getExcessRemainingItems(), {})
+end)
+ccunit.test("dimensional stabilizer", function()
+  local d = peripheral.wrap("stabilizer")
+  ccunit.eq(d.getChunksLoaded(), 1)
+  ccunit.eq(d.isChunkLoadingAt(0, 0), true)
+  d.setChunkLoadingAt(1, -2, true)
+  ccunit.eq(d.getChunksLoaded(), 2)
+  d.toggleChunkLoadingAt(1, -2)
+  ccunit.eq(d.getChunksLoaded(), 1)
+  ccunit.eq(err(d.isChunkLoadingAt, 3, 0), "X offset '3' is not in range, must be between -2 and 2 inclusive.")
+  ccunit.eq(err(d.isChunkLoadingAt, 0, -3), "Z offset '-3' is not in range, must be between -2 and 2 inclusive.")
+end)
+ccunit.test("transmitters", function()
+  local c = peripheral.wrap("cable")
+  ccunit.eq(c.getCapacity(), 8000 * 3)
+  ccunit.eq(c.getBuffer(), 6000)
+  ccunit.eq(c.getNeeded(), 18000)
+  ccunit.eq(c.getFilledPercentage(), 0.25)
+  ccunit.eq(peripheral.wrap("pipe").getBuffer(), { name = "minecraft:empty", amount = 0 })
+  ccunit.eq(peripheral.wrap("pipe").getCapacity(), 128000)
+  ccunit.eq(peripheral.wrap("tube").getBuffer(), { name = "mekanism:hydrogen", amount = 100 })
+  local d = peripheral.wrap("diversion")
+  ccunit.eq(d.getMode("north"), "DISABLED")
+  d.incrementMode("NORTH")
+  ccunit.eq(d.getMode("NORTH"), "HIGH")
+  d.setMode("up", "low")
+  ccunit.eq(d.getMode("UP"), "LOW")
+  d.incrementMode("UP")
+  ccunit.eq(d.getMode("UP"), "DISABLED")
+  ccunit.eq(err(d.getMode, "front"), "Invalid argument 0, getMode expected Direction but received type String with value front.")
+end)
+`,
+      {
+        peripherals: [
+          {
+            name: "heater",
+            type: "resistiveHeater",
+            energy: 40000,
+            energyInput: 1000,
+          },
+          { name: "fuelwood", type: "fuelwoodHeater" },
+          { name: "amp", type: "laserAmplifier" },
+          { name: "laser", type: "laser" },
+          { name: "tractor", type: "laserTractorBeam" },
+          { name: "tele", type: "teleporter" },
+          { name: "sorter", type: "logisticalSorter" },
+          { name: "oredict", type: "oredictionificator" },
+          { name: "assembler", type: "formulaicAssemblicator" },
+          { name: "stabilizer", type: "dimensionalStabilizer" },
+          {
+            name: "cable",
+            type: "basicUniversalCable",
+            network: 3,
+            buffer: 6000,
+          },
+          { name: "pipe", type: "ultimateMechanicalPipe" },
+          { name: "tube", type: "basicPressurizedTube", buffer: 100 },
+          { name: "diversion", type: "diversionTransporter" },
+        ],
+      } as unknown as WorldConfig,
+      "other-blocks.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
+
+  it("fails cleanly with the addon off", async () => {
+    await expect(
+      lua(
+        `ccunit.test("x", function() end)`,
+        {
+          peripherals: [{ name: "f", type: "basicSmeltingFactory" }],
+          addons: "none",
+        } as unknown as WorldConfig,
+        "off-factory.test.lua",
+      ),
+    ).rejects.toThrow(
+      /basicSmeltingFactory from Mekanism \(addon "mekanism"\)/,
+    );
   }, 60000);
 });

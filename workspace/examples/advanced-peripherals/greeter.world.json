@@ -1,0 +1,18 @@
+{
+  "simProgram": true,
+  "addons": ["advanced-peripherals"],
+  "players": [
+    { "name": "Alice", "x": 2, "y": 64, "z": 0 },
+    { "name": "Bob", "x": 90, "y": 64, "z": 0 }
+  ],
+  "peripherals": [
+    {
+      "name": "playerDetector_0",
+      "type": "playerDetector",
+      "x": 0,
+      "y": 64,
+      "z": 0
+    },
+    { "name": "chatBox_0", "type": "chatBox" }
+  ]
+}

@@ -48,6 +48,23 @@ return function(core, J, fontData, png)
   end
   G.mapTo = mapTo
 
+  -- What each @LuaMethod gives CC (ITMPeripheral.findLuaMethods): a void method gives no value, an Object[] method
+  -- gives its elements, and every other return type (int, boolean, double, Object) is wrapped as one value.
+  local VOID = {}
+  for _, n in ipairs({ "sync", "glFrustum", "glDirLight", "render", "clear", "glBegin", "glEnd", "glVertex", "glTexCoord",
+    "glColor", "glLoadIdentity", "glPushMatrix", "glPopMatrix", "glTranslate", "glScale", "glRotate", "glDeleteTextures",
+    "glBindTexture", "glTexImage", "glEnable", "glDisable", "write", "free", "setRGB", "setX", "setY", "setW", "setH",
+    "setSize", "refreshSize" }) do VOID[n] = true end
+  local ARRAY = {}
+  for _, n in ipairs({ "getSize", "getFont", "getConstants", "decodeImage", "imageFromBuffer", "newImage", "newBuffer",
+    "read", "getAsBuffer", "saveImage" }) do ARRAY[n] = true end
+  --- The values a call to `name` returns, from the pcall result `r` (r[1] is the status): exactly Java's count.
+  function G.javaReturn(name, r)
+    if VOID[name] then return end
+    if ARRAY[name] then return mapTo(r, 2) end
+    return mapTo({ r[2], n = 1 }, 1)
+  end
+
   --- The table CC hands Lua for a TMLuaObject. TMLuaObject.call turns any exception but a LuaException into
   --- "Java Exception: <exception>".
   function wrap(obj)
@@ -65,7 +82,7 @@ return function(core, J, fontData, png)
             if J.isJava(e) then e = "Java Exception: " .. tostring(e) end
             error(e, 2)
           end
-          return mapTo(r, 2)
+          return G.javaReturn(name, r)
         end
       end
     end

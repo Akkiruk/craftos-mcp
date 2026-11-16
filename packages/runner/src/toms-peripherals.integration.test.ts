@@ -899,6 +899,59 @@ end)
     );
     expectAllPassed(result);
   }, 60000);
+
+  it("return counts are Java's: none for void, one for a getter, the array's length for Object[]", async () => {
+    const result = await lua(
+      `
+local function n(...) return select("#", ...) end
+ccunit.test("void methods return no value, getters exactly one", function()
+  local kb, rs, wdt, gpu = peripheral.wrap("kb"), peripheral.wrap("rs"), peripheral.wrap("wdt"), peripheral.wrap("gpu")
+  ccunit.eq(n(kb.setFireNativeEvents(true)), 0)
+  ccunit.eq(n(rs.setOutput("up", true)), 0)
+  ccunit.eq(n(rs.setAnalogOutput("up", 3)), 0)
+  ccunit.eq(n(rs.getInput("up")), 1)
+  ccunit.eq(n(rs.getBundledInput("up")), 1)
+  ccunit.eq(n(rs.getSides()), 6)
+  ccunit.eq(n(wdt.setTimeout(400)), 0)
+  ccunit.eq(n(wdt.reset()), 0)
+  ccunit.eq(n(wdt.isEnabled()), 1)
+  ccunit.eq(n(wdt.getTimeout()), 1)
+  ccunit.eq(n(gpu.setSize(16)), 0)
+  ccunit.eq(n(gpu.refreshSize()), 0)
+  ccunit.eq(n(gpu.sync()), 0)
+  ccunit.eq(n(gpu.fill(0xFF000000)), 1)
+  ccunit.eq(n(gpu.getUsedMemory()), 1)
+  ccunit.eq(n(gpu.getSize()), 5) -- width, height, maxX, maxY, size
+  ccunit.eq(n(gpu.getFont()), 2)
+  local b = gpu.newBuffer(4)
+  ccunit.eq(n(b.write(1, 2)), 0)
+  ccunit.eq(n(b.length()), 1)
+  ccunit.eq(n(b.read(2)), 2)
+  ccunit.eq(n(b.read(0)), 0)
+  ccunit.eq(n(b.ref()), 1)
+  ccunit.eq(n(b.free()), 0)
+  local img = gpu.newImage(2, 2)
+  ccunit.eq(n(img.setRGB(0, 0, 5)), 0)
+  ccunit.eq(n(img.getRGB(0, 0)), 1)
+  ccunit.eq(n(img.getAsBuffer()), 4)
+  ccunit.eq(n(img.gpuDraw()), 1)
+  ccunit.eq(n(img.free()), 0)
+  local r = gpu.getBounds()
+  ccunit.eq(n(r.getX()), 1)
+end)
+`,
+      {
+        peripherals: [
+          { name: "kb", type: "tm_keyboard" },
+          { name: "rs", type: "tm_rsPort" },
+          { name: "wdt", type: "tm_wdt" },
+          { name: "gpu", type: "tm_gpu", monitor: { width: 1, height: 1 } },
+        ],
+      },
+      "returns.test.lua",
+    );
+    expectAllPassed(result);
+  }, 60000);
 });
 
 // ───────────── events and the clock: a session with an agent ─────────────

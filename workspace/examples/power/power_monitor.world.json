@@ -1,0 +1,25 @@
+{
+  "peripherals": [
+    {
+      "name": "battery_0",
+      "type": "energy_storage",
+      "energy": 80000,
+      "energyCapacity": 100000,
+      "energyRate": -200
+    },
+    {
+      "name": "energy_cell_0",
+      "type": "thermal:energy_cell",
+      "energy": 20000,
+      "energyCapacity": 100000,
+      "energyRate": 50
+    },
+    {
+      "name": "machine_0",
+      "type": "thermal:machine_furnace",
+      "size": 3,
+      "energy": 5000,
+      "energyCapacity": 50000
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "simProgram": true,
+  "addons": ["extreme-reactors"],
+  "peripherals": [
+    {
+      "name": "BigReactors-Reactor_0",
+      "type": "BigReactors-Reactor",
+      "variant": "basic",
+      "dimensions": [5, 5, 5],
+      "fuel": 12000,
+      "controlRods": [{ "name": "rod", "level": 0 }],
+      "rodLevel": 0,
+      "active": true,
+      "load": 100,
+      "energy": 700000
+    }
+  ]
+}

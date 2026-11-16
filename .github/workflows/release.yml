@@ -99,7 +99,7 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name="craftos-agent-${GITHUB_REF_NAME}-${{ matrix.platform }}"
+          name="craftos-mcp-${GITHUB_REF_NAME}-${{ matrix.platform }}"
           stage="$RUNNER_TEMP/stage"
           rm -rf "$stage" && mkdir -p "$stage/engine/build"
           if [ "$RUNNER_OS" = Windows ]; then

@@ -1,0 +1,55 @@
+name: Differs from the real game
+description: A program behaves differently in the emulator than on a real computer in Minecraft.
+labels: ["differs from game"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Every difference from the real game counts as a bug here, however small. The fastest fix comes from a
+        short program that shows it, and what the real game printed.
+  - type: input
+    id: cc
+    attributes:
+      label: CC:Tweaked and Minecraft version on the real side
+      placeholder: "CC:Tweaked 1.101.3, Minecraft 1.18.2, Forge 40.2.x"
+    validations:
+      required: true
+  - type: input
+    id: mods
+    attributes:
+      label: Other mods involved, with versions
+      placeholder: "Advanced Peripherals 0.7.31r, Create 0.5.1.i (or none)"
+  - type: dropdown
+    id: where
+    attributes:
+      label: Singleplayer or a server?
+      options:
+        - Singleplayer
+        - Dedicated server
+        - Not sure
+  - type: textarea
+    id: program
+    attributes:
+      label: A short program that shows it
+      description: As small as you can make it. Include the world JSON if it uses peripherals.
+      render: lua
+    validations:
+      required: true
+  - type: textarea
+    id: real
+    attributes:
+      label: What the real game does
+      description: Output, error message, timing. A screenshot is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: emulator
+    attributes:
+      label: What the emulator does
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: craftos-mcp version or commit
+      placeholder: "v0.1.0 or a commit hash"

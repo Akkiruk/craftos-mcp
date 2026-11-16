@@ -72,6 +72,12 @@ end
 local bootEnv = setmetatable({ emulator = { hide = hideEmulator }, periphemu = emulatorTools.periphemu, config = emulatorTools.config,
     mounter = emulatorTools.mounter }, { __index = _ENV, __newindex = _ENV })
 
+-- The emulator's `sim` shell program, only for a computer a person drives (world.simProgram; rom/ccsim/sim_shell.lua)
+if shell and fs.exists("/rom/ccsim/sim_shell.lua") then
+    local fn = loadfile("/rom/ccsim/sim_shell.lua", nil, _ENV)
+    if fn then pcall(fn) end
+end
+
 -- Run startup passed with --script if available
 if _CCPC_STARTUP_SCRIPT then
     local fn, err = load(_CCPC_STARTUP_SCRIPT, "@startup.lua", "t", bootEnv)

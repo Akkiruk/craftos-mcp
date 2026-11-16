@@ -1,0 +1,12 @@
+{
+  "simProgram": true,
+  "addons": ["toms-peripherals"],
+  "peripherals": [
+    {
+      "name": "tm_gpu_0",
+      "type": "tm_gpu",
+      "monitor": { "width": 4, "height": 3 }
+    }
+  ],
+  "tomsPeripherals": { "maxScreenSize": 16 }
+}

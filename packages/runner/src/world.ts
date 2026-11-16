@@ -315,10 +315,17 @@ export interface WorldConfig {
    * addon that is off is an error.
    */
   addons?: string | string[];
+  /**
+   * Give the computer the emulator's `sim` shell program, so a person can change the world by typing (`sim join
+   * Alice`). Not CC:Tweaked's, so off unless a person drives the computer (`craftos-mcp window` and `app` turn it on).
+   */
+  simProgram?: boolean;
   players?: PlayerSpec[];
   computerId?: number;
   /** "pocket" computers get the pocket computer's 26x20 terminal unless `terminal` says otherwise. */
   kind?: "block" | "pocket";
+  /** false: a normal computer or pocket computer, with no colour (default advanced). Turtles use `turtle.advanced`. */
+  advanced?: boolean;
   /** Terminal size in characters (default 51x19, or 26x20 for pocket computers). */
   terminal?: { width: number; height: number };
   /** Overrides of the server config. */
@@ -381,7 +388,14 @@ export interface WorldConfig {
     tags?: string[];
   }[];
   /** Overrides of the Advanced Peripherals server config (cooldowns, ranges, ...). */
-  ap?: { config?: Record<string, unknown> };
+  ap?: {
+    config?: Record<string, unknown>;
+    /**
+     * What players carry, for the inventory manager: `inventory` (slot 0-35 to item), `armor` (feet, legs, chest,
+     * head to item), `offhand` (an item) and `selected` (the held hotbar slot, 0-8).
+     */
+    players?: Record<string, Record<string, unknown>>;
+  };
   /** Mekanism 10.2.5: the QIO system. See docs/mekanism-qio.md. */
   mekanism?: MekanismWorld;
   /** Make this computer a turtle (docs/turtle.md). Its world is `blocks`, `fills` and `ground`. */

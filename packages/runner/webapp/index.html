@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CraftOS</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23dede6c'/%3E%3Crect x='2' y='2' width='12' height='12' fill='%23111'/%3E%3Cpath d='M4 5l3 3-3 3' stroke='%23f0f0f0' stroke-width='1.5' fill='none'/%3E%3Crect x='8' y='10' width='4' height='1.5' fill='%23f0f0f0'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand"><span class="logo">&gt;_</span> CraftOS</div>
+      <nav id="tabs" class="tabs" aria-label="Computers"></nav>
+      <button id="new" class="btn primary">+ New computer</button>
+    </header>
+
+    <div id="problems" class="problems" hidden></div>
+
+    <main id="main">
+      <section id="empty" class="empty">
+        <h1>No computers yet</h1>
+        <p>
+          Make one with <b>New computer</b>: pick a world, the mods your pack
+          has, monitors, and a program to run.
+        </p>
+        <button class="btn primary" id="new2">+ New computer</button>
+        <div id="lastrun-empty"></div>
+      </section>
+
+      <section id="computer" class="computer" hidden>
+        <div class="screens">
+          <div class="toolbar">
+            <span id="status" class="pill"></span>
+            <span id="title" class="title"></span>
+            <span class="grow"></span>
+            <button
+              class="btn"
+              data-act="t"
+              title="Hold Ctrl+T: terminate the running program"
+            >
+              Ctrl+T
+            </button>
+            <button class="btn" data-act="r" title="Hold Ctrl+R: reboot">
+              Ctrl+R
+            </button>
+            <button class="btn" data-act="s" title="Hold Ctrl+S: shut down">
+              Ctrl+S
+            </button>
+            <button class="btn" data-act="start" id="start" hidden>
+              Turn on
+            </button>
+            <button
+              class="btn"
+              data-act="paste"
+              title="Paste text from the clipboard into the computer"
+            >
+              Paste
+            </button>
+            <label
+              class="check"
+              title="Outline what the screens show as buttons and panels"
+              ><input type="checkbox" id="overlay" /> UI</label
+            >
+            <button
+              class="btn danger"
+              data-act="close"
+              title="Turn the computer off and remove it"
+            >
+              Close
+            </button>
+          </div>
+          <div
+            id="term-wrap"
+            class="bezel"
+            tabindex="0"
+            title="Click here, then type"
+          >
+            <canvas id="term"></canvas>
+            <div class="hint" id="term-hint">
+              Click the screen to type. Ctrl+R / Ctrl+S work from the keyboard;
+              use the Ctrl+T button (the browser keeps Ctrl+T).
+            </div>
+          </div>
+          <div id="monitors-box" hidden>
+            <h2>
+              Monitors <span class="sub">click a cell to touch it</span>
+              <span class="grow"></span>
+              <label class="inline"
+                >as player
+                <input
+                  id="touch-player"
+                  placeholder="(the interacting player)"
+                  size="14"
+              /></label>
+            </h2>
+            <div id="monitors" class="grid"></div>
+          </div>
+          <div id="pixels-box" hidden>
+            <h2>
+              GPU screens
+              <span class="sub">Tom's Peripherals; click to touch</span>
+            </h2>
+            <div id="pixels" class="grid"></div>
+          </div>
+        </div>
+
+        <aside class="side">
+          <div class="side-tabs" role="tablist">
+            <button data-panel="world" class="on">World</button>
+            <button data-panel="commands">Sim commands</button>
+            <button data-panel="files">Files</button>
+          </div>
+
+          <div class="panel" data-panel="world">
+            <div class="card">
+              <h3>Players</h3>
+              <div class="row">
+                <input
+                  id="p-name"
+                  placeholder="player name"
+                  list="player-list"
+                />
+                <datalist id="player-list"></datalist>
+                <button class="btn" data-world="addPlayer">Add</button>
+                <button class="btn" data-world="join">Join</button>
+                <button class="btn" data-world="leave">Leave</button>
+              </div>
+              <div class="row">
+                <input id="p-chat" placeholder="chat message" />
+                <button class="btn" data-world="chat">Say</button>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Clock</h3>
+              <div class="row">
+                <input
+                  id="c-seconds"
+                  type="number"
+                  value="10"
+                  min="0"
+                  step="1"
+                  style="width: 6em"
+                />
+                s
+                <button class="btn" data-world="advance">Advance</button>
+                <button class="btn ghost" data-advance="1">+1 s</button>
+                <button class="btn ghost" data-advance="60">+1 min</button>
+                <button class="btn ghost" data-advance="3600">+1 h</button>
+              </div>
+            </div>
+            <div class="card">
+              <h3>Inventory slot</h3>
+              <div class="row">
+                <input
+                  id="i-periph"
+                  placeholder="peripheral"
+                  list="inv-list"
+                  size="12"
+                />
+                <datalist id="inv-list"></datalist>
+                <input
+                  id="i-slot"
+                  type="number"
+                  value="1"
+                  min="1"
+                  style="width: 4.5em"
+                  title="slot"
+                />
+              </div>
+              <div class="row">
+                <input id="i-item" placeholder="minecraft:diamond" />
+                <input
+                  id="i-count"
+                  type="number"
+                  value="1"
+                  min="1"
+                  max="64"
+                  style="width: 4.5em"
+                  title="count"
+                />
+                <button class="btn" data-world="setItem">Set</button>
+                <button class="btn ghost" data-world="clearItem">Empty</button>
+              </div>
+            </div>
+            <div id="world-msg" class="msg"></div>
+            <div class="card">
+              <h3>Sim state <span class="sub" id="state-age"></span></h3>
+              <div id="state" class="tree"></div>
+            </div>
+          </div>
+
+          <div class="panel" data-panel="commands" hidden>
+            <div class="card">
+              <h3>Send a sim command</h3>
+              <textarea id="cmd-text" rows="5" spellcheck="false">
+{"cmd": "advance", "seconds": 5}</textarea
+              >
+              <div class="row">
+                <button class="btn primary" id="cmd-send">Send</button
+                ><span id="cmd-result" class="msg"></span>
+              </div>
+            </div>
+            <div class="card">
+              <h3>
+                Commands this world knows
+                <span class="sub">click one to fill the box</span>
+              </h3>
+              <input id="cmd-filter" placeholder="filter" />
+              <ul id="cmd-list" class="cmds"></ul>
+            </div>
+          </div>
+
+          <div class="panel" data-panel="files" hidden>
+            <div class="card">
+              <h3>Computer files <span class="sub" id="files-dir"></span></h3>
+              <div class="row">
+                <button class="btn" id="files-refresh">Refresh</button>
+                <button class="btn" data-act="r">Reboot</button>
+                <button
+                  class="btn"
+                  id="files-sync"
+                  title="Copy your project folder onto the computer again, then reboot"
+                >
+                  Copy project in + reboot
+                </button>
+              </div>
+              <ul id="files" class="files"></ul>
+            </div>
+            <div class="card" id="editor-card" hidden>
+              <h3><span id="editor-name"></span></h3>
+              <textarea id="editor" rows="16" spellcheck="false"></textarea>
+              <div class="row">
+                <button class="btn primary" id="editor-save">Save</button
+                ><button class="btn" id="editor-save-reboot">
+                  Save + reboot</button
+                ><span id="editor-msg" class="msg"></span>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section id="lastrun" class="lastrun" hidden></section>
+    </main>
+
+    <dialog id="dlg">
+      <form id="form" method="dialog">
+        <h2>New computer</h2>
+        <div class="cols">
+          <div>
+            <label>Name <input name="name" placeholder="computer" /></label>
+            <fieldset>
+              <legend>Type</legend>
+              <div class="seg">
+                <label
+                  ><input type="radio" name="kind" value="computer" checked />
+                  Computer</label
+                >
+                <label
+                  ><input type="radio" name="kind" value="pocket" />
+                  Pocket</label
+                >
+                <label
+                  ><input type="radio" name="kind" value="turtle" />
+                  Turtle</label
+                >
+              </div>
+              <label class="check"
+                ><input type="checkbox" name="advanced" checked /> Advanced
+                (colour, mouse)</label
+              >
+            </fieldset>
+            <label
+              >Program to run
+              <input
+                name="program"
+                list="programs"
+                placeholder="(just the shell)"
+            /></label>
+            <datalist id="programs"></datalist>
+            <fieldset>
+              <legend>Monitors</legend>
+              <div id="mon-rows"></div>
+              <button type="button" class="btn ghost" id="mon-add">
+                + Add monitor
+              </button>
+            </fieldset>
+            <div class="row2">
+              <label
+                >Clock speed
+                <input
+                  name="timeScale"
+                  type="number"
+                  value="1"
+                  min="0.1"
+                  max="1000"
+                  step="0.1"
+              /></label>
+              <label
+                >Computers
+                <input
+                  name="count"
+                  type="number"
+                  value="1"
+                  min="1"
+                  max="8"
+                  title="More than one: a network, each with a modem"
+              /></label>
+              <label id="modem-wrap" hidden
+                >Modem
+                <select name="modem">
+                  <option value="wireless">wireless</option>
+                  <option value="ender">ender</option>
+                </select></label
+              >
+            </div>
+          </div>
+          <div>
+            <label
+              >World
+              <select name="worldFile">
+                <option value="">(empty world)</option>
+              </select>
+            </label>
+            <label
+              >World JSON <span class="sub">edit it, or paste your own</span>
+              <textarea name="world" rows="9" spellcheck="false">{}</textarea>
+            </label>
+            <fieldset>
+              <legend>
+                Mods <span class="sub">tick the ones your pack has</span>
+              </legend>
+              <div id="addons" class="addons"></div>
+            </fieldset>
+          </div>
+        </div>
+        <div id="form-error" class="error"></div>
+        <div class="actions">
+          <button type="button" class="btn" id="cancel">Cancel</button>
+          <button type="submit" class="btn primary" id="create">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

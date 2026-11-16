@@ -866,7 +866,10 @@ ccunit.test("reactor getters", function()
   ccunit.eq(r.casingTemperature(), 293.15)
   ccunit.eq(r.ambientTemperature(), 293.15)
   ccunit.eq(r.coolantTank(), nil)
+  ccunit.eq(select("#", r.coolantTank()), 1) -- a Java null is one nil
+  ccunit.eq(select("#", r.setActive(false)), 0) -- a void method returns nothing
   local b = r.battery()
+  ccunit.eq(select("#", r.battery()), 1)
   ccunit.eq(sorted((function() local k = {} for n in pairs(b) do k[#k + 1] = n end return k end)()),
     { "capacity", "producedLastTick", "stored" })
   ccunit.eq(b.stored(), 1234)
@@ -928,6 +931,7 @@ end)
 ccunit.test("an actively cooled reactor", function()
   local r = peripheral.wrap("hot")
   ccunit.eq(r.battery(), nil)
+  ccunit.eq(select("#", r.battery()), 1)
   local c = r.coolantTank()
   ccunit.eq(c.capacity(), 5 * 3 * 10000 + 4 * 3 * 10000)
   ccunit.eq(c.coldFluidAmount(), 5000)

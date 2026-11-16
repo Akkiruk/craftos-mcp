@@ -1,0 +1,28 @@
+name: Bug
+description: Something in the emulator, the tools or the setup is broken.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got. Paste errors as text.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS and Node.js version
+      placeholder: "Windows 11, Node 22.12"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: craftos-mcp version or commit
+      placeholder: "v0.1.0 or a commit hash"
+  - type: textarea
+    id: info
+    attributes:
+      label: Output of `craftos-mcp info` (or the craftos_info tool)
+      render: json

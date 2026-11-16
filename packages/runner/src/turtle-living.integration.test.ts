@@ -86,6 +86,56 @@ const pick = "minecraft:diamond_pickaxe";
 const water = { state: { level: "0" } };
 
 describe.skipIf(!ready)("turtle living world", { timeout: 240000 }, () => {
+  it("a move takes 8 ticks of the same clock water flows on, load or no load", async () => {
+    // The turtle digs the stone that holds a water source back; water spreads one block per 5 ticks. It walks east, one
+    // move per 8 ticks, and looks down at each cell. Real time (timeScale 1) so a busy host shows. Fluid is never
+    // early and the moves never run faster than 8 ticks; late-running ticks must not make the moves pile up delay.
+    const w = await runLua(
+      `
+ccunit.test("moves and water share one clock", function()
+  local stamp, before, wet = {}, {}, {}
+  ccunit.truthy(turtle.digDown())
+  local dug = os.clock()
+  local t0 = dug
+  for k = 1, 6 do
+    before[k] = (os.clock() - t0) * 20
+    ccunit.truthy(turtle.forward())
+    stamp[k] = (os.clock() - t0) * 20
+    local ok, b = turtle.inspectDown()
+    wet[k] = ok and b.name == "minecraft:water"
+  end
+  -- Each move runs at least 8 ticks after the one before it ran. A return can reach the program late, so the gap
+  -- between two returns proves nothing, but move k cannot have finished before move 1 was asked for plus 8 (k - 1):
+  -- a bound no amount of load can break.
+  for k = 2, 6 do
+    ccunit.truthy(stamp[k] - before[1] >= 8 * (k - 1) - 0.5,
+      "move " .. k .. " done " .. (stamp[k] - before[1]) .. " ticks after move 1 was asked for")
+  end
+  -- 5 gaps of 8 ticks; late ticks on a busy host add some, a hold that drifted per move would add far more
+  ccunit.truthy(stamp[6] - stamp[1] < 5 * 8 * 1.6, "6 moves took " .. (stamp[6] - stamp[1]) .. " ticks")
+  -- the dig freed the flow at clock 0, so cell k (k blocks east of the dug cell) is never wet before 5 * (k + 1) ticks
+  for k = 1, 6 do
+    if wet[k] then ccunit.truthy(stamp[k] >= 5 * (k + 1) - 2, "cell " .. k .. " wet at tick " .. stamp[k]) end
+  end
+  -- and by the last cell, 6 moves in (over 50 ticks) the whole 35-tick chain has certainly arrived
+  ccunit.truthy(wet[6], "cell 6 still dry at tick " .. stamp[6] .. " wet " .. textutils.serialize(wet, {compact=true}))
+end)
+`,
+      turtleWorld(
+        { facing: "east", right: pick },
+        {
+          ground: { y: 62, name: "minecraft:stone" },
+          blocks: [
+            at(0, 63, 0, "minecraft:stone"),
+            at(0, 63, -1, "minecraft:water", water),
+          ],
+        },
+      ),
+      1,
+    );
+    expectAllPassed(w);
+  });
+
   it("water flows 5 ticks after a block is dug out, and lava 30", async () => {
     const w = await runLua(
       `${helpers}

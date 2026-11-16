@@ -460,6 +460,7 @@ return function(core, host)
       methods = methods,
       methodOrder = C.hashMapOrder(decl),
       computerThread = computer,
+      exactReturns = true, -- every method returns exactly what its Java does (all are void or a non-null value)
       state = function() create.catchUp() return state(o) end,
     }
   end

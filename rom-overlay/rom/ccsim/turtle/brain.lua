@@ -151,6 +151,8 @@ return function(core)
   --- (chunk coordinates, `[cx, cz]` or `{ from = [cx, cz], to = [cx, cz] }`).
   local function chunkLoaded(x, z)
     local cx, cz = floor(x / 16), floor(z / 16)
+    -- chunks a mod keeps loaded (core.forcedChunkNear, e.g. the chunky turtle in ccsim/ap/extra.lua)
+    if core.forcedChunkNear and core.forcedChunkNear(cx, cz, pos.dimension) then return true end
     local loaded, unloaded = core.world.loadedChunks, core.world.unloadedChunks
     if type(loaded) == "table" and not inChunks(loaded, cx, cz) then return false end
     if type(unloaded) == "table" and inChunks(unloaded, cx, cz) then return false end
@@ -396,6 +398,8 @@ return function(core)
     ["minecraft:crafting_table"] = { type = "workbench" },
   }
   for id in pairs(rules.TOOLS) do UPGRADES[id] = { tool = true } end
+  -- peripheral upgrades from other mods ({ peripheral = <type> }, e.g. ccsim/ap/extra.lua)
+  for id, up in pairs(core.turtleUpgrades or {}) do UPGRADES[id] = up end
   M.UPGRADES = UPGRADES
 
   local LOCAL_SIDES = { "front", "back", "left", "right", "top", "bottom" }
@@ -526,6 +530,7 @@ return function(core)
     local up = UPGRADES[id]
     if up.type == "modem" then return { name = side, type = "modem", kind = up.kind } end
     if up.type == "speaker" then return { name = side, type = "speaker" } end
+    if up.peripheral then return { name = side, type = up.peripheral, turtleUpgrade = id } end
     if up.type == "workbench" then
       return { name = side, type = "workbench", __methods = { craft = function(limit) return craftCommand(limit) end } }
     end
@@ -768,8 +773,12 @@ return function(core)
       local def = {}
       for k, v in pairs(block.def.peripheral) do def[k] = v end
       def.name = side
+      def.blockPos = { x = x, y = y, z = z } -- where the block stands, for peripherals that look around them
       return def, nil, "p"
     end
+    -- a block that is a peripheral by itself (core.blockPeripherals: block id -> peripheral type)
+    local own = core.blockPeripherals and core.blockPeripherals[n]
+    if own then return { name = side, type = own, blockPos = { x = x, y = y, z = z } }, nil, "p" end
     if n == "computercraft:disk_drive" then
       local id = diskIdOf(block, x, y, z)
       return { name = side, engine = "drive", disk = id }, nil, "d" .. tostring(id)
@@ -940,7 +949,8 @@ return function(core)
 
   local queue = {}
   local commandsIssued = 0
-  local animation = 0 -- ticks of animation left
+  local lastTickRun = -1
+  local animUntil = 0 -- the grid tick from which the next command may run (an animation holds it back 8 ticks)
   local tickTimer
   local tickNumber = 0
 
@@ -959,20 +969,18 @@ return function(core)
     tickNumber = tickNumber + 1
     living.catchUp()
     -- updateCommands: one command, only when no animation is running
-    if animation == 0 and #queue > 0 then
+    if lastTickRun >= animUntil and #queue > 0 then
       local entry = table.remove(queue, 1)
       local ok, result = pcall(entry.fn)
       if not ok then result = { ok = false, msg = tostring(result) } end
       if result.anim then
-        animation = 8
+        animUntil = lastTickRun + 8 -- 8 ticks of the grid clock, however late this run came
         core.dirty = true
         -- a disk dropped into a drive, a chest emptied: what is beside the turtle may be a different peripheral now
         M.peripheralsDirty = true
       end
       queueResponse(entry.id, result)
     end
-    -- updateAnimation
-    if animation > 0 then animation = animation - 1 end
     if M.peripheralsDirty then
       M.peripheralsDirty = false
       refreshPeripherals(false)
@@ -985,10 +993,9 @@ return function(core)
       os.queueEvent("turtle_inventory")
       core.dirty = true
     end
-    if #queue > 0 or animation > 0 then scheduleTick() end
+    if #queue > 0 or lastTickRun < animUntil - 1 then scheduleTick() end
   end
 
-  local lastTickRun = -1
   function scheduleTick()
     if tickTimer then return end
     -- the next grid tick this turtle has not run yet

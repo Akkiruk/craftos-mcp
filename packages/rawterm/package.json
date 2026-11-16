@@ -1,5 +1,5 @@
 {
-  "name": "@craftos-agent/rawterm",
+  "name": "@craftos-mcp/rawterm",
   "version": "0.0.0",
   "private": true,
   "type": "module",

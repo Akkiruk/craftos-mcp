@@ -1199,6 +1199,7 @@ return function(core, host)
         methods = methods,
         methodOrder = m.kind == "reactor" and REACTOR_ORDER or TURBINE_ORDER,
         computerThread = threads,
+        exactReturns = true, -- each method returns what its Java does: one nil for a null, none for an empty result
         state = function() catchUp(); return machineState(m) end,
         detach = function()
           for i, other in ipairs(machines) do if other == m then table.remove(machines, i) break end end

@@ -1,0 +1,17 @@
+{
+  "name": "@craftos-mcp/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "craftos-mcp": "./dist/index.js"
+  },
+  "dependencies": {
+    "@craftos-mcp/rawterm": "0.0.0",
+    "@craftos-mcp/runner": "0.0.0",
+    "@craftos-mcp/mcp-server": "0.0.0"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

@@ -16,7 +16,7 @@ import {
   encodePng,
   renderPng,
   type WindowState,
-} from "@craftos-agent/rawterm";
+} from "@craftos-mcp/rawterm";
 import type { RunnerConfig } from "./config.js";
 import {
   type SimCommand,
@@ -146,7 +146,8 @@ export function startEngine(
   // A normal turtle or computer has no colour (ServerComputer: family != NORMAL); an advanced one does
   if (
     (world?.turtle && !world.turtle.advanced) ||
-    world?.placed?.block?.endsWith("_normal")
+    world?.placed?.block?.endsWith("_normal") ||
+    world?.advanced === false
   ) {
     writeFileSync(
       join(dir, "config", `${computerId}.json`),

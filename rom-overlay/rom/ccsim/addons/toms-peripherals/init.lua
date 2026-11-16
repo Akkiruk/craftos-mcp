@@ -209,7 +209,7 @@ return function(core, host)
           if J.isJava(e) then e = "Java Exception Thrown: " .. tostring(e) end
           error(e, 0)
         end
-        return G.mapTo(r, 2)
+        return G.javaReturn(mname, r)
       end
     end
 
@@ -255,6 +255,7 @@ return function(core, host)
       methods = methods,
       methodOrder = G.ORDER.GPUExt, -- CC's HashMap(33) of these names keeps this order
       computerThread = allOnComputerThread(G.ORDER.GPUExt),
+      exactReturns = true, -- Java's count: none for void, one for int/boolean/Object, the array's own length
       state = g.state,
     }
   end
@@ -307,6 +308,7 @@ return function(core, host)
       },
       methodOrder = { "setFireNativeEvents" },
       computerThread = { setFireNativeEvents = true },
+      exactReturns = true, -- void: no value
       state = function() return { nativeEvents = k.native, dongle = k.dongle } end,
     }
   end
@@ -444,6 +446,7 @@ return function(core, host)
       methods = methods,
       methodOrder = ORDER, -- CC's HashMap(15) keeps the mod's order
       computerThread = allOnComputerThread(ORDER),
+      exactReturns = true, -- void setters give no value; every getter exactly one
       state = function()
         return {
           inputs = bySide(r.input), bundledInputs = bySide(r.bundledInput),
@@ -529,6 +532,7 @@ return function(core, host)
       methods = methods,
       methodOrder = { "setEnabled", "reset", "listMethods", "setTimeout", "getTimeout", "isEnabled" }, -- HashMap(6)
       computerThread = allOnComputerThread(ORDER),
+      exactReturns = true, -- setters and reset are void; the getters give one value
       state = function()
         return {
           enabled = w.enabled, timeout = w.timeLimit, fired = w.fired,

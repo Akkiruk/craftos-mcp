@@ -1197,6 +1197,7 @@ return function(core, host)
       for name in pairs(methods) do thread[name] = true end
       return {
         methods = methods,
+        exactReturns = true, -- a Java null is one nil (battery / coolantTank), a void method returns nothing
         methodOrder = isReactor and REACTOR_ORDER or TURBINE_ORDER,
         computerThread = thread,
         state = function() catchUp(); return machineState(m) end,

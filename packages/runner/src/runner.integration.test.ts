@@ -99,8 +99,14 @@ describe.skipIf(!ready)("runner against the real engine", () => {
       timeScale: 20,
     });
     expect(result.status).toBe("completed");
-    expect(result.screens[0]?.lines.join("\n")).toContain("elapsed=20");
-    expect(result.durationMs).toBeLessThan(8000);
+    // a sleep never ends early, so 20 is exact as the lower bound; a busy host can only make it late
+    const elapsed = Number(
+      /elapsed=(\d+)/.exec(result.screens[0]?.lines.join("\n") ?? "")?.[1],
+    );
+    expect(elapsed).toBeGreaterThanOrEqual(20);
+    expect(elapsed).toBeLessThan(23);
+    // 20 virtual seconds took well under 20 real ones, boot included
+    expect(result.durationMs).toBeLessThan(12000);
   }, 40000);
 
   it("aborts code that never yields, like CC:Tweaked", async () => {

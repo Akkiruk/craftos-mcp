@@ -58,6 +58,7 @@ extern void mobileResetModifiers();
 std::thread * renderThread;
 /* export */ std::unordered_map<int, unsigned char> keymap = {
     {0, 1},
+    {SDLK_ESCAPE, 1}, // craftos-agent: Escape reaches the computer (keys.escape)
     {SDLK_1, 2},
     {SDLK_2, 3},
     {SDLK_3, 4},
@@ -688,6 +689,27 @@ static Uint32 mouseDebounce(Uint32 interval, void* param) {
     return 0;
 }
 
+// craftos-agent: keymap holds CraftOS-PC's LWJGL2 key codes, but the CC:Tweaked 1.101.3 ROM's keys API uses GLFW codes
+// (Enter is 257, not 28). The window renderers (SDL, hardware) send GLFW codes, as Minecraft does; raw mode passes the
+// host's codes through unchanged.
+static int glfwKey(unsigned char lwjgl) {
+    static const std::unordered_map<int, int> codes = {
+        {1, 256}, {2, 49}, {3, 50}, {4, 51}, {5, 52}, {6, 53}, {7, 54}, {8, 55}, {9, 56}, {10, 57}, {11, 48},
+        {12, 45}, {13, 61}, {14, 259}, {15, 258}, {16, 81}, {17, 87}, {18, 69}, {19, 82}, {20, 84}, {21, 89},
+        {22, 85}, {23, 73}, {24, 79}, {25, 80}, {26, 91}, {27, 93}, {28, 257}, {29, 341}, {30, 65}, {31, 83},
+        {32, 68}, {33, 70}, {34, 71}, {35, 72}, {36, 74}, {37, 75}, {38, 76}, {39, 59}, {40, 39}, {41, 96},
+        {42, 340}, {43, 92}, {44, 90}, {45, 88}, {46, 67}, {47, 86}, {48, 66}, {49, 78}, {50, 77}, {51, 44},
+        {52, 46}, {53, 47}, {54, 344}, {55, 332}, {56, 342}, {57, 32}, {58, 280}, {59, 290}, {60, 291}, {61, 292},
+        {62, 293}, {63, 294}, {64, 295}, {65, 296}, {66, 297}, {67, 298}, {68, 299}, {69, 282}, {70, 281},
+        {71, 327}, {72, 328}, {73, 329}, {74, 333}, {75, 324}, {76, 325}, {77, 326}, {78, 334}, {79, 321},
+        {80, 322}, {81, 323}, {82, 320}, {83, 330}, {87, 300}, {88, 301}, {100, 302}, {101, 303}, {102, 304},
+        {141, 336}, {156, 335}, {157, 345}, {181, 331}, {184, 346}, {197, 284}, {199, 268}, {200, 265},
+        {201, 266}, {203, 263}, {205, 262}, {207, 269}, {208, 264}, {209, 267}, {210, 260}, {211, 261},
+    };
+    auto it = codes.find(lwjgl);
+    return it == codes.end() ? 0 : it->second;
+}
+
 std::string termGetEvent(lua_State *L) {
     Computer * computer = get_comp(L);
     computer->event_provider_queue_mutex.lock();
@@ -753,14 +775,14 @@ std::string termGetEvent(lua_State *L) {
                 return "paste";
             } else computer->waitingForTerminate = 0;
             if (selectedRenderer != 0 && selectedRenderer != 5) lua_pushinteger(L, e.key.keysym.sym); 
-            else lua_pushinteger(L, keymap.at(e.key.keysym.sym));
+            else lua_pushinteger(L, glfwKey(keymap.at(e.key.keysym.sym)));
             lua_pushboolean(L, e.key.repeat);
             return "key";
         } else if (e.type == SDL_KEYUP && (selectedRenderer == 2 || selectedRenderer == 3 || keymap.find(e.key.keysym.sym) != keymap.end())) {
             if ((e.key.keysym.sym != SDLK_F2 && e.key.keysym.sym != SDLK_F3 && e.key.keysym.sym != SDLK_F11 && e.key.keysym.sym != SDLK_F12) || config.ignoreHotkeys) {
                 computer->waitingForTerminate = 0;
                 if (selectedRenderer != 0 && selectedRenderer != 5) lua_pushinteger(L, e.key.keysym.sym); 
-                else lua_pushinteger(L, keymap.at(e.key.keysym.sym));
+                else lua_pushinteger(L, glfwKey(keymap.at(e.key.keysym.sym)));
                 return "key_up";
             }
         } else if (e.type == SDL_TEXTINPUT) {

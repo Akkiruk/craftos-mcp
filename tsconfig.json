@@ -12,6 +12,9 @@
     },
     {
       "path": "./apps/mcp-server"
+    },
+    {
+      "path": "./apps/cli"
     }
   ]
 }

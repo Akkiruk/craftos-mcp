@@ -635,7 +635,7 @@ return function(core)
   local ap = dofile("/rom/ccsim/ap/base.lua")(core)
   B_copy = ap.copy
   local apFactories = {}
-  for _, module in ipairs({ "simple", "environment", "bridges", "ar" }) do
+  for _, module in ipairs({ "simple", "environment", "bridges", "ar", "extra" }) do
     for typeName, factory in pairs(dofile("/rom/ccsim/ap/" .. module .. ".lua")(core, ap)) do
       if typeName == "speaker" or core.addonOn("advanced-peripherals") then apFactories[typeName] = factory end
     end
@@ -778,6 +778,7 @@ return function(core)
       entry.ap = apFactories[ty](def)
       entry.methods = entry.ap.methods
       entry.types = { ty }
+      entry.computerThread = entry.ap.computerThread -- set by the ones that say which methods do not wait
     elseif addonTypes[ty] then
       -- An addon's block (ccsim/addons/README.md). Mekanism-style ones check arguments first (validate/run).
       local p = loadAddon(addonTypes[ty]).peripheral(def)
@@ -1129,8 +1130,8 @@ return function(core)
 
   --- Handle what the sim itself needs from an event the caller would otherwise lose; true when it was the sim's.
   local function simEvent(ev, keep)
-    if ev[1] == "ccsim_cmd" then
-      keep[#keep + 1] = ev -- the harness's own commands are not part of the simulated world
+    if ev[1] == "ccsim_cmd" and (type(ev[2]) ~= "string" or core.world.simProgram == true) then
+      keep[#keep + 1] = ev -- the harness's own commands (and the sim program's) are not part of the simulated world
     elseif ev[1] == "ccsim_net" then
       core.onNet(ev[2], ev[3]) -- turned into a modem_message, which this wait then loses like any other event
     elseif ev[1] == "ccsim_link" and core.onLink then
@@ -1207,12 +1208,13 @@ return function(core)
       return table.unpack(results, 1, results.n)
     end
     local results
+    local exact = entry.addon and entry.addon.exactReturns
     if onServerThread(entry, method) then
       local args = table.pack(...)
       results = waitForServerTick(function()
         if core.beforeObserve and not entry.remote then core.beforeObserve() end
         return fn(table.unpack(args, 1, args.n))
-      end, true)
+      end, not exact)
     else
       if core.beforeObserve and not entry.remote then core.beforeObserve() end
       results = table.pack(pcall(fn, ...))
@@ -1220,7 +1222,11 @@ return function(core)
     if not results[1] then return false, results[2] end
     core.touch()
     local n = results.n
-    while n > 1 and results[n] == nil do n = n - 1 end -- a Java method never returns trailing nils
+    -- The older fakes return loose trailing nils, so they are trimmed. An addon written from its source returns
+    -- exactly what Java does (`exactReturns`): MethodResult.of(null) is one nil, MethodResult.of() is none.
+    if not exact then
+      while n > 1 and results[n] == nil do n = n - 1 end
+    end
     return table.unpack(results, 1, n)
   end
 

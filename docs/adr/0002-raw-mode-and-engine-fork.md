@@ -17,7 +17,7 @@ Spike results against CraftOS-PC 2.8.3 and a source build (2.8.4):
 
 ## Decision
 
-- Drive the engine in `--raw` mode from `@craftos-agent/rawterm`.
+- Drive the engine in `--raw` mode from `@craftos-mcp/rawterm`.
 - Fork the engine as `craftos-engine` (sibling repo, upstream remote kept) and
   build it with CMake + vcpkg. Strip GUI/platform code over time.
 - Build the pinned ROM with `scripts/build-rom.mjs` from the modpack's
