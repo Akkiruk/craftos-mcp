@@ -289,7 +289,9 @@ for (const file of walk(PKG)) {
 // ---- pack ----
 mkdirSync(outDir, { recursive: true });
 // packed in the staging folder, then copied out (cmd.exe makes a quoted --pack-destination awkward)
-const packed = JSON.parse(run("npm", ["pack", "--json"], PKG))[0];
+// npm 11 and older print an array of packages, npm 12 an object keyed by package name
+const packOut = JSON.parse(run("npm", ["pack", "--json"], PKG));
+const packed = Array.isArray(packOut) ? packOut[0] : Object.values(packOut)[0];
 const tarball = join(outDir, packed.filename);
 cpSync(join(PKG, packed.filename), tarball);
 rmSync(STAGE, { recursive: true, force: true });
