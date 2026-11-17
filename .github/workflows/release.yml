@@ -255,7 +255,12 @@ jobs:
         run: |
           version="$(node -p "require('./server.json').version")"
           if npm view "craftos-mcp@$version" version >/dev/null 2>&1; then echo "craftos-mcp $version is already published"; exit 0; fi
-          npm publish "$RUNNER_TEMP"/npm/craftos-mcp-*.tgz --access public
+          # a publish npm is still processing isn't in `npm view` yet, and a second one gets E409 "previously staged"
+          if ! npm publish "$RUNNER_TEMP"/npm/craftos-mcp-*.tgz --access public 2>"$RUNNER_TEMP/publish.err"; then
+            cat "$RUNNER_TEMP/publish.err" >&2
+            grep -q "previously staged version" "$RUNNER_TEMP/publish.err" || exit 1
+            echo "craftos-mcp $version was published already and npm is still processing it"
+          fi
       # The official MCP registry lists server.json under io.github.Akkiruk/craftos-mcp. GitHub's OIDC token proves the
       # namespace, so no device login. The registry checks the npm package exists, so this comes after the publish.
       - name: MCP registry
@@ -264,7 +269,7 @@ jobs:
           if curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Akkiruk/craftos-mcp" | grep -q "\"version\":\"$version\""; then
             echo "the registry already has $version"; exit 0
           fi
-          for i in 1 2 3 4 5 6; do npm view "craftos-mcp@$version" version >/dev/null 2>&1 && break; sleep 30; done
+          for i in $(seq 20); do npm view "craftos-mcp@$version" version >/dev/null 2>&1 && break; sleep 30; done
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
