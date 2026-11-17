@@ -36,8 +36,10 @@ and what was written from source.
 
 _A real Claude Code session, unscripted: asked for a door controller with tests, it ran its program in the emulator,
 caught a monitor that never stopped redrawing and a player at the range edge who could not get in, fixed both, and
-finished with its tests passing. The [full transcript](docs/media/showcase/agent-demo-transcript.md) is next to the
-[video](docs/media/showcase/agent-demo.mp4)._
+finished with its tests passing. Then the same file went onto a computer in real Minecraft and worked there with no code
+changes, just a player name added to its whitelist ([the diff](docs/media/showcase/ingame-door-diff.txt),
+[the clip](docs/media/showcase/ingame-door.mp4)). The [full transcript](docs/media/showcase/agent-demo-transcript.md)
+is next to the [video](docs/media/showcase/agent-demo.mp4)._
 
 Some games built and tested with it are **[playable in your browser](https://rogiedoji.com/craftos)**, no install,
 and there's a [highlight reel](docs/media/showcase/sizzle.mp4) of them.

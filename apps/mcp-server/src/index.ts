@@ -12,6 +12,7 @@ import {
   type WiredNetworkSpec,
   type WorldConfig,
   SessionManager,
+  waitForBoot,
   type Expectation,
   type Step,
   actAndSettle,
@@ -584,7 +585,7 @@ server.registerTool(
   "craftos_session_create",
   {
     description:
-      "Start a persistent emulated computer you can type into, click on and watch. Monitors are attached before the shell starts. Workspace files are at the computer's root.",
+      'Start a persistent emulated computer you can type into, click on and watch. Monitors are attached before the shell starts. Workspace files are at the computer\'s root. Returns once the computer has booted, with front: "shell" (the prompt is up) or "program" (startup.lua started a program that is in front, so there is no prompt).',
     inputSchema: {
       monitors: z.array(monitorSchema).default([]),
       timeScale: timeScaleSchema,
@@ -599,8 +600,8 @@ server.registerTool(
         timeScale,
         resolveWorld(world, worldFile),
       );
-      await session.handle.session.waitForText(">", 0, 20000);
-      return { content: [text(sessions.summarize(session))] };
+      const front = await waitForBoot(session.handle.session);
+      return { content: [text({ ...sessions.summarize(session), front })] };
     } catch (error) {
       return failure(error);
     }
@@ -813,7 +814,7 @@ server.registerTool(
   "craftos_sim_state",
   {
     description:
-      "Read the simulated world state of a session: chat messages, virtual inventory contents, peripheral state (speakers, detectors, ME/RS bridges, QIO), the turtle and its block world. delta:true returns only what changed since the previous sim call (changed values as {from,to}, new chat entries as `appended`), which is usually a few lines.",
+      "Read the simulated world state of a session: chat messages, the computer's own redstone (redstone.outputs per side, inputs, bundledOutputs), virtual inventory contents, peripheral state (speakers, detectors, ME/RS bridges, QIO), the turtle and its block world. delta:true returns only what changed since the previous sim call (changed values as {from,to}, new chat entries as `appended`), which is usually a few lines.",
     inputSchema: { id: sessionId, delta: deltaSchema },
   },
   async ({ id, delta }) => {

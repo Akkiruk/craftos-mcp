@@ -1,0 +1,11 @@
+--- door.lua (the agent's final version, from the transcript)
++++ door.lua (on the in-game computer)
+@@ -6,7 +6,7 @@
+ local M = {}
+
+ M.config = {
+-  whitelist = { "Steve", "Alex" }, -- edit me
++  whitelist = { "Steve", "Alex", "Akkiruk" }, -- edit me
+   range = 5,                         -- blocks
+   side = "back",                     -- redstone output side
+   poll = 0.5,                        -- seconds between scans

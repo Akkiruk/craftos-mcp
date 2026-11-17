@@ -6,6 +6,7 @@ local core = dofile("/rom/ccsim/core.lua")
 core.load()
 core.restore()
 core.installEventHook()
+core.installRedstone()
 
 dofile("/rom/ccsim/peripherals.lua")(core)
 

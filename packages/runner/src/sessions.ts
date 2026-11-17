@@ -48,6 +48,56 @@ export interface SessionSummary {
   }[];
 }
 
+/** What is in front once a computer has booted: the shell prompt, or a program started from startup.lua. */
+export type FrontOfScreen = "shell" | "program";
+
+const hasPrompt = (raw: Session["handle"]["session"]): boolean =>
+  raw.screen(0)?.lines.some((l) => l.includes(">")) ?? false;
+
+/**
+ * Wait until the computer has booted. A plain shell shows its ">" prompt. A computer whose startup.lua runs a
+ * program that never returns never shows one, so it counts as booted once something has been on screen for
+ * `graceMs` with no prompt: the program is then in front.
+ */
+export function waitForBoot(
+  raw: Session["handle"]["session"],
+  timeoutMs = 20000,
+  graceMs = 2500,
+): Promise<FrontOfScreen> {
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    let firstText: number | undefined;
+    const done = (): void => {
+      clearInterval(timer);
+      raw.off("exit", onExit);
+    };
+    const onExit = (): void => {
+      done();
+      reject(new Error("engine exited before the computer booted"));
+    };
+    const check = (): void => {
+      const now = Date.now();
+      if (hasPrompt(raw)) {
+        done();
+        return resolve("shell");
+      }
+      const text = raw.screen(0)?.lines.some((l) => l.trim() !== "");
+      if (text) firstText ??= now;
+      if (firstText !== undefined && now - firstText >= graceMs) {
+        done();
+        return resolve("program");
+      }
+      if (now - started >= timeoutMs) {
+        done();
+        reject(new Error(`timed out after ${timeoutMs}ms waiting for boot`));
+      }
+    };
+    const timer = setInterval(check, 100);
+    raw.on("exit", onExit);
+    check();
+  });
+}
+
 /** Interactive computers that stay alive between tool calls. */
 export class SessionManager {
   private readonly sessions = new Map<string, Session>();

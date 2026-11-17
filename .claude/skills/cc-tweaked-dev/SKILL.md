@@ -72,7 +72,7 @@ The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no G
   integrator, NBT storage, AR controller, ME and RS bridges) from fixtures (see `docs/advanced-peripherals.md` and
   `worlds/advanced-peripherals-demo.json`), and Mekanism 10.2.5 QIO blocks and the Quantum Entangloporter (see
   `docs/mekanism-qio.md` and `worlds/mekanism-qio-demo.json`). During a session `craftos_sim_command` changes the
-  world (players join, chat, items appear, the clock jumps) and `craftos_sim_state` reads it.
+  world (players join, chat, items appear, the clock jumps) and `craftos_sim_state` reads it, including the computer's own redstone (`redstone.outputs.<side>`, inputs, bundled), so check a door opened there, not by printing. `craftos_session_create` returns `front: "shell" | "program"`: a startup.lua program that never returns leaves no prompt.
 - Other mods are addons (`craftos_info` lists which are on). Use only the ones the user's pack has: a peripheral of
   an addon that is off fails the world at boot. Create, Mekanism reactors and machines, Tom's Peripherals (GPU
   screens appear in screenshots), Bigger and Extreme Reactors each have a doc in `docs/` and a demo in `worlds/`.

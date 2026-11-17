@@ -375,6 +375,50 @@ function M.touch()
   if M.nowMs() - (M.lastSave or 0) > 200 then M.save() else M.dirty = true end
 end
 
+local RS_SIDES = { "top", "bottom", "left", "right", "front", "back" }
+
+--- What the computer puts out on its redstone sides, and what comes in: the analog level per side, and the
+--- bundled colour mask where one is set.
+function M.redstoneState()
+  local rs = M.rawRedstone
+  if not rs then return nil end
+  local outputs, inputs, bundledOut, bundledIn = {}, {}, {}, {}
+  for _, side in ipairs(RS_SIDES) do
+    local function get(fn) local ok, v = pcall(rs[fn], side) return ok and tonumber(v) or 0 end
+    outputs[side], inputs[side] = get("getAnalogOutput"), get("getAnalogInput")
+    local bo, bi = get("getBundledOutput"), get("getBundledInput")
+    if bo ~= 0 then bundledOut[side] = bo end
+    if bi ~= 0 then bundledIn[side] = bi end
+  end
+  return { outputs = outputs, inputs = inputs, bundledOutputs = bundledOut, bundledInputs = bundledIn }
+end
+
+--- Wrap the redstone API (and its rs alias) so a changed output is saved like a peripheral call is. touch() batches
+--- writes (one per 200 ms at most), and a write that changes nothing does not save at all.
+function M.installRedstone()
+  local orig = _G.redstone
+  if type(orig) ~= "table" or M.rawRedstone then return end
+  M.rawRedstone = orig
+  local wrapped = {}
+  for k, v in pairs(orig) do wrapped[k] = v end
+  local function watch(name, reader)
+    local fn = orig[name]
+    if type(fn) ~= "function" then return end
+    wrapped[name] = function(side, ...)
+      local before = type(side) == "string" and select(2, pcall(orig[reader], side)) or nil
+      local r = table.pack(fn(side, ...))
+      if select(2, pcall(orig[reader], side)) ~= before then M.touch() end
+      return table.unpack(r, 1, r.n)
+    end
+  end
+  watch("setOutput", "getAnalogOutput")
+  watch("setAnalogOutput", "getAnalogOutput")
+  watch("setAnalogueOutput", "getAnalogOutput")
+  watch("setBundledOutput", "getBundledOutput")
+  _G.redstone = wrapped
+  if type(_G.rs) == "table" then _G.rs = wrapped end
+end
+
 --- Persist everything a test might want to assert on.
 function M.save()
   M.lastSave, M.dirty = M.nowMs(), false
@@ -434,6 +478,7 @@ function M.saveNow()
       return n
     end)(),
     inventories = M.inventoryState and M.inventoryState() or nil,
+    redstone = M.redstoneState(), -- the computer's own sides: outputs, inputs, bundled
     peripherals = M.peripheralState and M.peripheralState() or nil,
     qio = M.qioState and M.qioState() or nil,
     addons = M.addonState and M.addonState() or nil, -- addon-wide state (ccsim/addons), by module
@@ -849,6 +894,7 @@ function M.installEventHook()
         publishBeacon()
       end
       if M.flushHost then M.flushHost() end -- the block changes held back go out before the wait (ccsim/modem.lua)
+      if M.dirty then M.save() end -- a change inside the 200 ms window (a redstone output) is written when the program waits
       local event = table.pack(rawPull())
       if M.dirty then M.save() end
       local inner = deepest()

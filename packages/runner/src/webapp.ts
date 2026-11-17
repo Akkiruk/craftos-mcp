@@ -42,7 +42,7 @@ import {
 } from "./drive.js";
 import { type ScreenCapture, pixelScreenPng, pixelScreens } from "./engine.js";
 import { MONITOR_LIMIT, type MonitorSpec } from "./lua.js";
-import type { Session, SessionManager } from "./sessions.js";
+import { type Session, type SessionManager, waitForBoot } from "./sessions.js";
 import { describeAll, readWaiting } from "./ui.js";
 import { listWorkspace, resolveInWorkspace } from "./workspace.js";
 import {
@@ -355,9 +355,11 @@ export function startWebApp(options: WebAppOptions): Server {
     program: string | undefined,
   ): void => {
     if (!program?.trim()) return;
-    void session.handle.session
-      .waitForText(">", 0, 20000)
-      .then(() => session.handle.session.typeLine(program.trim()))
+    void waitForBoot(session.handle.session)
+      .then((front) => {
+        // a startup program already in front has no prompt to type at
+        if (front === "shell") session.handle.session.typeLine(program.trim());
+      })
       .catch(() => undefined);
   };
 
