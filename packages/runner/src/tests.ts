@@ -41,6 +41,8 @@ export interface TestRequest {
   readonly timeoutMs?: number;
   /** Run the virtual clock this many times faster than real time (default 1). */
   readonly timeScale?: number;
+  /** The computer's disk size in bytes (default: the real server's 25 MB; CC:Tweaked's own default is 1,000,000). */
+  readonly computerSpaceLimit?: number;
 }
 
 export function discoverTests(
@@ -98,6 +100,7 @@ async function runTestFile(
       label: "test",
       timeScale: request.timeScale,
       world: request.world,
+      computerSpaceLimit: request.computerSpaceLimit,
     });
   let timedOut = false;
   try {

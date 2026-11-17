@@ -2,7 +2,10 @@
 // Makes the showcase videos: real gameplay from the example games, recorded from the emulator's monitors and
 // encoded with ffmpeg.
 //
-//   npm run build && node scripts/make-showcase.mjs [--out dir] [--only id,id] [--no-sizzle] [--keep]
+//   npm run build && node scripts/make-showcase.mjs [--out dir] [--only id,id] [--no-sizzle] [--keep] [--recut]
+//
+// --only blightmare records the BLIGHTMARE scenes and cuts blightmare.mp4. --keep leaves the recordings in <out>/.work,
+// and --recut cuts again from those without recording.
 //
 // Output (default docs/media/showcase/): one MP4 and GIF per highlight (board-arcade, action-snake, versus-paddle),
 // the sizzle reel (sizzle.mp4), and a PNG still per game.
@@ -177,6 +180,135 @@ const SCENES = [
     seconds: 13,
     stillAt: 9,
     clip: [4.5, 5],
+  },
+];
+
+/**
+ * BLIGHTMARE (workspace/examples/games/blightmare/): one scene a moment of the story, each played by touch from a saved
+ * game the driver writes first (scripts/showcase/blightmare.lua). They are recorded bare, at twice the pixels, and the
+ * reel below cuts them into one video with its own captions. The driver marks moments ("at fight"); a reel clip starts
+ * at one. still: the picture saved (at the scene's stillAt) as docs/media/showcase/<still>.png.
+ */
+const BLIGHTMARE = [
+  {
+    id: "bm-opening",
+    scene: "opening",
+    pages: 5,
+    pageTime: 3.4,
+    stillAt: 5,
+    still: "blightmare-opening",
+  },
+  {
+    id: "bm-town",
+    scene: "town",
+    seconds: 150,
+    stillAt: 26,
+    still: "blightmare-town",
+  },
+  {
+    id: "bm-battle",
+    scene: "battle",
+    seconds: 110,
+    stillAt: 4,
+    still: "blightmare-battle",
+    battlePace: 0.85,
+  },
+  {
+    id: "bm-boss",
+    scene: "boss",
+    seconds: 170,
+    stillAt: 16,
+    still: "blightmare-boss",
+  },
+  { id: "bm-dream", scene: "dream", seconds: 110 },
+].map((s) => ({
+  ...s,
+  kind: "blightmare",
+  raw: true,
+  scale: 2,
+  seconds: s.seconds ?? 40,
+}));
+SCENES.push(...BLIGHTMARE);
+
+/**
+ * The BLIGHTMARE reel (blightmare.mp4): clips from those scenes, each from a mark, with a caption under it, and title
+ * cards. at: the mark the clip starts from (and offset seconds after it); length in seconds.
+ */
+const BLIGHTMARE_REEL = [
+  {
+    card: "BLIGHTMARE",
+    sub: "A dark first-person RPG for one monitor wall",
+    seconds: 2.6,
+  },
+  {
+    clip: "bm-opening",
+    at: "intro",
+    offset: 0,
+    length: 9,
+    caption: "An animated opening: the gods, the plague and the wall",
+  },
+  {
+    clip: "bm-town",
+    at: "world",
+    offset: 0.8,
+    length: 4.8,
+    caption: "Tap the map and the party walks there",
+  },
+  {
+    clip: "bm-town",
+    at: "walking",
+    offset: 0,
+    length: 8,
+    caption: "Towns to walk in first person, a step a tap",
+  },
+  {
+    clip: "bm-town",
+    at: "choice2",
+    offset: -1.5,
+    length: 8,
+    caption: "People to talk to, and answers to choose",
+  },
+  {
+    clip: "bm-battle",
+    at: "battle",
+    offset: 0,
+    length: 21,
+    until: "won",
+    tail: 0.8,
+    caption: "Turn-based fights: spells, items, the gauges filling",
+  },
+  {
+    clip: "bm-boss",
+    at: "fight",
+    offset: -3,
+    length: 16,
+    caption: "Bosses with phases, from the last acts of the story",
+  },
+  {
+    clip: "bm-boss",
+    at: "telegraph",
+    offset: -1,
+    length: 7,
+    caption: "A foe that flashes !!! is winding up: DEFEND",
+  },
+  {
+    clip: "bm-dream",
+    at: "dream",
+    offset: -6.5,
+    length: 13,
+    caption: "Late in the story, the hero lies down and goes under",
+  },
+  {
+    clip: "bm-dream",
+    at: "dream walk",
+    offset: -4,
+    length: 4,
+    caption: "Eleven acts of story, saved as you go",
+  },
+  {
+    card: "BLIGHTMARE",
+    sub: "Runs on plain CC:Tweaked: monitors, a speaker, nothing else",
+    seconds: 3.4,
   },
 ];
 
@@ -358,6 +490,20 @@ function drawTap(rgba, width, height, cx, cy, age) {
     }
 }
 
+/** An image with every pixel made a k x k block. */
+function upscale(img, k) {
+  if (k === 1) return img;
+  const width = img.width * k;
+  const height = img.height * k;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const from = (Math.floor(y / k) * img.width + Math.floor(x / k)) * 4;
+      rgba.set(img.rgba.subarray(from, from + 4), (y * width + x) * 4);
+    }
+  return { width, height, rgba };
+}
+
 function frameOf(computer, peripheral) {
   let found;
   for (const w of computer.handle.session.allWindows())
@@ -387,6 +533,7 @@ async function recordScene(scene, config, scratch, work) {
     board: "arcade.world.json",
     action: "action.world.json",
     versus: "versus.world.json",
+    blightmare: "blightmare.world.json",
   }[folder];
   const { monitors: worldMonitors, ...world } = JSON.parse(
     readFileSync(join(sourceDir, worldFile), "utf8"),
@@ -464,7 +611,14 @@ async function recordScene(scene, config, scratch, work) {
     const width = sides.length * sideW + (sides.length - 1) * GAP;
     const frameBytes = width * MONITOR_H * 4;
     const video = join(work, `${scene.id}.mp4`);
-    const filters = cardFilters(work, scene);
+    // a bare scene is only the wall, its pixels doubled (each one a 2x2 block, so the text stays sharp): a reel adds
+    // the bars
+    const filters = scene.raw
+      ? [
+          `scale=iw*${scene.scale ?? 1}:ih*${scene.scale ?? 1}:flags=neighbor`,
+          "format=yuv420p",
+        ]
+      : cardFilters(work, scene);
     writeFileSync(join(work, `${scene.id}.filter`), filters.join(",\n"));
     const proc = ffmpeg(
       [
@@ -507,6 +661,7 @@ async function recordScene(scene, config, scratch, work) {
     let stillSaved = 0;
     let finished = 0;
     const notes = [];
+    const marks = {}; // the driver's "at <name>": seconds into the video
     let playAt = 0; // seconds into the video when the game itself starts
     let started = Date.now();
     let written = 0;
@@ -557,13 +712,16 @@ async function recordScene(scene, config, scratch, work) {
           const line = lines[seen[i]];
           if (i === 0 && line === "still") {
             compose(false);
-            const png = encodePng({
-              width,
-              height: MONITOR_H,
-              rgba: new Uint8Array(frame),
-            });
+            const png = encodePng(
+              upscale(
+                { width, height: MONITOR_H, rgba: new Uint8Array(frame) },
+                scene.raw ? (scene.scale ?? 1) : 1,
+              ),
+            );
             writeFileSync(join(work, `${scene.id}.png`), png);
             stillSaved++;
+          } else if (i === 0 && line.startsWith("at ")) {
+            marks[line.slice(3)] ??= written / FPS;
           } else if (i === 0 && line === "play") {
             playAt = written / FPS;
           } else if (i === 0 && line === "done" && !finished) {
@@ -610,7 +768,13 @@ async function recordScene(scene, config, scratch, work) {
     console.log(
       `recorded ${scene.id}: ${(written / FPS).toFixed(1)} s, ${taps.length} taps`,
     );
-    return { video, seconds: written / FPS, playAt, notes };
+    if (Object.keys(marks).length)
+      console.log(
+        `  marks: ${Object.entries(marks)
+          .map(([k, v]) => `${k} ${v.toFixed(1)}`)
+          .join(", ")}`,
+      );
+    return { video, seconds: written / FPS, playAt, notes, marks };
   } finally {
     await manager.destroyAll();
   }
@@ -753,6 +917,164 @@ async function makeSizzle(results, out, work) {
   console.log(`sizzle: ${mb(size(out))}`);
 }
 
+/**
+ * The BLIGHTMARE reel: each clip cut from its scene at a mark, set on a canvas with the game's name above and the
+ * clip's caption below, a short fade at each end; title cards between. Returns [{ what, start, length }] for the log.
+ */
+async function makeReel(results, reel, out, work) {
+  const sample = results.get(BLIGHTMARE[0].id) ?? [...results.values()][0];
+  const probe = spawnSync(
+    FFMPEG.replace(/ffmpeg(\.exe)?$/i, "ffprobe$1"),
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+      "-of",
+      "csv=p=0",
+      sample.video,
+    ],
+    { encoding: "utf8" },
+  );
+  const [vw, vh] = probe.stdout.trim().split(",").map(Number);
+  const W = vw + 140;
+  const TOP_H = 92;
+  const H = TOP_H + vh + 150 + ((TOP_H + vh + 150) % 2);
+  const encode = [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "slow",
+    "-crf",
+    "20",
+    "-r",
+    String(FPS),
+    "-pix_fmt",
+    "yuv420p",
+  ];
+  const font = (b) => `${FONT_DIR}/${b ? FONT_BOLD : FONT}`;
+  const parts = [];
+  const log = [];
+  let at = 0;
+  for (const [n, item] of reel.entries()) {
+    const file = join(work, `reel-${String(n).padStart(2, "0")}.mp4`);
+    if (item.card) {
+      writeFileSync(join(work, `reel-${n}-a.txt`), item.card);
+      writeFileSync(join(work, `reel-${n}-b.txt`), item.sub);
+      const filter = [
+        `drawtext=fontfile='${font(true)}':textfile=reel-${n}-a.txt:fontcolor=0xE5484D:fontsize=150:x=(w-text_w)/2:y=(h-text_h)/2-70`,
+        `drawtext=fontfile='${font(false)}':textfile=reel-${n}-b.txt:fontcolor=0xb8c0d0:fontsize=50:x=(w-text_w)/2:y=(h/2)+70`,
+        `fade=t=in:st=0:d=0.4`,
+        `fade=t=out:st=${item.seconds - 0.4}:d=0.4`,
+        "format=yuv420p",
+      ].join(",");
+      await run(
+        [
+          "-f",
+          "lavfi",
+          "-i",
+          `color=c=${BG}:s=${W}x${H}:r=${FPS}:d=${item.seconds}`,
+          "-vf",
+          filter,
+          ...encode,
+          file,
+        ],
+        work,
+      );
+      log.push({
+        what: `card: ${item.card} - ${item.sub}`,
+        start: at,
+        length: item.seconds,
+      });
+      at += item.seconds;
+    } else {
+      // a clip whose scene wasn't recorded (--only) or never reached its mark is left out, and said so
+      const result = results.get(item.clip);
+      if (!result) {
+        console.warn(`reel: ${item.clip} wasn't recorded, left out`);
+        continue;
+      }
+      const mark = result.marks[item.at];
+      if (mark === undefined) {
+        console.warn(
+          `reel: ${item.clip} has no mark "${item.at}" (it has ${Object.keys(result.marks).join(", ")})`,
+        );
+        continue;
+      }
+      const start = Math.max(0, mark + (item.offset ?? 0));
+      // until: a mark the clip may stop at sooner (plus tail seconds after it), so a fight won quickly isn't padded
+      const stop = item.until && result.marks[item.until];
+      const length = Math.min(
+        item.length,
+        result.seconds - start,
+        stop ? stop + (item.tail ?? 0) - start : Infinity,
+      );
+      writeFileSync(join(work, `reel-${n}-t.txt`), "BLIGHTMARE");
+      writeFileSync(join(work, `reel-${n}-c.txt`), item.caption);
+      const filter = [
+        `pad=${W}:${H}:${(W - vw) / 2}:${TOP_H}:color=${BG}`,
+        `drawtext=fontfile='${font(true)}':textfile=reel-${n}-t.txt:fontcolor=0xE5484D:fontsize=54:x=(w-text_w)/2:y=18`,
+        `drawtext=fontfile='${font(false)}':textfile=reel-${n}-c.txt:fontcolor=0xd8dde8:fontsize=44:x=(w-text_w)/2:y=${TOP_H + vh + 48}`,
+        `fade=t=in:st=0:d=0.25`,
+        `fade=t=out:st=${length - 0.25}:d=0.25`,
+        `fps=${FPS}`,
+        "format=yuv420p",
+      ].join(",");
+      await run(
+        [
+          "-ss",
+          String(start),
+          "-t",
+          String(length),
+          "-i",
+          result.video,
+          "-vf",
+          filter,
+          ...encode,
+          file,
+        ],
+        work,
+      );
+      log.push({
+        what: `${item.clip} from "${item.at}": ${item.caption}`,
+        start: at,
+        length,
+      });
+      at += length;
+    }
+    parts.push(file);
+  }
+  const list = join(work, "reel.txt");
+  writeFileSync(
+    list,
+    parts.map((p) => `file '${p.replace(/\\/g, "/")}'`).join("\n"),
+  );
+  await run(
+    [
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      list,
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      out,
+    ],
+    work,
+  );
+  console.log(`${out}: ${at.toFixed(1)} s, ${W}x${H}, ${mb(size(out))}`);
+  for (const l of log)
+    console.log(
+      `  ${l.start.toFixed(1).padStart(6)} s  +${l.length.toFixed(1)}  ${l.what}`,
+    );
+  return log;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 
 const config = loadConfig();
@@ -771,7 +1093,10 @@ const previous = join(OUT, ".work");
 try {
   const chosen = SCENES.filter(
     (s) =>
-      !ONLY || ONLY.includes(s.id) || (s.publish && ONLY.includes(s.publish)),
+      !ONLY ||
+      ONLY.includes(s.id) ||
+      (s.publish && ONLY.includes(s.publish)) ||
+      (s.kind === "blightmare" && ONLY.includes("blightmare")),
   );
   // every scene at once: each is its own emulator process, and each is paced by its own computer's clock
   const results = new Map();
@@ -779,6 +1104,20 @@ try {
     chosen.map(async (scene) => {
       // a scene can say what it must end with (the driver's "note final 3-2"): another take if the game went elsewhere
       let result;
+      // --recut: no recording, the videos and marks a run with --keep left in <out>/.work are cut again
+      const kept = join(previous, `${scene.id}.json`);
+      if (flag("recut") && existsSync(kept)) {
+        result = JSON.parse(readFileSync(kept, "utf8"));
+        copyFileSync(
+          join(previous, `${scene.id}.mp4`),
+          join(work, `${scene.id}.mp4`),
+        );
+        const png = join(previous, `${scene.id}.png`);
+        if (existsSync(png)) copyFileSync(png, join(work, `${scene.id}.png`));
+        result.video = join(work, `${scene.id}.mp4`);
+        results.set(scene.id, result);
+        return;
+      }
       for (let take = 1; take <= 5; take++) {
         result = await recordScene(scene, config, scratch, work);
         if (!scene.expect || result.notes.includes(scene.expect)) break;
@@ -786,6 +1125,7 @@ try {
           `${scene.id}: take ${take} ended ${result.notes.at(-1)}, again`,
         );
       }
+      writeFileSync(join(work, `${scene.id}.json`), JSON.stringify(result));
       results.set(scene.id, result);
     }),
   );
@@ -798,7 +1138,9 @@ try {
     const result = results.get(scene.id);
     if (!result) continue;
     const still = join(work, `${scene.id}.png`);
-    if (existsSync(still)) copyFileSync(still, join(OUT, `${scene.id}.png`));
+    const stillName = scene.kind === "blightmare" ? scene.still : scene.id;
+    if (stillName && existsSync(still))
+      copyFileSync(still, join(OUT, `${stillName}.png`));
     if (scene.publish) {
       const mp4 = join(OUT, `${scene.publish}.mp4`);
       copyFileSync(result.video, mp4);
@@ -812,6 +1154,18 @@ try {
         work,
       );
     }
+  }
+  if (chosen.some((s) => s.kind === "blightmare")) {
+    const reel = join(OUT, "blightmare.mp4");
+    const log = await makeReel(results, BLIGHTMARE_REEL, reel, work);
+    // the GIF: the fight, from where the reel's battle clip starts
+    const battle = log.find((l) => l.what.startsWith("bm-battle"));
+    await makeGif(
+      { publish: "blightmare", gif: [battle ? battle.start : 20, 12] },
+      reel,
+      join(OUT, "blightmare.gif"),
+      work,
+    );
   }
   if (!flag("no-sizzle") && !ONLY)
     await makeSizzle(results, join(OUT, "sizzle.mp4"), work);

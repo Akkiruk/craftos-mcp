@@ -5,7 +5,8 @@ name: Release
 # CC:Tweaked's ROM (its license does not allow redistribution): users build it with `node scripts/build-rom.mjs --download`.
 on:
   push:
-    tags: ["v*"]
+    # vscode-v* tags are the VS Code extension's (vscode-publish.yml), not an engine release
+    tags: ["v*", "!vscode-v*"]
   workflow_dispatch:
 
 permissions:

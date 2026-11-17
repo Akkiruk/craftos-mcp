@@ -1,0 +1,60 @@
+{
+  "craftos-mcp test file": {
+    "prefix": ["cctest", "ccunit"],
+    "description": "A *.test.lua file for craftos-mcp's ccunit harness: run the program for a while, then check its monitor",
+    "body": [
+      "-- Runs ${1:program}.lua and checks its monitor. craftos-mcp test (or the Testing view) runs this file in a fresh",
+      "-- computer, in ${TM_FILENAME_BASE/\\.test$//}.world.json when there is one next to it (its \"monitors\" attach).",
+      "",
+      "-- the program draws into a window over the monitor, so the test can read the text back",
+      "local real = peripheral.find(\"monitor\")",
+      "local screen = window.create(real, 1, 1, real.getSize())",
+      "screen.setTextScale = real.setTextScale",
+      "local find = peripheral.find",
+      "peripheral.find = function(kind, ...)",
+      "  if kind == \"monitor\" then return screen end",
+      "  return find(kind, ...)",
+      "end",
+      "",
+      "local function screenText()",
+      "  local _, height = screen.getSize()",
+      "  local lines = {}",
+      "  for y = 1, height do lines[y] = screen.getLine(y) end",
+      "  return table.concat(lines, \"\\n\")",
+      "end",
+      "",
+      "-- the program runs until it ends or ${2:2} seconds pass",
+      "parallel.waitForAny(function() shell.run(\"${1:program}.lua\") end, function() sleep(${2:2}) end)",
+      "",
+      "ccunit.test(\"${3:it shows its title}\", function()",
+      "  ccunit.truthy(screenText():find(\"${4:Title}\", 1, true), screenText())",
+      "end)",
+      "$0"
+    ]
+  },
+  "ccunit.test": {
+    "prefix": "ccunit.test",
+    "description": "One ccunit test case",
+    "body": [
+      "ccunit.test(\"${1:does something}\", function()",
+      "  ${2:ccunit.eq(actual, expected)}",
+      "end)",
+      "$0"
+    ]
+  },
+  "ccunit.eq": {
+    "prefix": "ccunit.eq",
+    "description": "Fail unless the two values are equal (tables compare deeply)",
+    "body": "ccunit.eq(${1:actual}, ${2:expected})"
+  },
+  "ccunit.truthy": {
+    "prefix": "ccunit.truthy",
+    "description": "Fail unless the value is truthy; the message is shown when it fails",
+    "body": "ccunit.truthy(${1:value}, ${2:\"message\"})"
+  },
+  "ccunit.raises": {
+    "prefix": "ccunit.raises",
+    "description": "Fail unless the function errors with a message matching the Lua pattern",
+    "body": "ccunit.raises(function() ${1:error(\"boom\")} end, \"${2:boom}\")"
+  }
+}

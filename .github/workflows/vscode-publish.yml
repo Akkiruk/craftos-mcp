@@ -1,0 +1,42 @@
+name: Publish VS Code extension
+
+# On a vscode-v* tag: package apps/vscode and publish it to the VS Code Marketplace through Trusted Publishing (OIDC,
+# no token), then to Open VSX when the OVSX_PAT secret is set. The Marketplace's trusted publisher policy names this
+# repository and this file, so keep its name. No tests here: run them locally first (docs/public-release.md).
+on:
+  push:
+    tags: ["vscode-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    defaults:
+      run:
+        working-directory: apps/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/vscode/package-lock.json
+
+      # apps/vscode has its own lockfile: it is not one of the root workspaces, so its tools stay out of the emulator's
+      - run: npm ci
+
+      # vscode:prepublish typechecks and bundles
+      - run: npx vsce package --no-dependencies --out craftos-mcp.vsix
+
+      - run: npx vsce publish --oidc --no-dependencies --packagePath craftos-mcp.vsix
+
+      - name: Open VSX
+        if: env.OVSX_PAT != ''
+        run: npx -y ovsx@1.4.0 publish craftos-mcp.vsix -p "$OVSX_PAT"

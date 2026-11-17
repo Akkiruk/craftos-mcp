@@ -1,0 +1,10 @@
+{
+  "name": "craftos-mcp-test-host",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "test",
+  "description": "Nothing: run.mjs needs a development extension to host the tests; the one under test is the installed .vsix.",
+  "engines": {
+    "vscode": "^1.101.0"
+  }
+}

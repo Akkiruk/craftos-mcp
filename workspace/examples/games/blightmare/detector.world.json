@@ -1,0 +1,14 @@
+{
+  "simProgram": true,
+  "players": [
+    { "name": "Alex", "x": 2, "y": 64, "z": 0 },
+    { "name": "Steve", "x": 6, "y": 64, "z": 3 }
+  ],
+  "peripherals": [
+    { "name": "left", "type": "speaker" },
+    { "name": "right", "type": "playerDetector", "x": 0, "y": 64, "z": 0 }
+  ],
+  "monitors": [
+    { "name": "top", "blocksWide": 6, "blocksHigh": 6, "textScale": 0.5 }
+  ]
+}

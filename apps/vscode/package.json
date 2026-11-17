@@ -1,0 +1,171 @@
+{
+  "name": "craftos-mcp",
+  "displayName": "craftos-mcp: CC:Tweaked emulator",
+  "description": "Run and test ComputerCraft (CC:Tweaked) Lua without Minecraft, and give your AI agent the emulator as an MCP server.",
+  "version": "0.2.0",
+  "publisher": "Rogiedoji",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Akkiruk/craftos-mcp"
+  },
+  "homepage": "https://github.com/Akkiruk/craftos-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/Akkiruk/craftos-mcp/issues"
+  },
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "categories": [
+    "Testing",
+    "Programming Languages",
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "computercraft",
+    "cc:tweaked",
+    "minecraft",
+    "lua",
+    "mcp",
+    "emulator"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/*.test.lua",
+    "onLanguage:lua"
+  ],
+  "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "craftos-mcp.server",
+        "label": "craftos-mcp (CC:Tweaked emulator)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "craftos-mcp.runInCraftOS",
+        "title": "Run in CraftOS",
+        "category": "craftos-mcp",
+        "icon": "$(play)"
+      },
+      {
+        "command": "craftos-mcp.addToClaudeCode",
+        "title": "Add to Claude Code",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.copyMcpJson",
+        "title": "Copy MCP Server JSON",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.refreshTests",
+        "title": "Refresh Tests",
+        "category": "craftos-mcp"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "craftos-mcp.runInCraftOS",
+          "when": "resourceExtname == .lua"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "craftos-mcp.runInCraftOS",
+          "when": "resourceExtname == .lua",
+          "group": "navigation@90"
+        }
+      ],
+      "editor/title/run": [
+        {
+          "command": "craftos-mcp.runInCraftOS",
+          "when": "resourceExtname == .lua"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "craftos-mcp.runInCraftOS",
+          "when": "resourceExtname == .lua",
+          "group": "navigation@90"
+        }
+      ]
+    },
+    "snippets": [
+      {
+        "language": "lua",
+        "path": "./snippets/lua.json"
+      },
+      {
+        "language": "json",
+        "path": "./snippets/world.json"
+      },
+      {
+        "language": "jsonc",
+        "path": "./snippets/world.json"
+      }
+    ],
+    "configuration": {
+      "title": "craftos-mcp",
+      "properties": {
+        "craftos-mcp.command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "How to start craftos-mcp, as a command and its arguments, without the subcommand. Empty (the default) means `npx -y craftos-mcp@<the version this extension was built for>`. For a clone: `[\"node\", \"/path/to/craftos-mcp/apps/cli/dist/index.js\"]`."
+        },
+        "craftos-mcp.addons": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Mods to simulate besides CC:Tweaked (`CRAFTOS_ADDONS`): `all`, `none`, or ids separated by commas, such as `create,mekanism`. Empty means every addon. A world file's own `addons` still wins."
+        },
+        "craftos-mcp.minecraftVersion": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "1.18.2",
+            "1.20.1",
+            "1.21.1"
+          ],
+          "enumDescriptions": [
+            "The emulator's default (1.18.2)",
+            "CC:Tweaked 1.101.3",
+            "CC:Tweaked 1.121.0 with 1.20.1 turtle data",
+            "CC:Tweaked 1.121.0"
+          ],
+          "markdownDescription": "The Minecraft version computers start on (`CRAFTOS_VERSION`). A world file's own `version` still wins."
+        },
+        "craftos-mcp.testTimeout": {
+          "type": "number",
+          "default": 60,
+          "minimum": 1,
+          "markdownDescription": "Seconds a `*.test.lua` file may run before it counts as timed out."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -p . --noEmit",
+    "test:unit": "node --experimental-strip-types --no-warnings --test \"test/unit/*.test.mjs\"",
+    "test:mcp": "node --experimental-strip-types --no-warnings test/mcp-stdio.mjs",
+    "test:integration": "node test/integration/run.mjs",
+    "package": "vsce package --no-dependencies",
+    "vscode:prepublish": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "@types/vscode": "1.101.0",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.1.1",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

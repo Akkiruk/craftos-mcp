@@ -1,0 +1,4 @@
+# build.mjs makes install/; the game writes saves and a log when run from this folder
+install/
+saves/
+blightmare.log

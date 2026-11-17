@@ -1,0 +1,29 @@
+{
+  "craftos-mcp world": {
+    "prefix": ["ccworld", "craftos-world"],
+    "description": "A craftos-mcp world file (<name>.world.json): the mods, monitors, players and peripherals around the computer",
+    "body": [
+      "{",
+      "  \"addons\": [${1:\"advanced-peripherals\"}],",
+      "  \"monitors\": [{ \"name\": \"${2:top}\", \"blocksWide\": ${3:3}, \"blocksHigh\": ${4:2} }],",
+      "  \"players\": [{ \"name\": \"${5:Alice}\", \"x\": 2, \"y\": 64, \"z\": 0 }],",
+      "  \"peripherals\": [",
+      "    { \"name\": \"playerDetector_0\", \"type\": \"playerDetector\", \"x\": 0, \"y\": 64, \"z\": 0 },",
+      "    {",
+      "      \"name\": \"${6:chest_0}\",",
+      "      \"type\": \"minecraft:chest\",",
+      "      \"size\": 27,",
+      "      \"items\": { \"1\": { \"name\": \"minecraft:iron_ingot\", \"count\": 32 } }",
+      "    },",
+      "    {",
+      "      \"name\": \"battery_0\",",
+      "      \"type\": \"energy_storage\",",
+      "      \"energy\": 80000,",
+      "      \"energyCapacity\": 100000,",
+      "      \"energyRate\": -200",
+      "    }$0",
+      "  ]",
+      "}"
+    ]
+  }
+}

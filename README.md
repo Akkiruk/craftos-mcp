@@ -75,14 +75,20 @@ and there's a [highlight reel](docs/media/showcase/sizzle.mp4) of them.
 
 ## Games
 
-Three game cabinets in plain CC:Tweaked Lua, each with a world file and tests that play real games through taps on
-the monitors. They're examples of what you can build and test here, and they use nothing but CC:Tweaked's own APIs.
+Three game cabinets and an RPG in plain CC:Tweaked Lua, each with a world file and tests that play real games through
+taps on the monitors. They're examples of what you can build and test here, and they use nothing but CC:Tweaked's own
+APIs.
 
-| Cabinet                                             | Games                                                                                                                      | Shows off                                    |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| [Board](workspace/examples/games/board/README.md)   | Ultimate Tic-Tac-Toe, Four in a Row, Reversi, Checkers, Dots and Boxes, Mancala, Fleet, Codebreaker; three computer levels | touch monitor walls, two players at one wall |
-| [Action](workspace/examples/games/action/README.md) | Snake, Blocks, Bricks, Lander, Mines                                                                                       | fast redraws, real-time touch                |
-| [Versus](workspace/examples/games/versus/README.md) | Paddle, Trails, Artillery                                                                                                  | two computers in one match over rednet       |
+| Cabinet                                                     | Games                                                                                                                      | Shows off                                    |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| [Board](workspace/examples/games/board/README.md)           | Ultimate Tic-Tac-Toe, Four in a Row, Reversi, Checkers, Dots and Boxes, Mancala, Fleet, Codebreaker; three computer levels | touch monitor walls, two players at one wall |
+| [Action](workspace/examples/games/action/README.md)         | Snake, Blocks, Bricks, Lander, Mines                                                                                       | fast redraws, real-time touch                |
+| [Versus](workspace/examples/games/versus/README.md)         | Paddle, Trails, Artillery                                                                                                  | two computers in one match over rednet       |
+| [BLIGHTMARE](workspace/examples/games/blightmare/README.md) | a first-person RPG in eleven acts: towns, a world map, turn-based fights, bosses, saves                                    | 2 MB of game packed onto a 1 MB disk         |
+
+![BLIGHTMARE: the opening, a town, a fight and a boss, played by touch](docs/media/showcase/blightmare.gif)
+
+BLIGHTMARE, played by touch ([the whole showcase](docs/media/showcase/blightmare.mp4))
 
 |                                                                                                  |                                                                                                                           |
 | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
