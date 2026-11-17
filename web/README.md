@@ -18,10 +18,11 @@ node web/serve.mjs             # http://127.0.0.1:8787/ - a local library page t
 `node web/build-runtime.mjs --engine` runs `engine\build-web.cmd` first. Screenshots need the native engine and ROM
 (`npm run setup`); a cart's screenshot is only redone when the cart changes (`web/dist/carts/shots.json`).
 
-`web/dist` is gitignored and is never part of the public repository: the ROM (`rom-1.101.3.pack`) and the terminal
-font (`cc-font.bin`) are CC:Tweaked's, hosted on the website with its author's permission, on condition that every
-page running a computer links to <https://tweaked.cc>. The player always shows a "Uses CC:Tweaked" link in its
-footer; keep it visible.
+`web/dist` is gitignored and is never part of the public repository: the ROM (`rom-1.101.3.pack`) is CC:Tweaked's,
+hosted on the website with its author's permission, on condition that every page running a computer links to
+<https://tweaked.cc>. The player always shows a "Uses CC:Tweaked" link in its footer; keep it visible. The terminal
+font (`cc-font.bin`, from `packages/rawterm/assets`) is not site-only: upstream CraftOS-PC already ships the same font
+publicly (`engine/src/font.c`).
 
 ## Output
 

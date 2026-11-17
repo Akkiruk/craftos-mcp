@@ -39,7 +39,12 @@ import {
   sendCommandResult,
   touchMonitorAs,
 } from "./drive.js";
-import { type ScreenCapture, pixelScreenPng, pixelScreens } from "./engine.js";
+import {
+  type ScreenCapture,
+  parseDebugLink,
+  pixelScreenPng,
+  pixelScreens,
+} from "./engine.js";
 import { MONITOR_LIMIT, type MonitorSpec } from "./lua.js";
 import { type Session, type SessionManager, waitForBoot } from "./sessions.js";
 import { describeAll, readWaiting } from "./ui.js";
@@ -89,6 +94,10 @@ interface ComputerForm {
   /** More than 1: a network of this many computers, each with a modem. */
   count?: number;
   modem?: "wireless" | "ender";
+  /** Run `program` as a ccunit test file (/ccunit/runtest), as `craftos-mcp test` does; the computer shuts down after. */
+  test?: boolean;
+  /** A debug adapter for this computer (engine.ts DebugLink). One computer only, not a network. */
+  debug?: { port?: unknown; token?: unknown };
 }
 
 /** Sim commands every world knows (core.lua), with what they take. Addons add their own (ADDONS[].commands). */
@@ -378,15 +387,29 @@ export function startWebApp(options: WebAppOptions): Server {
         : kind === "pocket"
           ? "pocket"
           : "computer");
+    const debug = parseDebugLink(form.debug);
+    if (debug && count !== 1)
+      throw new Error("a debugger takes one computer, not a network");
+    // a test file runs under ccunit, as `craftos-mcp test` runs it
+    const line =
+      form.test && form.program?.trim()
+        ? `/ccunit/runtest ${form.program.trim()}`
+        : form.program;
     if (count === 1) {
-      const session = sessions.create(monitors, timeScale, worldOf(form));
+      const session = sessions.create(
+        monitors,
+        timeScale,
+        worldOf(form),
+        undefined,
+        debug,
+      );
       meta.set(session.id, {
         name: baseName,
         kind,
         advanced,
-        ...(form.program ? { program: form.program } : {}),
+        ...(line ? { program: line } : {}),
       });
-      startProgram(session, form.program);
+      startProgram(session, line);
       return { ids: [session.id] };
     }
     networkCount += 1;

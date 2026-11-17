@@ -12,6 +12,7 @@
 //   1 file, 3 tests: 1 passed, 2 failed
 //
 // No vscode import: the unit tests load this file in plain Node.
+import { findTests } from "./luaScan.ts";
 
 export interface ReportTest {
   name: string;
@@ -154,24 +155,12 @@ export interface DeclaredTest {
   line: number;
 }
 
-/** The `ccunit.test("name", ...)` calls a file makes with a literal name, so they show before the first run. */
+/**
+ * The `ccunit.test("name", ...)` calls a file makes with a literal name (also through `local t = ccunit.test`), so
+ * they show before the first run. luaScan.ts tokenizes, so comments and strings never count.
+ */
 export function declaredTests(source: string): DeclaredTest[] {
-  const found: DeclaredTest[] = [];
-  const re = /ccunit\.test\(\s*(["'])((?:\\.|(?!\1)[^\\\n])*)\1/g;
-  const lines = source.split("\n");
-  lines.forEach((text, line) => {
-    if (/^\s*--/.test(text)) return;
-    re.lastIndex = 0;
-    for (let m = re.exec(text); m; m = re.exec(text))
-      found.push({ name: unescapeLua(m[2]!), line });
-  });
-  return found;
-}
-
-function unescapeLua(s: string): string {
-  return s.replace(/\\(.)/g, (_, c: string) =>
-    c === "n" ? "\n" : c === "t" ? "\t" : c,
-  );
+  return findTests(source).map((t) => ({ name: t.name, line: t.line }));
 }
 
 /** The `--monitor name:WxH@scale` options for a world file's `monitors` list (the window command's format). */

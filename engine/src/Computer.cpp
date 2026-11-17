@@ -19,6 +19,7 @@ extern "C" {
 #include <peripheral.hpp>
 #include <sys/stat.h>
 #include "apis.hpp"
+#include "debug_server.hpp"
 #include "main.hpp"
 #include "mem/cluster.hpp"
 #include "peripheral/computer.hpp"
@@ -181,7 +182,7 @@ Computer::~Computer() {
 // slept off once a millisecond is owed. A gap of more than a millisecond means the computer was waiting for an event,
 // not running Lua, and is not charged. Each computer runs on its own thread, so the account is per thread.
 static const int COBALT_HOOK_COUNT = 1000;
-static void cobaltHook(lua_State *L, lua_Debug *ar) {
+void cobaltHook(lua_State *L, lua_Debug *ar) { // also called by the debugger's hook (debug_server.cpp)
     if (ar->event != LUA_HOOKCOUNT) return;
     using clock = std::chrono::steady_clock;
     thread_local clock::time_point last = clock::now();
@@ -520,6 +521,9 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         lua_setglobal(L, "os");
         // TODO: Fix logErrors since error hooks are no longer enabled
         if (self->debugger != NULL && !self->isDebugger) lua_sethook(self->coro, termHook, LUA_MASKLINE | LUA_MASKRET | LUA_MASKCALL | LUA_MASKERROR | LUA_MASKRESUME | LUA_MASKYIELD, 0);
+        // --debug-connect: the debugger's hook, which does the Cobalt accounting itself (debug_server.cpp). Without
+        // the option this is one test of a bool and no hook is set.
+        else if (debugsrv::computerStarting(self, self->coro)) {}
         // Coroutines inherit the hook from the thread that makes them, so this covers every coroutine of the computer
         // lua_setbasehook: a program's own debug.sethook goes on top of it instead of being refused (ldblib.c)
         else if (cobaltSlowdown > 1.0) {
@@ -789,6 +793,7 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         for (library_t ** lib = libraries; *lib != NULL; lib++) if ((*lib)->deinit != NULL) (*lib)->deinit(self);
         if (self->eventTimeout != 0) SDL_RemoveTimer(self->eventTimeout);
         self->eventTimeout = 0;
+        debugsrv::computerStopping(self);
         lua_close(L);   /* Cya, Lua */
         self->L = NULL;
         if (self->rawFileStack) {
@@ -921,6 +926,7 @@ void* computerThread(void* data) {
                 for (library_t ** lib = libraries; *lib != NULL; lib++) if ((*lib)->deinit != NULL) (*lib)->deinit(comp);
                 if (comp->eventTimeout != 0) SDL_RemoveTimer(comp->eventTimeout);
                 comp->eventTimeout = 0;
+                debugsrv::computerStopping(comp);
                 lua_close(comp->L);   /* Cya, Lua */
                 comp->L = NULL;
                 if (comp->rawFileStack) {
@@ -940,6 +946,7 @@ void* computerThread(void* data) {
                 for (library_t ** lib = libraries; *lib != NULL; lib++) if ((*lib)->deinit != NULL) (*lib)->deinit(comp);
                 if (comp->eventTimeout != 0) SDL_RemoveTimer(comp->eventTimeout);
                 comp->eventTimeout = 0;
+                debugsrv::computerStopping(comp);
                 lua_close(comp->L);   /* Cya, Lua */
                 comp->L = NULL;
                 if (comp->rawFileStack) {

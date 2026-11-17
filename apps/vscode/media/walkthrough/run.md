@@ -8,8 +8,8 @@ The emulator opens beside your code:
 - monitors update live, and a click on one is a touch;
 - the world panel adds players, moves the clock, fills chests and sends sim commands.
 
-The computer's files are the program's own folder, or `craftos-mcp.workspace` if the file is inside it. Closing the
-panel stops the computers and the emulator.
+The computer's files are the program's own folder, or `craftos-mcp.workspace` if the file is inside it. Save the
+file and the program runs over. Closing the panel stops the computers and the emulator.
 
 Try it with this:
 

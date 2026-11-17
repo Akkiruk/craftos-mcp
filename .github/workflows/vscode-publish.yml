@@ -15,7 +15,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     env:
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     defaults:
@@ -43,8 +43,34 @@ jobs:
           test -x node_modules/@vscode/vsce-sign/bin/vsce-sign
           npx esbuild --version
 
-      # vscode:prepublish typechecks and bundles
+      # The browser engine for the web extension (package.json `browser`): engine/build-web.sh with emsdk pinned to
+      # its EMSDK_VERSION. emsdk (with Emscripten's port cache, SDL2 among them) and the build folder (Poco for wasm32,
+      # built once) are cached, so a release only recompiles the engine.
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 7.0.0
+          actions-cache-folder: emsdk-cache
+      - uses: actions/cache@v4
+        with:
+          path: engine/build-web
+          key: web-engine-${{ hashFiles('engine/build-web.sh', 'engine/web/**', 'engine/CMakeLists.txt', 'engine/src/**', 'engine/api/**', 'engine/craftos2-lua/**') }}
+          restore-keys: web-engine-
+      - name: Build the browser engine
+        working-directory: .
+        run: |
+          sudo apt-get install -y -qq ninja-build >/dev/null
+          bash engine/build-web.sh
+          echo "CRAFTOS_WEB_BUILD_DIR=$PWD/engine/build-web" >> "$GITHUB_ENV"
+
+      # vscode:prepublish typechecks and bundles (esbuild.mjs takes the engine from CRAFTOS_WEB_BUILD_DIR)
       - run: npx vsce package --no-dependencies --out craftos-mcp.vsix
+
+      # without the engine the web extension can only say it has none: never publish that
+      - name: The package has the browser engine
+        run: |
+          unzip -l craftos-mcp.vsix | grep -q 'extension/dist/web/runtime/craftos.wasm'
+          unzip -l craftos-mcp.vsix | grep -q 'extension/dist/web/runtime/craftos.js'
+          unzip -l craftos-mcp.vsix | grep -q 'extension/dist/web/overlay.pack'
 
       - run: npx vsce publish --oidc --no-dependencies --packagePath craftos-mcp.vsix
 

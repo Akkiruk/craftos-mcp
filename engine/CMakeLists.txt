@@ -57,6 +57,7 @@ find_path(DIRENT_INCLUDE dirent.h REQUIRED)
 set(ENGINE_SOURCES
   src/Computer.cpp
   src/configuration.cpp
+  src/debug_server.cpp
   src/favicon.c
   src/font.c
   src/gif.cpp

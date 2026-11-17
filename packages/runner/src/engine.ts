@@ -71,6 +71,33 @@ function cobaltSlowdown(world: WorldConfig | undefined): number {
 }
 
 /**
+ * A debug adapter listening on 127.0.0.1 (the VS Code extension's). The engine connects to it before the computer
+ * boots (--debug-connect), says hello with the token, takes the adapter's breakpoints and waits for its "run". The
+ * protocol is in engine/src/debug_server.hpp. Without this no debugger code runs in the engine at all.
+ */
+export interface DebugLink {
+  readonly port: number;
+  /** Sent back in the engine's hello, so the adapter knows the engine it started from a stranger. */
+  readonly token: string;
+}
+
+/** A DebugLink from untrusted JSON (the app's computer form), or an error saying what is wrong with it. */
+export function parseDebugLink(value: unknown): DebugLink | undefined {
+  if (value === undefined || value === null) return undefined;
+  const { port, token } = value as { port?: unknown; token?: unknown };
+  if (
+    typeof port !== "number" ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  )
+    throw new Error("debug.port must be a port number");
+  if (typeof token !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(token))
+    throw new Error("debug.token must be 1-128 letters, digits, _ or -");
+  return { port, token };
+}
+
+/**
  * Start one engine process with an isolated computer. The workspace is copied
  * into the computer's root, so programs see the same layout as on a real
  * server (for example `dofile("surface")` resolves from /). Helper libraries
@@ -103,6 +130,8 @@ export interface StartOptions {
     readonly allow?: readonly string[];
     readonly deny?: readonly string[];
   };
+  /** A debug adapter the engine connects to before the computer boots (DebugLink). */
+  readonly debug?: DebugLink;
   /** A run folder stageEngine already copied the files into: startEngine copies nothing and blocks nothing. */
   readonly staged?: StagedRun;
 }
@@ -308,6 +337,7 @@ export function startEngine(
     economyDir,
     computerSpaceLimit = COMPUTER_SPACE_LIMIT,
     httpRules,
+    debug,
   } = options;
   // no engine (a failed first run, an unbuilt clone): say so, instead of a spawn error later
   const noEngine = checkConfig(config).find((p) => p.startsWith("engine "));
@@ -430,9 +460,14 @@ export function startEngine(
         ...(cobaltSlowdown(world) > 1
           ? ["--cobalt-speed", String(cobaltSlowdown(world))]
           : []),
+        ...(debug ? ["--debug-connect", `127.0.0.1:${debug.port}`] : []),
         "--script",
         bootPath,
       ],
+      // the token goes in the environment, not on the command line other users of the machine can read
+      ...(debug && {
+        env: { ...process.env, CRAFTOS_DEBUG_TOKEN: debug.token },
+      }),
     });
     started.on("stderr", (text) => stderr.push(text));
     return started;

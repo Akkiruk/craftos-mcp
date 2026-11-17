@@ -8,7 +8,16 @@ import {
   parseTestReport,
   syntaxError,
 } from "../../src/testOutput.ts";
-import { launchFor, needsCmd } from "../../src/launcher.ts";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  directBase,
+  launchFor,
+  needsCmd,
+  npmCacheDir,
+} from "../../src/launcher.ts";
 
 const REPORT = [
   "PASS a.test.lua (1 tests, 641 ms)",
@@ -163,4 +172,55 @@ test("Windows starts npx through cmd, everything else directly", () => {
   });
   assert.equal(needsCmd("C:\\tools\\craftos-mcp.cmd", "win32"), true);
   assert.equal(needsCmd("C:\\Program Files\\nodejs\\node.exe", "win32"), false);
+});
+
+test("the pinned npx command runs the cached package directly once npx has it", () => {
+  const cache = mkdtempSync(join(tmpdir(), "craftos-npx-"));
+  const spec = "craftos-mcp@9.8.7";
+  const env = { npm_config_cache: cache };
+  const base = ["npx", "-y", spec];
+  try {
+    assert.equal(npmCacheDir(env, "win32"), cache);
+    assert.equal(
+      npmCacheDir({ LOCALAPPDATA: "C:\Users\a\AppData\Local" }, "win32"),
+      join("C:\Users\a\AppData\Local", "npm-cache"),
+    );
+    // nothing cached: npx as before
+    assert.deepEqual(directBase(base, env), base);
+    const hash = createHash("sha512").update(spec).digest("hex").slice(0, 16);
+    const modules = join(cache, "_npx", hash, "node_modules");
+    const pkg = join(modules, "craftos-mcp");
+    mkdirSync(join(pkg, "scripts", "npm"), { recursive: true });
+    writeFileSync(join(pkg, "scripts", "npm", "craftos-mcp.mjs"), "");
+    const manifest = (version) =>
+      writeFileSync(
+        join(pkg, "package.json"),
+        JSON.stringify({
+          version,
+          bin: { "craftos-mcp": "scripts/npm/craftos-mcp.mjs" },
+          dependencies: { zod: "4" },
+        }),
+      );
+    manifest("9.8.7");
+    // a dependency missing (an install cut short): still npx
+    assert.deepEqual(directBase(base, env), base);
+    mkdirSync(join(modules, "zod"), { recursive: true });
+    writeFileSync(join(modules, "zod", "package.json"), "{}");
+    assert.deepEqual(directBase(base, env), [
+      "node",
+      join(pkg, "scripts", "npm", "craftos-mcp.mjs"),
+    ]);
+    // another version in that folder, an unpinned spec, a custom command: left alone
+    manifest("9.8.6");
+    assert.deepEqual(directBase(base, env), base);
+    manifest("9.8.7");
+    assert.deepEqual(directBase(["npx", "-y", "craftos-mcp"], env), [
+      "npx",
+      "-y",
+      "craftos-mcp",
+    ]);
+    assert.deepEqual(directBase(["craftos-mcp"], env), ["craftos-mcp"]);
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
 });

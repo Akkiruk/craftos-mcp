@@ -1,11 +1,13 @@
 // craftos-mcp for VS Code: the emulator's MCP server for VS Code's agents, Run in CraftOS, *.test.lua in the
 // Testing view, and commands that set up other MCP clients.
 import * as vscode from "vscode";
+import { registerDebugger } from "./debug/adapter";
+import { addDebugProfile } from "./debug/testProfile";
 import { firstRun } from "./firstRun";
 import { registerLuaTypes } from "./luaTypes";
 import { editorKind } from "./mcpConfig";
 import { registerScaffold } from "./scaffold";
-import { Status, showMenu } from "./status";
+import { Status, menuItems, showMenu } from "./status";
 import {
   addToClaudeCode,
   addToEditor,
@@ -21,9 +23,20 @@ import {
   skipReason,
 } from "./clients";
 import { suggestWorkspace } from "./projectScan";
+import { oneAtATime } from "./prompts";
 import { runInCraftOS, runningPanels, stopAll } from "./runPanel";
 import { projectFolder, runFolder } from "./settings";
 import { CraftosTests } from "./tests";
+import { registerDiagnostics } from "./diagnostics";
+import { registerPackPicker } from "./packPicker";
+import { registerRerunOnSave } from "./rerun";
+import { type TestLensApi, registerTestLens } from "./testLens";
+import {
+  VIEW_TYPE,
+  WorldEditorProvider,
+  editDocument,
+  lastRender,
+} from "./worldEditor/provider";
 
 /** What activate returns: only the integration tests use it. */
 export interface CraftosApi {
@@ -39,6 +52,15 @@ export interface CraftosApi {
   runInCraftOS: (uri: vscode.Uri) => ReturnType<typeof runInCraftOS>;
   runningPanels: typeof runningPanels;
   status: Status;
+  /** The status bar menu's entries, for (another editor's fork, a Lua file open). */
+  menuItems: typeof menuItems;
+  testLens: TestLensApi;
+  /** The World Editor's view type, and the edit path its webview's changes take. */
+  worldEditor: {
+    viewType: string;
+    edit: typeof editDocument;
+    lastRender: typeof lastRender;
+  };
 }
 
 const SUGGESTED = "craftos-mcp.workspaceSuggested";
@@ -60,14 +82,24 @@ async function offerWorkspace(context: vscode.ExtensionContext): Promise<void> {
     set?.workspaceFolderValue !== undefined
   )
     return;
+  // suggestWorkspace reads folders on the extension host's thread (160 ms in a big repo): only where there is Lua.
+  // The MCP server's provider activates the extension in folders without any.
+  const lua = await vscode.workspace.findFiles(
+    new vscode.RelativePattern(folder, "**/*.lua"),
+    "**/node_modules/**",
+    1,
+  );
+  if (!lua.length) return;
   const sub = suggestWorkspace(folder.uri.fsPath);
   if (!sub) return;
   await context.workspaceState.update(SUGGESTED, true);
   const use = `Use ${sub}/`;
-  const pick = await vscode.window.showInformationMessage(
-    `This folder is big, and the emulator copies its workspace into every computer it starts. Your Lua looks like it lives in ${sub}/. Use that as craftos-mcp's workspace?`,
-    use,
-    "Keep the Whole Folder",
+  const pick = await oneAtATime(() =>
+    vscode.window.showInformationMessage(
+      `This folder is big, and the emulator copies its workspace into every computer it starts. Your Lua looks like it lives in ${sub}/. Use that as craftos-mcp's workspace? You can change it later in the craftos-mcp.workspace setting.`,
+      use,
+      "Keep the Whole Folder",
+    ),
   );
   if (pick === use)
     await vscode.workspace
@@ -85,6 +117,7 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
     status,
     ...registerLuaTypes(context, output),
     ...registerScaffold(context),
+    ...WorldEditorProvider.register(context),
     vscode.commands.registerCommand("craftos-mcp.menu", () => showMenu(fork)),
     vscode.commands.registerCommand("craftos-mcp.showLog", () => output.show()),
     vscode.commands.registerCommand("craftos-mcp.openSettings", () =>
@@ -116,6 +149,9 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
   context.subscriptions.push(
     output,
     tests,
+    // the debugger: the `craftos` debug type, Debug in CraftOS, and Debug in the Testing view
+    ...registerDebugger(output, context.extensionUri),
+    addDebugProfile(tests.controller),
     vscode.commands.registerCommand(
       "craftos-mcp.runInCraftOS",
       (uri?: vscode.Uri) => run(uri),
@@ -131,6 +167,14 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
       "craftos-mcp.restartServer",
       restartCommand,
     ),
+  );
+  // the pack pickers, rerun on save, test CodeLens and failure marks, version-aware diagnostics
+  const lens = registerTestLens(tests);
+  context.subscriptions.push(
+    ...registerPackPicker(),
+    registerRerunOnSave(),
+    ...lens.disposables,
+    ...registerDiagnostics(),
   );
   void tests.discover();
   void offerWorkspace(context).catch((error: Error) =>
@@ -149,6 +193,9 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
     runInCraftOS: run,
     runningPanels,
     status,
+    menuItems,
+    testLens: lens.api,
+    worldEditor: { viewType: VIEW_TYPE, edit: editDocument, lastRender },
   };
 }
 

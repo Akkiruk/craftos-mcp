@@ -482,6 +482,8 @@ const MONITOR_TITLE = /Monitor (.+)$/;
  * ("auto" | true | false: the on-screen keys bar; auto shows it on touch screens for carts that want keys),
  * autofocus (default true), pauseWhenHidden (default true), fit ("auto" | "fill": "fill" uses the element's own
  * height, "auto" up to 85% of the window's height; default "fill" when the element has a height).
+ * runtime: a runtime the page put together itself instead of fetching one from runtimeBase (the VS Code web
+ * extension does: it has no server to fetch from): { wasmModule, rom (ArrayBuffer), glyphs, workerUrl, runtimeUrls }.
  */
 export function mountPlayer(element, options = {}) {
   return new Player(element, options);
@@ -736,7 +738,8 @@ class Player {
       this.cart.computers.length === 0
     )
       throw new Error("cart has no computers");
-    const runtime = await loadRuntime(this.runtimeBase);
+    const runtime = await (this.options.runtime ??
+      loadRuntime(this.runtimeBase));
     if (this.destroyed || generation !== this.generation) return;
     this.runtime = runtime;
     this.glyphs = runtime.glyphs;

@@ -1,9 +1,15 @@
 **
 !dist/extension.js
 !dist/supervisor.js
+!dist/web/extension.js
+!dist/web/overlay.pack
+!dist/web/runtime/**
+!dist/worldEditor.js
+!dist/worldEditor.css
 !media/icon.png
 !snippets/*.json
 !schemas/world.schema.json
+!schemas/addons.json
 !lua-addons/**
 !media/walkthrough/*.md
 !package.json

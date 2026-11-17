@@ -142,8 +142,51 @@ exports.run = async function run() {
       "craftos-mcp.menu",
       "craftos-mcp.walkthrough",
       "craftos-mcp.setUpLuaTypes",
+      "craftos-mcp.openWorldEditor",
+      "craftos-mcp.openSettings",
     ])
       assert.ok(all.includes(id), id);
+    // every command has a title that reads as one in the palette, and the ones that only make sense from a lens or a
+    // quick fix are not in it
+    const contributed = ext.packageJSON.contributes.commands;
+    assert.deepEqual(
+      contributed
+        .filter((c) => !/^[A-Z]/.test(c.title) || c.category !== "craftos-mcp")
+        .map((c) => c.command),
+      [],
+    );
+    assert.equal(
+      new Set(contributed.map((c) => c.title)).size,
+      contributed.length,
+      "two commands with one title",
+    );
+    assert.ok(
+      contributed.every((c) => all.includes(c.command)),
+      contributed
+        .filter((c) => !all.includes(c.command))
+        .map((c) => c.command)
+        .join(", "),
+    );
+    const hidden = ext.packageJSON.contributes.menus.commandPalette
+      .filter((m) => m.when === "false")
+      .map((m) => m.command);
+    assert.deepEqual(hidden.sort(), [
+      "craftos-mcp.debugTest",
+      "craftos-mcp.enableAddon",
+      "craftos-mcp.runTest",
+    ]);
+    // the settings come in a set order, the pack first and the developer's command last
+    const props = Object.entries(
+      ext.packageJSON.contributes.configuration.properties,
+    ).sort((a, b) => a[1].order - b[1].order);
+    assert.equal(props[0][0], "craftos-mcp.minecraftVersion");
+    assert.equal(props[props.length - 1][0], "craftos-mcp.command");
+    assert.ok(
+      props.every(
+        ([, p]) => typeof p.order === "number" && p.markdownDescription,
+      ),
+      "a setting without an order or a description",
+    );
     const pkg = ext.packageJSON.contributes;
     assert.equal(pkg.walkthroughs[0].id, "craftos-mcp.start");
     assert.equal(pkg.jsonValidation[0].url, "./schemas/world.schema.json");
@@ -151,8 +194,47 @@ exports.run = async function run() {
       join(ext.extensionPath, "schemas", "world.schema.json"),
     );
     assert.equal(schema.type, "object");
-    assert.ok(api.status.item.text.includes("CraftOS"), api.status.item.text);
+    // one status bar item: the pack it names, and a menu with the pickers in it
+    assert.equal(api.status.item.text, "$(circuit-board) CraftOS 1.21.1");
+    assert.equal(api.status.item.command, "craftos-mcp.menu");
+    const menu = api.menuItems(false, true).filter((i) => i.command);
+    assert.ok(
+      menu.every((i) => all.includes(i.command)),
+      "a menu entry without its command",
+    );
+    for (const id of [
+      "craftos-mcp.runInCraftOS",
+      "craftos-mcp.debugInCraftOS",
+      "craftos-mcp.pickMinecraftVersion",
+      "craftos-mcp.pickAddons",
+      "craftos-mcp.restartServer",
+    ])
+      assert.ok(
+        menu.some((i) => i.command === id),
+        id,
+      );
+    assert.ok(
+      !api
+        .menuItems(false, false)
+        .some((i) => i.command === "craftos-mcp.runInCraftOS"),
+      "Run in the menu without a Lua file open",
+    );
+    assert.equal(
+      menu.find((i) => i.command === "craftos-mcp.pickMinecraftVersion")
+        .description,
+      "1.21.1 (CC:Tweaked 1.121.0), the default",
+    );
+    assert.equal(
+      menu.find((i) => i.command === "craftos-mcp.pickAddons").description,
+      "19 of 19 on",
+    );
+    assert.ok(
+      all.includes("craftos-mcp.debugInCraftOS"),
+      "craftos-mcp.debugInCraftOS",
+    );
   });
+
+  if (process.env.CRAFTOS_IT_ONLY === "debug") return debuggerSteps(api);
 
   await step(
     "the world schema is the real one: a typo'd key is flagged, peripheral types complete",
@@ -209,6 +291,136 @@ exports.run = async function run() {
       );
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       rmSync(file);
+    },
+  );
+
+  await step(
+    "a world file opens in the World Editor, its edits are text edits, and it reopens as text",
+    async () => {
+      const { viewType, edit, lastRender } = api.worldEditor;
+      assert.deepEqual(
+        ext.packageJSON.contributes.customEditors.map((e) => [
+          e.viewType,
+          e.selector[0].filenamePattern,
+          e.priority,
+        ]),
+        [[viewType, "*.world.json", "default"]],
+      );
+      const file = join(project, "base.world.json");
+      const original = readFileSync(file, "utf8");
+      const uri = vscode.Uri.file(file);
+      const key = uri.toString();
+      const activeInput = () =>
+        vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+
+      // a world file opens in it by default
+      await vscode.commands.executeCommand("vscode.open", uri);
+      await until(
+        () =>
+          activeInput() instanceof vscode.TabInputCustom &&
+          activeInput().viewType === viewType,
+        "the World Editor tab",
+      );
+      // its webview ran under the real CSP and drew the computer: the monitor and the modem on their sides, the chest
+      // on the network and the other computer in the folder
+      await until(
+        () => lastRender.get(key),
+        "the World Editor drawing the world",
+        30_000,
+      );
+      const seen = lastRender.get(key);
+      console.log(`       drew ${JSON.stringify(seen)}`);
+      assert.equal(seen.parseError, false);
+      assert.equal(seen.tiles, 3, "monitor, modem and the computer");
+      // the chest, and the folder's other parseable world files as other computers: relay, clock and typo
+      assert.equal(
+        seen.rows,
+        4,
+        "the chest on the network and relay, clock and typo .world.json",
+      );
+      assert.equal(seen.problems, 0);
+
+      const doc = vscode.workspace.textDocuments.find(
+        (d) => d.uri.toString() === key,
+      );
+      assert.ok(doc, "the World Editor's text document");
+      assert.equal(doc.getText(), original, "opening changes nothing");
+      assert.equal(doc.isDirty, false);
+
+      // the webview's edit path: only the edited part changes, CRLF stays, and the document is dirty
+      lastRender.delete(key);
+      await edit(doc, [
+        { op: "set", path: ["peripherals", 0, "kind"], value: "wired" },
+        { op: "set", path: ["peripherals", 0, "network"], value: "base" },
+        { op: "remove", path: ["monitors", 0, "blocksHigh"] },
+      ]);
+      const edited = original
+        .replace('"kind": "ender" }', '"kind": "wired", "network": "base" }')
+        .replace(', "blocksHigh": 2 }', " }");
+      assert.equal(doc.getText(), edited);
+      assert.equal(doc.isDirty, true);
+      await until(
+        () => lastRender.get(key),
+        "the World Editor redrawing after the edit",
+      );
+
+      // undo and redo are the text document's own
+      await vscode.commands.executeCommand("undo");
+      await until(
+        () => doc.getText() === original,
+        "undo to give the file back",
+      );
+      await vscode.commands.executeCommand("redo");
+      await until(
+        () => doc.getText() === edited,
+        "redo to make the edit again",
+      );
+      assert.ok(await doc.save());
+      assert.equal(readFileSync(file, "utf8"), edited);
+
+      // a schema problem shows in the editor's count
+      lastRender.delete(key);
+      await edit(doc, [
+        { op: "set", path: ["peripherals", 0, "kind"], value: "laser" },
+      ]);
+      await until(
+        () => lastRender.get(key)?.problems === 1,
+        "the schema problem counted",
+      );
+      await vscode.commands.executeCommand("undo");
+      await until(() => doc.getText() === edited, "undo of the bad kind");
+
+      // Reopen Editor With... Text Editor
+      await vscode.commands.executeCommand("vscode.openWith", uri, "default");
+      await until(
+        () =>
+          activeInput() instanceof vscode.TabInputText &&
+          activeInput().uri.toString() === key,
+        "the text editor tab",
+      );
+      // and back
+      await vscode.commands.executeCommand("craftos-mcp.openWorldEditor", uri);
+      await until(
+        () => activeInput() instanceof vscode.TabInputCustom,
+        "the World Editor again",
+      );
+
+      // a file that does not parse says where, and does not get written
+      const broken = vscode.Uri.file(join(project, "broken.world.json"));
+      const brokenText = readFileSync(broken.fsPath, "utf8");
+      await vscode.commands.executeCommand("vscode.openWith", broken, viewType);
+      await until(
+        () => lastRender.get(broken.toString())?.parseError === true,
+        "the broken file's message",
+      );
+      assert.equal(
+        vscode.workspace.textDocuments.find(
+          (d) => d.uri.toString() === broken.toString(),
+        ).isDirty,
+        false,
+      );
+      assert.equal(readFileSync(broken.fsPath, "utf8"), brokenText);
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     },
   );
 
@@ -326,6 +538,205 @@ exports.run = async function run() {
 
   if (process.env.CRAFTOS_IT_ONLY === "lua") return;
 
+  const packConfig = () => vscode.workspace.getConfiguration("craftos-mcp");
+  const resetPack = async () => {
+    await packConfig().update(
+      "minecraftVersion",
+      undefined,
+      vscode.ConfigurationTarget.Workspace,
+    );
+    await packConfig().update(
+      "addons",
+      undefined,
+      vscode.ConfigurationTarget.Workspace,
+    );
+  };
+
+  await step(
+    "the status bar's pack picker writes the version and addons the server gets",
+    async () => {
+      const commands = await vscode.commands.getCommands(true);
+      for (const id of [
+        "craftos-mcp.pickMinecraftVersion",
+        "craftos-mcp.pickAddons",
+        "craftos-mcp.runTest",
+      ])
+        assert.ok(commands.includes(id), id);
+      assert.equal(api.status.item.text, "$(circuit-board) CraftOS 1.21.1");
+      try {
+        // the real picker: Default, 1.21.1, 1.20.1, 1.18.2; the last one
+        const picked = vscode.commands.executeCommand(
+          "craftos-mcp.pickMinecraftVersion",
+        );
+        await sleep(1000);
+        for (let i = 0; i < 3; i++)
+          await vscode.commands.executeCommand(
+            "workbench.action.quickOpenSelectNext",
+          );
+        await vscode.commands.executeCommand(
+          "workbench.action.acceptSelectedQuickOpenItem",
+        );
+        await picked;
+        assert.equal(packConfig().get("minecraftVersion"), "1.18.2");
+        assert.equal(
+          packConfig().inspect("minecraftVersion").workspaceValue,
+          "1.18.2",
+          "not a workspace setting",
+        );
+        assert.equal(api.serverDefinition().env.CRAFTOS_VERSION, "1.18.2");
+        assert.equal(api.status.item.text, "$(circuit-board) CraftOS 1.18.2");
+        assert.ok(
+          api.status.item.tooltip.value.includes(
+            "Minecraft 1.18.2 (CC:Tweaked 1.101.3), addons: 15 of 15 on",
+          ),
+          api.status.item.tooltip.value,
+        );
+
+        // the checklist: everything is on; untick the focused one and accept
+        const listed = vscode.commands.executeCommand("craftos-mcp.pickAddons");
+        await sleep(1000);
+        await vscode.commands.executeCommand(
+          "workbench.action.quickOpenSelectNext",
+        );
+        await vscode.commands.executeCommand(
+          "workbench.action.quickPickManyToggle",
+        );
+        await vscode.commands.executeCommand(
+          "workbench.action.acceptSelectedQuickOpenItem",
+        );
+        await listed;
+        const spec = packConfig().get("addons");
+        assert.equal(spec.split(",").length, 14, spec);
+        assert.equal(api.serverDefinition().env.CRAFTOS_ADDONS, spec);
+        console.log(
+          `       picked 1.18.2 and ${spec.split(",").length} addons`,
+        );
+
+        // by argument (the quick fixes use it); what an addon needs comes with it
+        await vscode.commands.executeCommand("craftos-mcp.pickAddons", [
+          "mekanism-generators",
+          "bigger-reactors",
+        ]);
+        assert.equal(
+          packConfig().get("addons"),
+          "mekanism,mekanism-generators,bigger-reactors",
+        );
+        // 1.21.1 has no Bigger Reactors: it comes out of the list
+        await vscode.commands.executeCommand(
+          "craftos-mcp.pickMinecraftVersion",
+          "1.21.1",
+        );
+        assert.equal(
+          packConfig().get("addons"),
+          "mekanism,mekanism-generators",
+        );
+        assert.equal(
+          api.status.item.text,
+          "$(circuit-board) CraftOS 1.21.1 · 2/19 addons",
+        );
+      } finally {
+        await resetPack();
+      }
+      assert.equal(api.serverDefinition().env.CRAFTOS_VERSION, undefined);
+      assert.equal(api.serverDefinition().env.CRAFTOS_ADDONS, undefined);
+    },
+  );
+
+  await step(
+    "diagnostics: goto on 1.18.2, os.shutdown(code), an addon that is off, with quick fixes",
+    async () => {
+      const file = join(project, "warn.lua");
+      writeFileSync(
+        file,
+        [
+          "for i = 1, 3 do",
+          "  if i == 2 then goto continue end",
+          "  ::continue::",
+          "end",
+          '-- goto in a comment, "os.shutdown(1)" too',
+          'local chat = peripheral.find("chatBox")',
+          "os.shutdown(1)",
+          "",
+        ].join("\n"),
+      );
+      const uri = vscode.Uri.file(file);
+      const ours = () =>
+        vscode.languages
+          .getDiagnostics(uri)
+          .filter((d) => d.source === "craftos-mcp");
+      try {
+        await vscode.window.showTextDocument(uri);
+        await until(
+          () => ours().length === 1,
+          "only the os.shutdown warning on the default version",
+        );
+        assert.equal(ours()[0].code, "shutdown-exit-code");
+        assert.equal(ours()[0].range.start.line, 6);
+        const fixes = await vscode.commands.executeCommand(
+          "vscode.executeCodeActionProvider",
+          uri,
+          ours()[0].range,
+        );
+        assert.ok(
+          fixes.some((f) => /Remove the exit code/.test(f.title)),
+          fixes.map((f) => f.title).join("; "),
+        );
+
+        await packConfig().update(
+          "minecraftVersion",
+          "1.18.2",
+          vscode.ConfigurationTarget.Workspace,
+        );
+        await packConfig().update(
+          "addons",
+          "create",
+          vscode.ConfigurationTarget.Workspace,
+        );
+        await until(
+          () => ours().length === 4,
+          "goto, the label, the chat box and os.shutdown on 1.18.2 with create only",
+        );
+        const codes = ours()
+          .map((d) => d.code)
+          .sort();
+        assert.deepEqual(codes, [
+          "addon-off",
+          "goto-lua51",
+          "label-lua51",
+          "shutdown-exit-code",
+        ]);
+        const chat = ours().find((d) => d.code === "addon-off");
+        assert.match(chat.message, /Advanced Peripherals/);
+        const addonFix = await vscode.commands.executeCommand(
+          "vscode.executeCodeActionProvider",
+          uri,
+          chat.range,
+        );
+        const on = addonFix.find((f) =>
+          /Switch on Advanced Peripherals/.test(f.title),
+        );
+        assert.ok(on, addonFix.map((f) => f.title).join("; "));
+        await vscode.commands.executeCommand(
+          on.command.command,
+          ...on.command.arguments,
+        );
+        assert.equal(packConfig().get("addons"), "advanced-peripherals,create");
+        await until(() => ours().length === 3, "the chat box warning gone");
+        console.log(
+          `       ${ours()
+            .map((d) => d.code)
+            .join(", ")}`,
+        );
+      } finally {
+        await resetPack();
+        await vscode.commands.executeCommand(
+          "workbench.action.closeAllEditors",
+        );
+        rmSync(file, { force: true });
+      }
+    },
+  );
+
   await step(
     "the walkthrough opens and New Test writes name.test.lua",
     async () => {
@@ -351,14 +762,14 @@ exports.run = async function run() {
   );
 
   await step(
-    "the MCP server definition is the supervisor running npx craftos-mcp@0.3.0 serve in the project",
+    "the MCP server definition is the supervisor running npx craftos-mcp@0.4.0 serve in the project",
     async () => {
       const def = api.serverDefinition();
       assert.ok(def instanceof vscode.McpStdioServerDefinition);
       assert.equal(def.command, process.execPath);
       assert.match(def.args[0], /dist[\\/]supervisor\.js$/);
       const supervise = JSON.parse(def.env.CRAFTOS_SUPERVISE);
-      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.3.0"]);
+      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.4.0"]);
       assert.deepEqual(supervise.sub, ["serve"]);
       assert.ok(supervise.pipe, "no restart channel");
       assert.equal(def.cwd.fsPath.toLowerCase(), project.toLowerCase());
@@ -495,11 +906,11 @@ exports.run = async function run() {
           api.serverEvents().filter((e) => e.supervisor === child.pid);
         const started = () => mine().filter((e) => e.type === "started");
         await until(() => started().length >= 1, "started event");
-        // two starts already while craftos-mcp@0.3.0 is not on npm: it, then the 0.2.0 fallback
+        // two starts already while craftos-mcp@0.4.0 is not on npm: it, then the 0.3.0 fallback
         const base = started().length;
         const fellBack = mine().some((e) => e.type === "fallback");
         console.log(
-          `       ${fellBack ? "fell back to 0.2.0" : "runs the pinned version"}`,
+          `       ${fellBack ? "fell back to 0.3.0" : "runs the pinned version"}`,
         );
         const killLatest = () => killTreeByPid(started().at(-1).pid);
 
@@ -742,6 +1153,71 @@ exports.run = async function run() {
   );
 
   await step(
+    "Run test CodeLens above each test runs it in the Testing view and marks the failing line",
+    async () => {
+      const uri = vscode.Uri.file(join(project, "math.test.lua"));
+      await vscode.window.showTextDocument(uri);
+      let lenses = [];
+      await untilAsync(async () => {
+        lenses =
+          (await vscode.commands.executeCommand(
+            "vscode.executeCodeLensProvider",
+            uri,
+          )) ?? [];
+        return (
+          lenses.filter((l) => l.command?.command === "craftos-mcp.runTest")
+            .length === 2
+        );
+      }, "two Run test lenses");
+      const run = lenses.filter(
+        (l) => l.command?.command === "craftos-mcp.runTest",
+      );
+      assert.deepEqual(
+        run.map((l) => [l.range.start.line, l.command.arguments[1]]),
+        [
+          [0, "adds"],
+          [1, "breaks"],
+        ],
+      );
+      assert.ok(run.every((l) => /Run test/.test(l.command.title)));
+      // and Debug test next to each, which debugs the test's file
+      const debug = lenses.filter(
+        (l) => l.command?.command === "craftos-mcp.debugTest",
+      );
+      assert.deepEqual(
+        debug.map((l) => [l.range.start.line, l.command.arguments[1]]),
+        [
+          [0, "adds"],
+          [1, "breaks"],
+        ],
+      );
+      assert.ok(
+        debug.every(
+          (l) => /Debug test/.test(l.command.title) && l.command.tooltip,
+        ),
+      );
+
+      const log = recordRuns(controller);
+      await vscode.commands.executeCommand(
+        run[1].command.command,
+        ...run[1].command.arguments,
+      );
+      const broke = log.find((e) => e.label === "breaks");
+      assert.equal(broke?.method, "failed", JSON.stringify(log));
+      const marks = api.testLens.failureMarks();
+      assert.equal(marks.length, 1, JSON.stringify(marks));
+      assert.equal(marks[0].line, 2);
+      assert.match(marks[0].text, /breaks: .*expected 3 but got 2/);
+      // an edit takes the mark away
+      const editor = vscode.window.activeTextEditor;
+      await editor.edit((e) => e.insert(new vscode.Position(4, 0), "\n"));
+      assert.equal(api.testLens.failureMarks().length, 0);
+      await vscode.commands.executeCommand("workbench.action.files.revert");
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    },
+  );
+
+  await step(
     "Run in CraftOS shows the program with its world and monitor, and closing stops it",
     async () => {
       const running = await api.runInCraftOS(
@@ -755,6 +1231,11 @@ exports.run = async function run() {
         /default-src 'none'; frame-src http:\/\/127\.0\.0\.1:\d+;/,
       );
       assert.match(html, /<iframe id="app" src="http:\/\/127\.0\.0\.1:\d+\/"/);
+      // the editor's shortcuts get out of the emulator's frame, and a dead emulator can be started again
+      assert.match(html, /craftos-key/);
+      assert.match(html, /new KeyboardEvent\("keydown"/);
+      assert.match(html, /<button id="restart"[^>]*>Start Again<\/button>/);
+      assert.match(html, />Run Again<\/button>/);
 
       const page = await fetch(running.url + "/");
       assert.equal(page.status, 200);
@@ -777,6 +1258,82 @@ exports.run = async function run() {
       assert.match(text, /HELLO Alice/, text);
       assert.match(text, /clock started/, text);
 
+      const sessionsOf = async (url) =>
+        (await (await fetch(`${url}/api/sessions`)).json()).sessions;
+      const screenOf = async (url, id) =>
+        JSON.stringify(
+          await (await fetch(`${url}/api/sessions/${id}/screens`)).json(),
+        );
+
+      // saving the program runs it over in the panel, with the saved file
+      const clockUri = vscode.Uri.file(join(project, "clock.lua"));
+      const doc = await vscode.workspace.openTextDocument(clockUri);
+      const editor = await vscode.window.showTextDocument(
+        doc,
+        vscode.ViewColumn.One,
+      );
+      const at = doc.getText().indexOf("clock started");
+      await editor.edit((e) =>
+        e.replace(
+          new vscode.Range(doc.positionAt(at), doc.positionAt(at + 13)),
+          "clock rerun",
+        ),
+      );
+      await doc.save();
+      let rerun;
+      await untilAsync(
+        async () => {
+          const now = await sessionsOf(running.url);
+          rerun = now.find((s) => s.id !== sessions[0].id);
+          return (
+            now.length === 1 &&
+            rerun &&
+            /clock rerun/.test(await screenOf(running.url, rerun.id))
+          );
+        },
+        "the program run over after the save",
+        60_000,
+      );
+      console.log(`       saved: session ${sessions[0].id} -> ${rerun.id}`);
+
+      // a new Minecraft version restarts the panel's app in it
+      const oldUrl = running.url;
+      try {
+        await vscode.commands.executeCommand(
+          "craftos-mcp.pickMinecraftVersion",
+          "1.20.1",
+        );
+        await until(
+          () => running.url !== oldUrl,
+          "a new app behind the panel",
+          240_000,
+        );
+        let fresh = [];
+        await untilAsync(
+          async () => {
+            fresh = await sessionsOf(running.url);
+            return (
+              fresh.length === 1 &&
+              /clock rerun/.test(await screenOf(running.url, fresh[0].id))
+            );
+          },
+          "the program running in the new app",
+          120_000,
+        );
+        assert.equal(fresh[0].program, "clock.lua");
+        assert.match(
+          running.panel.webview.html,
+          new RegExp(`src="${running.url}/"`),
+        );
+        console.log(`       1.20.1: ${oldUrl} -> ${running.url}`);
+      } finally {
+        await resetPack();
+        await vscode.workspace.fs.writeFile(
+          clockUri,
+          Buffer.from(doc.getText().replace("clock rerun", "clock started")),
+        );
+      }
+
       const pid = running.child.pid;
       running.panel.dispose();
       for (let i = 0; i < 40 && alive(pid); i++) await sleep(250);
@@ -793,4 +1350,303 @@ exports.run = async function run() {
       assert.equal(gone, "gone");
     },
   );
+
+  await debuggerSteps(api);
 };
+
+/**
+ * The debugger, through VS Code's own debug API: a breakpoint set in the editor stops the program in the Run in
+ * CraftOS panel, the stack and variables come back, a step and an uncaught error stop it again, and Stop closes
+ * the panel. Then a test file under ccunit.
+ */
+async function debuggerSteps(api) {
+  const command = process.env.CRAFTOS_IT_DEBUG_COMMAND;
+  if (!command) {
+    console.log(
+      "  skip the debugger: no craftos-mcp with the debugger (build the clone, or set CRAFTOS_IT_DEBUG_COMMAND)",
+    );
+    return;
+  }
+  const config = vscode.workspace.getConfiguration("craftos-mcp");
+  await config.update(
+    "command",
+    JSON.parse(command),
+    vscode.ConfigurationTarget.Global,
+  );
+
+  // every message the adapter sends VS Code, to wait for stops on
+  const messages = [];
+  const tracker = vscode.debug.registerDebugAdapterTrackerFactory("craftos", {
+    createDebugAdapterTracker: () => ({
+      onDidSendMessage: (m) => messages.push(m),
+    }),
+  });
+  let taken = 0;
+  const nextEvent = async (name, ms = 60_000) => {
+    let found;
+    await until(
+      () => {
+        for (let i = taken; i < messages.length; i++)
+          if (messages[i].type === "event" && messages[i].event === name) {
+            taken = i + 1;
+            found = messages[i].body ?? {};
+            return true;
+          }
+        return false;
+      },
+      `a ${name} event from the debugger`,
+      ms,
+    );
+    return found;
+  };
+  const session = () => {
+    assert.ok(vscode.debug.activeDebugSession, "no debug session");
+    return vscode.debug.activeDebugSession;
+  };
+  const topFrame = async () => {
+    const { stackFrames } = await session().customRequest("stackTrace", {
+      threadId: 1,
+    });
+    return stackFrames[0];
+  };
+  const localsOf = async (frameId) => {
+    const { scopes } = await session().customRequest("scopes", { frameId });
+    const { variables } = await session().customRequest("variables", {
+      variablesReference: scopes[0].variablesReference,
+    });
+    return Object.fromEntries(variables.map((v) => [v.name, v.value]));
+  };
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+
+  try {
+    const program = vscode.Uri.file(join(project, "debugme.lua"));
+    let pid;
+    await step(
+      "Debug in CraftOS stops at a breakpoint, with the panel showing the computer",
+      async () => {
+        const contributes = vscode.extensions.getExtension(
+          "Rogiedoji.craftos-mcp",
+        ).packageJSON.contributes;
+        assert.equal(contributes.debuggers[0].type, "craftos");
+        assert.deepEqual(contributes.breakpoints, [{ language: "lua" }]);
+        vscode.debug.addBreakpoints([
+          new vscode.SourceBreakpoint(
+            new vscode.Location(program, new vscode.Position(4, 0)),
+          ),
+        ]);
+        const started = await vscode.commands.executeCommand(
+          "craftos-mcp.debugInCraftOS",
+          program,
+        );
+        assert.equal(started, true, "the debug session did not start");
+        const stopped = await nextEvent("stopped", 300_000); // a first run sets the emulator up
+        assert.equal(stopped.reason, "breakpoint");
+        assert.equal(session().type, "craftos");
+
+        const top = await topFrame();
+        assert.ok(same(top.source.path, program.fsPath), top.source.path);
+        assert.equal(top.line, 5);
+        assert.deepEqual(await localsOf(top.id), { count: "6" });
+        const doubled = await session().customRequest("evaluate", {
+          expression: "count * 2",
+          frameId: top.id,
+          context: "watch",
+        });
+        assert.equal(doubled.result, "12");
+
+        // the same panel Run in CraftOS opens, with the computer in it
+        const panels = api.runningPanels();
+        assert.equal(panels.length, 1);
+        assert.equal(panels[0].program, "debugme.lua");
+        pid = panels[0].child.pid;
+        const { sessions } = await (
+          await fetch(`${panels[0].url}/api/sessions`)
+        ).json();
+        assert.equal(sessions.length, 1);
+        // VS Code itself shows the stop: the editor is on the line
+        await until(
+          () => vscode.debug.activeStackItem !== undefined,
+          "VS Code to focus the stopped frame",
+        );
+      },
+    );
+
+    await step(
+      "a step moves one line, and the uncaught error stops where it is raised",
+      async () => {
+        await session().customRequest("next", { threadId: 1 });
+        assert.equal((await nextEvent("stopped")).reason, "step");
+        assert.equal((await topFrame()).line, 6);
+        await session().customRequest("continue", { threadId: 1 });
+        const stopped = await nextEvent("stopped");
+        assert.equal(stopped.reason, "exception");
+        assert.match(stopped.text, /debugme\.lua:6: debug boom/);
+        const top = await topFrame();
+        assert.ok(same(top.source.path, program.fsPath));
+        assert.equal(top.line, 6);
+      },
+    );
+
+    await step(
+      "Stop ends the session, closes the panel and stops the emulator",
+      async () => {
+        await vscode.debug.stopDebugging();
+        await until(
+          () => vscode.debug.activeDebugSession === undefined,
+          "the session to end",
+        );
+        await until(
+          () => api.runningPanels().length === 0,
+          "the panel to close",
+        );
+        for (let i = 0; i < 40 && alive(pid); i++) await sleep(250);
+        assert.equal(alive(pid), false, "the app is still running after Stop");
+        vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
+      },
+    );
+
+    await step(
+      "a test file debugs under ccunit: a breakpoint in a test, then its failing assertion",
+      async () => {
+        const test = vscode.Uri.file(join(project, "math.test.lua"));
+        taken = messages.length;
+        vscode.debug.addBreakpoints([
+          new vscode.SourceBreakpoint(
+            new vscode.Location(test, new vscode.Position(2, 0)),
+          ),
+        ]);
+        const started = await vscode.debug.startDebugging(
+          vscode.workspace.workspaceFolders[0],
+          {
+            type: "craftos",
+            request: "launch",
+            name: "math.test.lua",
+            program: "math.test.lua",
+          },
+        );
+        assert.equal(started, true);
+        // line 3 is the failing assertion inside the "breaks" test: first the breakpoint on it, then the error it raises
+        assert.equal(
+          (await nextEvent("stopped", 120_000)).reason,
+          "breakpoint",
+        );
+        assert.equal((await topFrame()).line, 3);
+        await session().customRequest("continue", { threadId: 1 });
+        const stopped = await nextEvent("stopped");
+        assert.equal(stopped.reason, "exception");
+        assert.match(stopped.text, /expected 3 but got 2/);
+        const { stackFrames } = await session().customRequest("stackTrace", {
+          threadId: 1,
+        });
+        const mine = stackFrames.find((f) => f.presentationHint !== "subtle");
+        assert.ok(same(mine.source.path, test.fsPath), mine.source.path);
+        assert.equal(mine.line, 3);
+
+        // the file runs out and the session ends; the panel stays, with the results the computer printed on it
+        await session().customRequest("continue", { threadId: 1 });
+        await nextEvent("terminated");
+        await until(
+          () => vscode.debug.activeDebugSession === undefined,
+          "the session to end",
+        );
+        const panels = api.runningPanels();
+        assert.equal(panels.length, 1);
+        let screens = "";
+        await untilAsync(
+          async () => {
+            const { sessions } = await (
+              await fetch(`${panels[0].url}/api/sessions`)
+            ).json();
+            screens = JSON.stringify(
+              await (
+                await fetch(
+                  `${panels[0].url}/api/sessions/${sessions[0].id}/screens`,
+                )
+              ).json(),
+            );
+            return /1 passed, 1 failed/.test(screens);
+          },
+          "the test results on the panel's terminal",
+          20_000,
+        );
+        assert.match(screens, /pass  adds/);
+        assert.match(screens, /FAIL  breaks/);
+        panels[0].panel.dispose();
+        await until(
+          () => api.runningPanels().length === 0,
+          "the panel to close",
+        );
+      },
+    );
+
+    await step(
+      "Debug in the Testing view runs the test file under the debugger",
+      async () => {
+        taken = messages.length;
+        vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
+        await api.tests.discover();
+        // the view's own Debug All: it uses the controller's Debug profile
+        const debugging = vscode.commands.executeCommand("testing.debugAll");
+        const stopped = await nextEvent("stopped", 120_000);
+        assert.equal(stopped.reason, "exception");
+        assert.match(stopped.text, /expected 3 but got 2/);
+        assert.equal(session().configuration.test, true);
+        await session().customRequest("continue", { threadId: 1 });
+        await nextEvent("terminated");
+        // the test run ends with the session
+        await Promise.race([
+          debugging,
+          sleep(30_000).then(() => {
+            throw new Error("the test run did not end with the debug session");
+          }),
+        ]);
+        const panels = api.runningPanels();
+        assert.equal(panels.length, 1);
+        assert.equal(panels[0].program, "math.test.lua");
+        panels[0].panel.dispose();
+        await until(
+          () => api.runningPanels().length === 0,
+          "the panel to close",
+        );
+      },
+    );
+
+    await step(
+      "the Debug test lens debugs the test's file under ccunit",
+      async () => {
+        taken = messages.length;
+        const uri = vscode.Uri.file(join(project, "math.test.lua"));
+        // as the lens calls it: the file, the test's name and line
+        const started = vscode.commands.executeCommand(
+          "craftos-mcp.debugTest",
+          uri,
+          "breaks",
+          1,
+        );
+        const stopped = await nextEvent("stopped", 120_000);
+        assert.equal(await started, true);
+        assert.equal(stopped.reason, "exception");
+        assert.match(stopped.text, /expected 3 but got 2/);
+        assert.equal(session().configuration.test, true);
+        await session().customRequest("continue", { threadId: 1 });
+        await nextEvent("terminated");
+        const panels = api.runningPanels();
+        assert.equal(panels.length, 1);
+        assert.equal(panels[0].program, "math.test.lua");
+        panels[0].panel.dispose();
+        await until(
+          () => api.runningPanels().length === 0,
+          "the panel to close",
+        );
+      },
+    );
+  } finally {
+    tracker.dispose();
+    vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
+    await config.update(
+      "command",
+      undefined,
+      vscode.ConfigurationTarget.Global,
+    );
+  }
+}

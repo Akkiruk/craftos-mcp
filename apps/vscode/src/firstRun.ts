@@ -1,8 +1,15 @@
 // The first-run setup (engine download, ROM build) on activation, with its progress in a notification and the status
 // bar, so nobody waits on a silent first tool call. `craftos-mcp setup` is quick and quiet once it is done; the
 // extension runs it once per pinned version.
+import { tmpdir } from "node:os";
 import * as vscode from "vscode";
-import { NPM_PACKAGE, killTree, readSetupLine, spawnCommand } from "./launcher";
+import {
+  NPM_PACKAGE,
+  killTree,
+  readSetupLine,
+  setupFailure,
+  spawnCommand,
+} from "./launcher";
 import { base, noteMissingVersion, settings, settingsEnv } from "./settings";
 import type { Status } from "./status";
 
@@ -17,7 +24,9 @@ function runSetup(
     let text = "";
     let child;
     try {
+      // not the extension host's folder (VS Code's own): npx reads a package.json it finds above where it runs
       child = spawnCommand(base(), ["setup"], {
+        cwd: tmpdir(),
         env: { ...process.env, ...settingsEnv() },
       });
     } catch (error) {
@@ -105,16 +114,17 @@ export async function firstRun(
     if (status.state.kind === "setting-up") status.set({ kind: "idle" });
     return;
   }
-  const lines = result.text.split(/\r?\n/).map(readSetupLine);
-  const failed = lines.find((l) => l?.kind === "failed");
-  const why =
-    failed?.kind === "failed"
-      ? failed.why
-      : result.text.trim().split(/\r?\n/).pop() || `exit code ${result.code}`;
+  const why = setupFailure(result.text, result.code);
   status.set({ kind: "setup-failed", why });
+  const retry = "Try Again";
   const pick = await vscode.window.showWarningMessage(
-    `craftos-mcp's first-run setup failed: ${why}. It tries again on the next start.`,
+    `craftos-mcp could not set up the emulator (${why}). Check your connection and try again; Run in CraftOS and the MCP server also retry when they start.`,
+    retry,
     "Show Log",
   );
+  if (pick === retry) {
+    status.set({ kind: "idle" });
+    return firstRun(context, output, status);
+  }
   if (pick) output.show();
 }

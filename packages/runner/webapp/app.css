@@ -302,11 +302,11 @@ textarea {
 }
 .hint {
   font-size: 11px;
-  color: #333;
+  color: var(--dim);
   margin-top: 6px;
   max-width: 620px;
 }
-.bezel:focus .hint {
+.bezel:focus + .hint {
   visibility: hidden;
 }
 .grid {

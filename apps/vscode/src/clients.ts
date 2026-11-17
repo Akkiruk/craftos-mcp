@@ -21,6 +21,7 @@ import {
 } from "./mcpConfig";
 import type { Status } from "./status";
 import { craftosServersInFolder } from "./projectScan";
+import { oneAtATime } from "./prompts";
 import {
   configuredWorkspace,
   serverWorkspace,
@@ -251,6 +252,15 @@ export async function restartCommand(): Promise<void> {
   if (!host) return;
   if (!restartServer())
     await startInVsCode(host, "workbench.mcp.restartServer");
+}
+
+/**
+ * The pack settings changed (packPicker.ts): a running server gets VS Code's own restart, which starts it from the
+ * new definition (its environment). A supervisor restart would keep the old environment. No server running: nothing.
+ */
+export async function restartForNewSettings(): Promise<void> {
+  if (!host?.sockets.size) return;
+  await startInVsCode(host, "workbench.mcp.restartServer");
 }
 
 function listen(h: Host): vscode.Disposable {
@@ -485,10 +495,12 @@ export async function addToEditor(
   }));
   const choice =
     ask === "offer"
-      ? await vscode.window.showInformationMessage(
-          `${editor} does not let extensions add MCP servers, so its agent does not see craftos-mcp yet. Add it to ${editor}'s MCP config?`,
-          ...picks.map((p) => p.label),
-          "Not Now",
+      ? await oneAtATime(() =>
+          vscode.window.showInformationMessage(
+            `${editor} does not let extensions add MCP servers, so its agent does not see craftos-mcp yet. Add it to ${editor}'s MCP config?`,
+            ...picks.map((p) => p.label),
+            "Not Now",
+          ),
         )
       : (
           await vscode.window.showQuickPick(

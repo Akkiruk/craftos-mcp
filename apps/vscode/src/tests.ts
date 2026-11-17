@@ -59,9 +59,21 @@ export function worldFor(file: string): string | undefined {
   return world !== file && existsSync(world) ? world : undefined;
 }
 
+export type TestReportEvent =
+  | { kind: "started"; file: vscode.TestItem }
+  | {
+      kind: "failed";
+      file: vscode.TestItem;
+      test: vscode.TestItem;
+      message: vscode.TestMessage;
+    };
+
 export class CraftosTests implements vscode.Disposable {
   readonly controller: vscode.TestController;
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly reported = new vscode.EventEmitter<TestReportEvent>();
+  /** A file started running, or one of its tests failed (testLens.ts marks the failing lines). */
+  readonly onDidReport = this.reported.event;
 
   constructor() {
     this.controller = vscode.tests.createTestController(
@@ -90,6 +102,7 @@ export class CraftosTests implements vscode.Disposable {
     this.disposables.push(
       watcher,
       this.controller,
+      this.reported,
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (
           e.affectsConfiguration("craftos-mcp.workspace") ||
@@ -218,6 +231,7 @@ export class CraftosTests implements vscode.Disposable {
     token: vscode.CancellationToken,
   ): Promise<void> {
     for (const item of items) {
+      this.reported.fire({ kind: "started", file: item });
       run.started(item);
       item.children.forEach((c) => run.started(c));
     }
@@ -278,6 +292,7 @@ export class CraftosTests implements vscode.Disposable {
       const message = new vscode.TestMessage(t.error ?? "failed");
       message.location = this.locate(t.error ?? "", item, folder, child);
       run.failed(child, message);
+      this.reported.fire({ kind: "failed", file: item, test: child, message });
     }
     item.children.forEach((c) => {
       if (!reported.has(c.id)) run.skipped(c);
@@ -297,6 +312,7 @@ export class CraftosTests implements vscode.Disposable {
           new vscode.Position(syntax.line - 1, 0),
         );
       run.failed(item, message, result.durationMs);
+      this.reported.fire({ kind: "failed", file: item, test: item, message });
     } else if (result.passed) run.passed(item, result.durationMs);
     else run.failed(item, [], result.durationMs);
   }

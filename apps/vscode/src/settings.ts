@@ -3,6 +3,7 @@ import { statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
 import { baseCommand, fallbackFor, missingVersion } from "./launcher";
+import { packEnv } from "./pack";
 
 export type RegisterServer = "auto" | "always" | "never";
 
@@ -45,11 +46,7 @@ export function usePinFallback(): void {
 
 /** The variables the settings add to craftos-mcp's environment. */
 export function settingsEnv(): Record<string, string> {
-  const s = settings();
-  const env: Record<string, string> = {};
-  if (s.addons) env["CRAFTOS_ADDONS"] = s.addons;
-  if (s.mc) env["CRAFTOS_VERSION"] = s.mc;
-  return env;
+  return packEnv(settings());
 }
 
 function isDir(path: string): boolean {

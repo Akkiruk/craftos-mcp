@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as vscode from "vscode";
+import { oneAtATime } from "./prompts";
 import {
   addonSettings,
   isCcProject,
@@ -202,10 +203,12 @@ export function registerLuaTypes(
     if (!vscode.extensions.getExtension(LUA)) {
       if (context.globalState.get(SUGGESTED)) return;
       await context.globalState.update(SUGGESTED, true);
-      const pick = await vscode.window.showInformationMessage(
-        "Set up Lua autocomplete for CC:Tweaked? It works through the Lua extension (sumneko.lua), which isn't installed yet.",
-        "Install and Set Up",
-        "Not Now",
+      const pick = await oneAtATime(() =>
+        vscode.window.showInformationMessage(
+          "Set up Lua autocomplete for CC:Tweaked? It works through the Lua extension (sumneko.lua), which isn't installed yet.",
+          "Install and Set Up",
+          "Not Now",
+        ),
       );
       if (pick === "Install and Set Up") await installLua(cc);
       return;
@@ -218,11 +221,13 @@ export function registerLuaTypes(
     }
     if (context.workspaceState.get(ASKED)) return;
     await context.workspaceState.update(ASKED, true);
-    const pick = await vscode.window.showInformationMessage(
-      "Set up Lua autocomplete for CC:Tweaked? It adds the types for fs, term, peripheral and the mod peripherals to this workspace's Lua settings.",
-      "Set Up",
-      "Not Here",
-      "Never",
+    const pick = await oneAtATime(() =>
+      vscode.window.showInformationMessage(
+        "Set up Lua autocomplete for CC:Tweaked? It adds the types for fs, term, peripheral and the mod peripherals to this workspace's Lua settings.",
+        "Set Up",
+        "Not Here",
+        "Never",
+      ),
     );
     if (pick === "Set Up") await apply(todo);
     else if (pick === "Never")

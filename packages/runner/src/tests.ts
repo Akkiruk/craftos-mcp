@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { isBlockWorld, startInBlockWorld } from "./blockworld.js";
 import type { RunnerConfig } from "./config.js";
@@ -197,10 +198,21 @@ async function runTestFile(
   }
 }
 
+/**
+ * How many test files run at once: CRAFTOS_TEST_CONCURRENCY, else half the machine's cores, at least 4 and at most
+ * 16. Each file is its own engine, about one core while it runs, and a run takes as long as its slowest file once
+ * there are enough workers, so more of them pays on a big machine (33 files: 201 s at 4, 118 s at 16 on 32 cores).
+ */
+export function testConcurrency(env: NodeJS.ProcessEnv = process.env): number {
+  const set = Number(env["CRAFTOS_TEST_CONCURRENCY"]);
+  if (Number.isInteger(set) && set >= 1) return set;
+  return Math.min(16, Math.max(4, Math.floor(availableParallelism() / 2)));
+}
+
 export async function runTests(
   config: RunnerConfig,
   request: TestRequest = {},
-  concurrency = 4,
+  concurrency = testConcurrency(),
 ): Promise<TestRunResult> {
   const files = discoverTests(config.workspaceDir, request.paths);
   const results: TestFileResult[] = new Array(files.length);

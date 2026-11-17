@@ -91,7 +91,7 @@ test("only the default pinned npx command falls back, and only on ETARGET", () =
   assert.equal(fallbackFor(["node", "x/index.js"]), undefined);
   assert.equal(
     missingVersion(
-      "npm error code ETARGET\nnpm error notarget No matching version found for craftos-mcp@0.3.0.",
+      "npm error code ETARGET\nnpm error notarget No matching version found for craftos-mcp@0.4.0.",
     ),
     true,
   );

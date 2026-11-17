@@ -20,6 +20,7 @@
 #include <configuration.hpp>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "debug_server.hpp"
 #include "main.hpp"
 #include "runtime.hpp"
 #include "peripheral/debugger.hpp"
@@ -249,6 +250,9 @@ int getNextEvent(lua_State *L, const std::string& filter) {
     // Paused: the program stops at its next yield (getting_event keeps the yield timeout away meanwhile)
     craftos_web_wait_while_paused();
 #endif
+    // With a debugger (one test of a bool without): a pause that found no line of the program to stop at stops
+    // here, where every coroutine has yielded, and a debugged program that has ended is reported
+    debugsrv::eventRound(computer);
     lua_State *param;
     if (computer->eventQueue.size() > QUEUE_LIMIT) fprintf(stderr, "Warning: Queue overflow on computer %d!\n", computer->id);
     do {
@@ -279,8 +283,11 @@ int getNextEvent(lua_State *L, const std::string& filter) {
             if (computer->eventQueue.empty()) {
                 std::mutex m;
                 std::unique_lock<std::mutex> l(m);
-                while (computer->running == 1 && !termHasEvent(computer)) 
-                    computer->event_lock.wait_for(l, std::chrono::seconds(5), [computer]()->bool{return termHasEvent(computer) || computer->running != 1;});
+                while (computer->running == 1 && !termHasEvent(computer)) {
+                    // a debugger's pause while the computer waits for an event stops it here (debug_server.cpp)
+                    if (debugsrv::pausePending(computer)) {debugsrv::idlePause(computer); continue;}
+                    computer->event_lock.wait_for(l, std::chrono::seconds(5), [computer]()->bool{return termHasEvent(computer) || computer->running != 1 || debugsrv::pausePending(computer);});
+                }
                 if (computer->running != 1) return 0;
             }
         } while (computer->eventQueue.empty());

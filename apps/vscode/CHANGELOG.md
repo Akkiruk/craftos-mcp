@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.4.0
+
+Big one. You can debug a ComputerCraft program now: breakpoints, stepping, the lot. World files got a real editor, and
+the extension runs on vscode.dev. Needs craftos-mcp 0.4.0 for the debugger, which is what this version starts.
+
+### Debugger
+
+- Press F5 on a `.lua` file and it runs in the Run in CraftOS panel with the debugger attached. No `launch.json`
+- Breakpoints, with conditions, hit counts and log messages. Step over, into and out, and pause
+- Locals, upvalues and globals in Variables, and you can change a value while it's stopped. Hover a name, add a watch,
+  or type in the Debug Console
+- Stops on the line that raised an error nothing caught. Tick All Errors if you want the caught ones too
+- Step Into skips the ROM's own Lua, so you don't end up inside `print`. `stepIntoRom` in a launch config if you do
+  want to go in there
+- Debug test above each test, and Debug in the Testing view. A failing assertion stops right where it's raised
+- The computer's clock stands still while you're stopped, so your timers don't all go off at once afterwards
+
+### World Editor
+
+- `*.world.json` opens as the computer with what's on each side, the blocks on its network, the players and a map,
+  not a wall of JSON. Click an empty side to put something there, drag things around
+- The form on the right has every field the emulator knows for the block you picked, with its description
+- It's still the same text file underneath. Undo works, git diffs stay small, and Show Text opens the JSON next to it
+- The other world files in the folder show up as the other computers, with which modems reach which
+
+### In the browser
+
+- Works on vscode.dev and github.dev. Run in CraftOS runs your program on a WebAssembly build of the engine, also
+  straight from a GitHub repo
+- It's 1.18.2 only there, no turtles, and no MCP server, tests, debugger or World Editor. Those need the desktop
+
+### Smaller things
+
+- Pick the Minecraft version and the addons from the status bar. The server and any open panel start again in the new
+  pack by themselves
+- Save the file and the program in the Run in CraftOS panel runs over
+- Run test above every test in a `*.test.lua`, and the line that failed stays marked
+- Warnings in `.lua` files for things your pack can't do: `goto` on 1.18.2, CraftOS-PC's own APIs, a peripheral from
+  an addon you switched off. Most come with a quick fix
+- F1, Ctrl+P and friends finally work while the emulator's terminal has the keyboard. They used to get typed into the
+  computer
+- The terminal in the panel isn't jagged in a narrow panel any more, and it's crisp when there's room
+- The two status bar items are one now: `CraftOS 1.21.1`, and a menu with everything in it
+- Opening a ComputerCraft folder for the first time asks its questions one at a time, not three notifications at once
+- A failed first-run setup says what actually went wrong (it used to show npm's "a complete log can be found in" line)
+  and has a Try Again button
+- If the emulator dies, the panel has a Start Again button. Before, you had to close it and run the file again
+- Settings are in a sensible order, version and addons first
+- About a second faster to start the server, a test run or Run in CraftOS once craftos-mcp is installed: it runs
+  straight from npx's cache instead of asking npx every time. Run in CraftOS shows the first frame in under half a
+  second now
+- Opening a big folder with no Lua in it doesn't scan it any more
+- Agents get much shorter replies: a big test run's result is about a twelfth of the size (every failure still in
+  full), `craftos_read_terminal` can say a screen is unchanged, and a missing program, wrong key name or unknown
+  network says what to do instead
+
 ## 0.3.0
 
 Started as a small fix release after a long session with an agent hammering the tools, and grew. Runs on craftos-mcp

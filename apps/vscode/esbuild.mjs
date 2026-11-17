@@ -4,10 +4,17 @@
 //   accepts any object stands in, so world files get no errors from a missing file.
 // - lua-addons/cc-tweaked/, packages/cc-types as a lua-language-server addon: its config.json and library/
 //   (src/luaTypes.ts). Without it the extension has no types and Set Up Lua Types says so.
+// - packages/runner's Minecraft versions and addons, as __CRAFTOS_PACK__ (pack-data.mjs, src/packData.ts): the
+//   version and addon pickers and the diagnostics.
+// The web extension (package.json `browser`, src/web) is a second bundle, dist/web/extension.js, for VS Code's web
+// extension host (a Web Worker: no Node). web-assets.mjs lays out what it loads besides: the ROM overlay and the
+// browser engine.
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { context } from "esbuild";
+import { build, context } from "esbuild";
+import { loadPackData } from "./pack-data.mjs";
+import { buildWebAssets } from "./web-assets.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
@@ -37,6 +44,52 @@ if (existsSync(join(LUA_TYPES_SOURCE, "config.json"))) {
   cpSync(join(LUA_TYPES_SOURCE, "config.json"), join(addon, "config.json"));
 } else console.warn(`no ${LUA_TYPES_SOURCE}: packing no Lua types`);
 
+// - schemas/addons.json, packages/runner/src/addons.ts's addon list (ids, names, versions, block types, world keys)
+//   for the World Editor's mod list. Without it the editor still works, with no addon list.
+const ADDONS_SOURCE = join(repo, "packages", "runner", "src", "addons.ts");
+const addonsJson = join(here, "schemas", "addons.json");
+if (existsSync(ADDONS_SOURCE)) {
+  const out = await build({
+    stdin: {
+      contents:
+        'export { ADDONS } from "./addons.ts"; export { NEWEST_MC } from "./versions.ts";',
+      resolveDir: dirname(ADDONS_SOURCE),
+      loader: "ts",
+    },
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    logLevel: "silent",
+  });
+  // the published server's default is its newest version, as in pack-data.mjs: the World Editor and the status
+  // bar must name the same one
+  const { ADDONS, NEWEST_MC } = await import(
+    `data:text/javascript;base64,${Buffer.from(out.outputFiles[0].text).toString("base64")}`
+  );
+  const addons = ADDONS.map(
+    ({ id, name, versions, types, worldKeys, requires, docs }) => ({
+      id,
+      name,
+      versions,
+      types,
+      ...(worldKeys ? { worldKeys } : {}),
+      ...(requires ? { requires } : {}),
+      ...(docs ? { docs } : {}),
+    }),
+  );
+  writeFileSync(
+    addonsJson,
+    `${JSON.stringify({ defaultMc: NEWEST_MC, addons })}\n`,
+  );
+} else {
+  console.warn(`no ${ADDONS_SOURCE}: the World Editor gets no addon list`);
+  writeFileSync(
+    addonsJson,
+    `${JSON.stringify({ defaultMc: "1.18.2", addons: [] })}\n`,
+  );
+}
+
 const watch = process.argv.includes("--watch");
 const ctx = await context({
   entryPoints: ["src/extension.ts", "src/supervisor.ts"],
@@ -46,12 +99,46 @@ const ctx = await context({
   platform: "node",
   target: "node20",
   external: ["vscode"],
+  define: { __CRAFTOS_PACK__: JSON.stringify(await loadPackData()) },
   sourcemap: true,
   minify: !watch,
   logLevel: "info",
 });
-if (watch) await ctx.watch();
+
+buildWebAssets(here, repo);
+const webCtx = await context({
+  entryPoints: { "web/extension": "src/web/extension.ts" },
+  bundle: true,
+  outdir: "dist",
+  format: "cjs",
+  platform: "browser",
+  target: "es2022",
+  external: ["vscode"],
+  // packages/runner's world code imports these for things the browser never does (src/web/shims)
+  alias: {
+    "node:fs": "./src/web/shims/node-fs.ts",
+    "node:path": "./src/web/shims/node-path.ts",
+  },
+  inject: ["./src/web/shims/globals.ts"],
+  loader: { ".lua": "text" },
+  sourcemap: true,
+  minify: !watch,
+  logLevel: "info",
+});
+// the World Editor's webview: browser code and its stylesheet (dist/worldEditor.js, dist/worldEditor.css)
+const webview = await context({
+  entryPoints: { worldEditor: "src/worldEditor/webview/main.ts" },
+  bundle: true,
+  outdir: "dist",
+  format: "iife",
+  platform: "browser",
+  target: "es2022",
+  sourcemap: watch,
+  minify: !watch,
+  logLevel: "info",
+});
+if (watch) await Promise.all([ctx.watch(), webCtx.watch(), webview.watch()]);
 else {
-  await ctx.rebuild();
-  await ctx.dispose();
+  await Promise.all([ctx.rebuild(), webCtx.rebuild(), webview.rebuild()]);
+  await Promise.all([ctx.dispose(), webCtx.dispose(), webview.dispose()]);
 }

@@ -1,4 +1,5 @@
 .vscode-test/
+.vscode-test-web/
 schemas/
 lua-addons/
 types/

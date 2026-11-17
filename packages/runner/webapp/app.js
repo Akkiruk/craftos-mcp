@@ -122,12 +122,13 @@ function layout() {
     `${s.name} · ${s.advanced ? "advanced " : ""}${s.kind}${s.program ? " · " + s.program : ""}`;
   $("#start").hidden = s.running;
   $("#term-wrap").className = `bezel${s.advanced ? " advanced" : ""}`;
+  fitAll();
 }
 
 // ───────────────────────── screens ─────────────────────────
 
 /** Fetch a PNG and paint it on the canvas, one request at a time per screen. */
-async function paint(key, url, canvas, version, overlay) {
+async function paint(key, url, canvas, version, overlay, scale) {
   const v = views.get(key) || { version: -1, busy: false };
   views.set(key, v);
   if (v.busy || v.version === version) return;
@@ -139,6 +140,10 @@ async function paint(key, url, canvas, version, overlay) {
     if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
       canvas.width = bitmap.width;
       canvas.height = bitmap.height;
+      if (scale) {
+        fitted.set(canvas, scale);
+        fit(canvas, scale);
+      }
     }
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = false;
@@ -152,11 +157,76 @@ async function paint(key, url, canvas, version, overlay) {
   }
 }
 
+/**
+ * Size a screen for the room it has. Scaled by 1.5 with hard pixels, a pixel font's strokes come out one pixel here
+ * and two there. So: a whole number of device pixels for every emulator pixel when that nearly fills the room (hard
+ * pixels, as in the game); otherwise the room's full width, scaled smoothly, which keeps the strokes even.
+ * `scale` is what the PNG was rendered at, and the screen is never shown larger than that.
+ */
+const CRISP_FILLS = 0.75;
+const fitted = new Map();
+function fit(canvas, scale) {
+  const frame = canvas.parentElement;
+  const host = frame?.parentElement;
+  if (!host || !canvas.width) return;
+  const dpr = window.devicePixelRatio || 1;
+  // asked on every poll: only work when the space, the zoom or the screen changed
+  const seen = `${host.clientWidth}:${dpr}:${canvas.width}x${canvas.height}`;
+  if (canvas.dataset.fit === seen) return;
+  canvas.dataset.fit = seen;
+  const px = (v) => parseFloat(v) || 0;
+  const side = (cs, what) => px(cs[`${what}Left`]) + px(cs[`${what}Right`]);
+  const fs = getComputedStyle(frame);
+  const hs = getComputedStyle(host);
+  const cs = getComputedStyle(canvas);
+  // the canvas is border-box: its CSS size includes its own border
+  const edgeX = px(cs.borderLeftWidth) + px(cs.borderRightWidth);
+  const edgeY = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+  const room =
+    host.clientWidth -
+    side(hs, "padding") -
+    side(fs, "padding") -
+    px(fs.borderLeftWidth) -
+    px(fs.borderRightWidth) -
+    edgeX;
+  if (room <= 0) return;
+  const nativeW = canvas.width / scale;
+  const nativeH = canvas.height / scale;
+  const most = Math.min(room, canvas.width);
+  const k = Math.floor((most * dpr) / nativeW);
+  const crisp = (k * nativeW) / dpr;
+  if (k >= 1 && crisp >= most * CRISP_FILLS) {
+    canvas.style.width = `${crisp + edgeX}px`;
+    canvas.style.height = `${(k * nativeH) / dpr + edgeY}px`;
+    canvas.style.imageRendering = "pixelated";
+  } else {
+    // on whole device pixels all the same
+    const w = Math.floor(most * dpr) / dpr;
+    canvas.style.width = `${w + edgeX}px`;
+    canvas.style.height = `${Math.round(((w * nativeH) / nativeW) * dpr) / dpr + edgeY}px`;
+    canvas.style.imageRendering = "auto";
+  }
+}
+function fitAll() {
+  for (const [canvas, scale] of fitted)
+    if (canvas.isConnected) fit(canvas, scale);
+    else fitted.delete(canvas);
+}
+// a new width, and a new zoom (which changes devicePixelRatio), both arrive as a resize
+window.addEventListener("resize", fitAll);
+
 /** Canvas pixel -> 1-based character cell. */
 function cellAt(canvas, e, scale, width, height) {
   const r = canvas.getBoundingClientRect();
-  const px = ((e.clientX - r.left) * canvas.width) / r.width / scale;
-  const py = ((e.clientY - r.top) * canvas.height) / r.height / scale;
+  // without the canvas's own border, which is not screen
+  const px =
+    ((e.clientX - r.left - canvas.clientLeft) * canvas.width) /
+    canvas.clientWidth /
+    scale;
+  const py =
+    ((e.clientY - r.top - canvas.clientTop) * canvas.height) /
+    canvas.clientHeight /
+    scale;
   return {
     x: Math.min(Math.max(Math.floor((px - MARGIN) / CW) + 1, 1), width),
     y: Math.min(Math.max(Math.floor((py - MARGIN) / CH) + 1, 1), height),
@@ -201,6 +271,7 @@ function updateScreens() {
       $("#term"),
       `${term.id}:${term.version}:${uiStamp}`,
       (ctx) => drawUi(ctx, term, TERM_SCALE),
+      TERM_SCALE,
     );
   }
   // monitors
@@ -243,6 +314,7 @@ function updateScreens() {
       fig.querySelector("canvas"),
       `${w.id}:${w.version}:${uiStamp}`,
       (ctx) => drawUi(ctx, w, MON_SCALE),
+      MON_SCALE,
     );
   }
   for (const fig of [...box.children])
@@ -284,6 +356,8 @@ function updateScreens() {
       `/api/sessions/${s.id}/pixels/${encodeURIComponent(p.peripheral)}.png?scale=${PIX_SCALE}`,
       fig.querySelector("canvas"),
       `${p.mtime}:${p.width}`,
+      undefined,
+      PIX_SCALE,
     );
   }
   for (const fig of [...pbox.children])
@@ -431,6 +505,51 @@ function keyName(code) {
   if (m && Number(m[1]) <= 12) return `f${m[1]}`;
   return null;
 }
+
+/**
+ * Shown in a frame (the VS Code extension's Run in CraftOS panel), this page would swallow the editor's own
+ * shortcuts: the command palette, quick open, the side bar, closing the tab. Those go to the frame's owner, which
+ * hands them to the editor, and not to the computer. In a browser tab of its own nothing changes.
+ */
+const embedded = window.parent !== window;
+function editorShortcut(e) {
+  if (e.key === "F1") return true;
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return false;
+  if (e.shiftKey)
+    // Ctrl+Shift+C and V stay copy and paste
+    return (
+      (/^Key[A-Z]$/.test(e.code) && e.code !== "KeyC" && e.code !== "KeyV") ||
+      e.code === "Tab" ||
+      e.code === "Backquote"
+    );
+  return /^(Key[PBJWK]|Digit\d|Backquote|Backslash|Comma|Tab|PageUp|PageDown)$/.test(
+    e.code,
+  );
+}
+if (embedded)
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (!editorShortcut(e)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      window.parent.postMessage(
+        {
+          type: "craftos-key",
+          key: e.key,
+          code: e.code,
+          keyCode: e.keyCode,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          repeat: e.repeat,
+        },
+        "*",
+      );
+    },
+    true,
+  );
 
 const held = new Set();
 const term = $("#term-wrap");

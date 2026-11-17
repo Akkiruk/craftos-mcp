@@ -7,6 +7,7 @@ import {
 } from "./blockworld.js";
 import type { RunnerConfig } from "./config.js";
 import {
+  type DebugLink,
   type EngineHandle,
   type ScreenCapture,
   type StagedRun,
@@ -109,12 +110,16 @@ export class SessionManager {
 
   constructor(private readonly config: RunnerConfig) {}
 
-  /** A new session; `staged` is a folder stageEngine already copied its files into (createAsync). */
+  /**
+   * A new session; `staged` is a folder stageEngine already copied its files into (createAsync). `debug`: a debug
+   * adapter the computer's engine connects to before it boots.
+   */
   create(
     monitors: readonly MonitorSpec[] = [],
     timeScale = 1,
     world?: WorldConfig,
     staged?: StagedRun,
+    debug?: DebugLink,
   ): Session {
     const boot = monitorSetupLua(monitors);
     // a world with blocks gets its host, as craftos_run does: what the turtle places can boot
@@ -124,6 +129,7 @@ export class SessionManager {
             label: "session",
             timeScale,
             world,
+            ...(debug && { debug }),
           })
         : undefined;
     const handle =
@@ -133,6 +139,7 @@ export class SessionManager {
         timeScale,
         world,
         ...(staged && { staged }),
+        ...(debug && { debug }),
       });
     const session: Session = {
       id: randomUUID().slice(0, 8),

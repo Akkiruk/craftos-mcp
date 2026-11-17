@@ -7,6 +7,7 @@
 // extensions folders are new temp folders, removed at the end. CRAFTOS_HOME is passed through to the emulator.
 import { execSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -27,6 +28,7 @@ delete process.env.ELECTRON_RUN_AS_NODE;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
+const cloneCli = resolve(root, "..", "cli", "dist", "index.js");
 const vsix =
   process.argv[2] ??
   join(
@@ -75,6 +77,19 @@ writeFileSync(
     "",
   ].join("\n"),
 );
+// a program for the debugger: a loop to stop in, and an error nothing catches
+writeFileSync(
+  join(project, "debugme.lua"),
+  [
+    "local count = 0", // 1
+    "for i = 1, 3 do", // 2
+    "  count = count + i", // 3
+    "end", // 4
+    'print("count", count)', // 5
+    'error("debug boom")', // 6
+    "",
+  ].join("\n"),
+);
 writeFileSync(
   join(project, "clock.world.json"),
   JSON.stringify({
@@ -92,6 +107,28 @@ writeFileSync(
   join(project, "typo.world.json"),
   '{\n  "addons": ["advanced-peripherals"],\n  "periferals": []\n}\n',
 );
+// for the World Editor: a world written the way Prettier writes it, with CRLF line ends, another computer next to
+// it, and a file that does not parse
+writeFileSync(
+  join(project, "base.world.json"),
+  [
+    "{",
+    '  "addons": ["advanced-peripherals"],',
+    '  "computerId": 1,',
+    '  "monitors": [{ "name": "top", "blocksWide": 3, "blocksHigh": 2 }],',
+    '  "peripherals": [',
+    '    { "name": "back", "type": "modem", "kind": "ender" },',
+    '    { "name": "minecraft:chest_0", "type": "minecraft:chest", "size": 27 }',
+    "  ]",
+    "}",
+    "",
+  ].join("\r\n"),
+);
+writeFileSync(
+  join(project, "relay.world.json"),
+  '{\n  "computerId": 2,\n  "position": { "x": 5, "y": 64, "z": 0 },\n  "peripherals": [{ "name": "top", "type": "modem" }]\n}\n',
+);
+writeFileSync(join(project, "broken.world.json"), '{\n  "addons": [\n}\n');
 // a CC program for the Lua language server, and Lua settings of the user's own that Set Up Lua Types must keep
 writeFileSync(
   join(project, "files.lua"),
@@ -163,8 +200,16 @@ try {
       CRAFTOS_PROJECT: project,
       CRAFTOS_USER_DATA: userData,
       CRAFTOS_LUA_INSTALLED: luaInstalled,
-      // only the lua types and schema steps, for a quick run
+      // only the lua types and schema steps ("lua") or only the debugger's ("debug"), for a quick run
       CRAFTOS_IT_ONLY: process.env.CRAFTOS_IT_ONLY ?? "",
+      // The debugger's steps need a craftos-mcp whose engine has the debugger. Until the pinned npm release has it,
+      // they run against this clone's own build (apps/cli/dist and engine/build), or CRAFTOS_IT_DEBUG_COMMAND (a
+      // JSON array, as craftos-mcp.command). With neither they are skipped, and say so.
+      CRAFTOS_IT_DEBUG_COMMAND:
+        process.env.CRAFTOS_IT_DEBUG_COMMAND ??
+        (existsSync(cloneCli)
+          ? JSON.stringify([process.execPath, cloneCli])
+          : ""),
     },
   });
 } catch (error) {

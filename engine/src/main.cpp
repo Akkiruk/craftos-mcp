@@ -21,6 +21,7 @@ static void* releaseNotesThread(void* data);
 #include <Computer.hpp>
 #include <configuration.hpp>
 #include <sys/stat.h>
+#include "debug_server.hpp"
 #include "peripheral/drive.hpp"
 #include "peripheral/speaker.hpp"
 #include "platform.hpp"
@@ -610,6 +611,7 @@ int parseArguments(const std::vector<std::string>& argv) {
         else if (arg == "--exec") script_file = "\x1b" + argv[++i];
         else if (arg == "--args") script_args = argv[++i];
         else if (arg == "--time-scale") {timeScale = std::stod(argv[++i]); if (timeScale <= 0) timeScale = 1.0;}
+        else if (arg == "--debug-connect") debugsrv::configure(argv[++i]);
         else if (arg == "--cobalt-speed") {cobaltSlowdown = std::stod(argv[++i]); if (cobaltSlowdown < 1) cobaltSlowdown = 1.0;}
         else if (arg == "--cc-version") {
             const std::string v = i + 1 < argv.size() ? argv[++i] : "";

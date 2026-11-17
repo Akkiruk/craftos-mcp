@@ -1,7 +1,12 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RunnerConfig } from "./config.js";
-import { type EngineHandle, makeRuntimeDir, startEngine } from "./engine.js";
+import {
+  type DebugLink,
+  type EngineHandle,
+  makeRuntimeDir,
+  startEngine,
+} from "./engine.js";
 import { monitorSetupLua } from "./lua.js";
 import { mobComputer } from "./mobs.js";
 import { ComputerNetwork, linkedWorlds } from "./network.js";
@@ -12,7 +17,13 @@ import type { WorldConfig } from "./world.js";
 export function startInBlockWorld(
   config: RunnerConfig,
   bootLua: string,
-  options: { label?: string; timeScale?: number; world: WorldConfig },
+  options: {
+    label?: string;
+    timeScale?: number;
+    world: WorldConfig;
+    /** A debugger for this computer (not for the ones it places). */
+    debug?: DebugLink;
+  },
 ): { handle: EngineHandle; network: ComputerNetwork; host: BlockWorldHost } {
   const world = linkedWorlds([{ world: options.world }])[0]!;
   const network = new ComputerNetwork();
@@ -28,6 +39,7 @@ export function startInBlockWorld(
     timeScale: options.timeScale ?? 1,
     world,
     shared: host.sharedFor(),
+    ...(options.debug && { debug: options.debug }),
   });
   network.add("main", handle, world);
   host.setMain(handle, world.computerId ?? 0);

@@ -1,7 +1,7 @@
 // Claude Code's command on Windows, Cursor and Windsurf config merging, test discovery excludes, setup progress lines.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readSetupLine } from "../../src/launcher.ts";
+import { readSetupLine, setupFailure } from "../../src/launcher.ts";
 import {
   claudeCodeCommand,
   editorKind,
@@ -119,4 +119,37 @@ test("reads the first-run setup's progress lines", () => {
     why: "fetch failed",
   });
   assert.equal(readSetupLine("something else"), undefined);
+});
+
+test("a failed setup's one-line reason is the useful line, not npm's log pointer", () => {
+  assert.equal(
+    setupFailure(
+      "craftos-mcp: setting up 0.4.0\ncraftos-mcp: setup failed: fetch failed\n",
+      1,
+    ),
+    "fetch failed",
+  );
+  assert.equal(
+    setupFailure(
+      "npm error could not determine executable to run\nnpm error A complete log of this run can be found in: C:\\x\\_logs\\a.log\n",
+      1,
+    ),
+    "npm: could not determine executable to run",
+  );
+  assert.equal(
+    setupFailure(
+      "npm error code ENOTFOUND\nnpm error network request to https://registry.npmjs.org failed\n",
+      1,
+    ),
+    "npm: network request to https://registry.npmjs.org failed",
+  );
+  assert.equal(
+    setupFailure(
+      "'npx' is not recognized as an internal or external command\n",
+      1,
+    ),
+    "'npx' is not recognized as an internal or external command",
+  );
+  assert.equal(setupFailure("", 3), "exit code 3");
+  assert.equal(setupFailure("", null), "it could not be started");
 });

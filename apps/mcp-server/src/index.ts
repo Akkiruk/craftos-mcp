@@ -9,6 +9,7 @@ import {
   type ComputerNetwork,
   type ScreenCapture,
   type SimCommand,
+  type TestRunResult,
   type WiredNetworkSpec,
   type WorldConfig,
   SessionManager,
@@ -206,6 +207,41 @@ function failure(error: unknown) {
     isError: true,
     content: [text(error instanceof Error ? error.message : String(error))],
   };
+}
+
+/** A key name the keyboard has not got, with the names that look like it (case and digits are the usual slips). */
+export function unknownKey(key: string): string {
+  const lower = key.toLowerCase();
+  const digits = [
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+  ];
+  const names = Object.keys(Keys);
+  const near = names.filter(
+    (n) =>
+      n.toLowerCase() === lower ||
+      (/^\d$/.test(key) && n === digits[Number(key)]) ||
+      (lower.length > 1 && n.toLowerCase().includes(lower)),
+  );
+  return (
+    `unknown key "${key}". ` +
+    (near.length
+      ? `Did you mean ${near
+          .slice(0, 5)
+          .map((n) => `"${n}"`)
+          .join(" or ")}? `
+      : "") +
+    "Key names are CC's keys.* names: a..z, zero..nine, enter, space, backspace, tab, up, down, left, right, " +
+    "escape, f1..f12, leftCtrl, leftShift, ... (text goes in with craftos_type, or craftos_act's text)."
+  );
 }
 
 const playerSchema = z.object({
@@ -604,8 +640,23 @@ function infoVersion(): Record<string, unknown> {
       ...report,
       note: "world.version picks another per computer; a version's ROM is built with node scripts/build-rom.mjs --download <mc>",
     },
-    addons: addonReport(process.env, mc),
+    addons: compactAddons(addonReport(process.env, mc)),
   };
+}
+
+/**
+ * The addon report as id -> version, split into the ones on and off: the ids are what world.addons takes, and the
+ * display names were most of the size. "none" is a mod with no release on that Minecraft version.
+ */
+export function compactAddons(report: ReturnType<typeof addonReport>): {
+  source: string;
+  on: Record<string, string>;
+  off: Record<string, string>;
+} {
+  const on: Record<string, string> = {};
+  const off: Record<string, string> = {};
+  for (const a of report.addons) (a.on ? on : off)[a.id] = a.version;
+  return { source: report.source, on, off };
 }
 
 tool(
@@ -778,7 +829,12 @@ tool(
       const resolved = resolveWorld(world, worldFile, warnings);
       // a program that is not there fails here, before a computer boots to say "No such program"
       const missing = checkProgram(config, program, resolved);
-      if (missing) return failure(missing);
+      if (missing)
+        return failure(
+          /Did you mean/.test(missing)
+            ? missing
+            : `${missing} Write it with craftos_write_file; craftos_list_files shows what is there.`,
+        );
       // Always render PNGs so the web viewer can show the last run; only return them on request.
       const result = await runProgram(config, {
         program,
@@ -830,7 +886,7 @@ tool(
   "craftos_test",
   {
     description:
-      'Run *.test.lua files. Inside a test file use the global `ccunit`: test(name, fn [, {timeout}]), eq, neq, near, contains, truthy, raises(fn, pattern), skip, and run(program, {seconds|script, args}) / screen(monitor?) / touch(monitor, x, y) to drive a program and read its screens (craftos_help {topic:"ccunit"}). Each file runs in its own fresh computer; peripherals can be attached with "monitors". timeoutMs is per file and covers copying the workspace; a file that hangs keeps the tests it finished and names the one it was in.' +
+      'Run *.test.lua files. Inside a test file use the global `ccunit`: test(name, fn [, {timeout}]), eq, neq, near, contains, truthy, raises(fn, pattern), skip, and run(program, {seconds|script, args}) / screen(monitor?) / touch(monitor, x, y) to drive a program and read its screens (craftos_help {topic:"ccunit"}). Each file runs in its own fresh computer; peripherals can be attached with "monitors". timeoutMs is per file and covers copying the workspace; a file that hangs keeps the tests it finished and names the one it was in. The reply gives each file its status, a count of passing tests (named too in runs of up to 50 tests), and every failing test with its error and line.' +
       COPY_NOTE,
     inputSchema: {
       paths: z
@@ -865,15 +921,62 @@ tool(
         return failure(
           `no *.test.lua files under ${paths.length ? paths.join(", ") : `the workspace ${config.workspaceDir}`}`,
         );
+      const reply = compactTests(result);
       return {
         isError: result.failed > 0,
-        content: [text(warnings.length ? { ...result, warnings } : result)],
+        content: [text(warnings.length ? { ...reply, warnings } : reply)],
       };
     } catch (error) {
       return failure(error);
     }
   },
 );
+
+/** Up to this many tests in a run, craftos_test names the passing ones too; above it, only counts them. */
+export const NAME_PASSING_UP_TO = 50;
+
+/**
+ * craftos_test's reply: per file how many passed, the failing tests in full ({name, error, line, and file when it
+ * points into another file}) and the skipped ones by name, instead of an object per test. The passing ones are named
+ * (passedTests) only in a run of up to NAME_PASSING_UP_TO tests: in a big suite their names were most of the reply
+ * (27 of 42 KB for 455 tests). The computer's "CraftOS 1.8" banner leaves the terminal lines, since it says nothing.
+ */
+export function compactTests(result: TestRunResult) {
+  const total = result.files.reduce((n, f) => n + f.tests.length, 0);
+  const named = total <= NAME_PASSING_UP_TO;
+  return {
+    passed: result.passed,
+    failed: result.failed,
+    ...(result.skipped ? { skipped: result.skipped } : {}),
+    ...(named
+      ? {}
+      : {
+          note: `${total} tests: passing ones are counted, not named; run fewer files to see their names`,
+        }),
+    files: result.files.map((f) => {
+      const passed = f.tests.filter((t) => t.passed && !t.skipped);
+      const skipped = f.tests.filter((t) => t.skipped);
+      const failed = f.tests
+        .filter((t) => !t.passed)
+        .map(({ passed: _passed, file, ...t }) =>
+          file && file !== f.file ? { ...t, file } : t,
+        );
+      const terminal = f.terminal?.filter((l) => !/^CraftOS \d+\.\d+$/.test(l));
+      return {
+        file: f.file,
+        status: f.status,
+        passed: passed.length,
+        ...(named && passed.length
+          ? { passedTests: passed.map((t) => t.name) }
+          : {}),
+        ...(failed.length ? { failed } : {}),
+        ...(skipped.length ? { skipped: skipped.map((t) => t.name) } : {}),
+        ...(terminal?.length ? { terminal } : {}),
+        durationMs: f.durationMs,
+      };
+    }),
+  };
+}
 
 // ---- interactive sessions -------------------------------------------------
 
@@ -1043,7 +1146,14 @@ tool(
   async ({ network, computer, position, modem, on, loaded }) => {
     try {
       const linked = networks.get(network);
-      if (!linked) throw new Error(`no such network: ${network}`);
+      if (!linked)
+        throw new Error(
+          `no such network: ${network}. ` +
+            (networks.size
+              ? `Networks: ${[...networks.keys()].join(", ")}.`
+              : "No network is running.") +
+            " Networks end when the server restarts; craftos_network_create starts one.",
+        );
       if (position) linked.move(computer, position);
       if (modem !== undefined && on !== undefined)
         linked.setModemOn(computer, modem, on);
@@ -1223,7 +1333,7 @@ tool(
   },
   async ({ id, key, ctrl, shift, holdMs }) => {
     try {
-      if (!(key in Keys)) throw new Error(`unknown key "${key}"`);
+      if (!(key in Keys)) throw new Error(unknownKey(key));
       const handle = sessions.get(id).handle;
       if (holdMs !== undefined) {
         await holdKey(handle, key, { ms: holdMs, ctrl, shift });
@@ -1701,7 +1811,7 @@ tool(
       if (touch) {
         act = () => raw.touchMonitor(touch.monitor, touch.x, touch.y);
       } else if (key !== undefined) {
-        if (!(key in Keys)) throw new Error(`unknown key "${key}"`);
+        if (!(key in Keys)) throw new Error(unknownKey(key));
         expect = "key";
         act = () => raw.tap(key as KeyName);
       } else if (typed !== undefined) {
@@ -1773,19 +1883,51 @@ tool(
   },
 );
 
+/** What each session's screens looked like at its last craftos_read_terminal, by window: for delta reads. */
+const lastRead = new Map<string, Map<number, string>>();
+
+/** Screens with the ones unchanged since the last read (when delta) cut down to a marker; remembers these. */
+function terminalDelta<
+  T extends { window: number; peripheral?: string | undefined },
+>(
+  id: string,
+  screens: T[],
+  delta: boolean,
+): (T | { window: number; peripheral?: string; unchanged: true })[] {
+  // a session id is never reused, so entries of destroyed sessions only cost their few strings; drop them anyway
+  for (const known of lastRead.keys())
+    if (!sessions.list().some((s) => s.id === known)) lastRead.delete(known);
+  const before = lastRead.get(id);
+  const now = new Map<number, string>();
+  const out = screens.map((s) => {
+    const key = JSON.stringify(s);
+    now.set(s.window, key);
+    if (!delta || before?.get(s.window) !== key) return s;
+    return {
+      window: s.window,
+      ...(s.peripheral !== undefined && { peripheral: s.peripheral }),
+      unchanged: true as const,
+    };
+  });
+  lastRead.set(id, now);
+  return out;
+}
+
 tool(
   "craftos_read_terminal",
   {
-    description: "Read the current text of the terminal and every monitor.",
-    inputSchema: { id: sessionId, fullScreens: fullScreensSchema },
+    description:
+      "Read the current text of the terminal and every monitor. delta:true gives a screen that has not changed since the previous read_terminal of this session as just {window, peripheral?, unchanged: true}.",
+    inputSchema: {
+      id: sessionId,
+      fullScreens: fullScreensSchema,
+      delta: deltaSchema,
+    },
   },
-  async ({ id, fullScreens }) => {
+  async ({ id, fullScreens, delta }) => {
     try {
-      return {
-        content: [
-          text(trimScreens(stripPng(sessions.screens(id)), fullScreens)),
-        ],
-      };
+      const screens = trimScreens(stripPng(sessions.screens(id)), fullScreens);
+      return { content: [text(terminalDelta(id, screens, delta))] };
     } catch (error) {
       return failure(error);
     }
@@ -2073,6 +2215,55 @@ server.registerPrompt(
 if (toolSet === "core")
   for (const [name, made] of registered)
     if (!CORE_TOOLS.has(name)) made.remove();
+
+/**
+ * A tool list without what the SDK adds that tells a client nothing: the JSON Schema `$schema` line on every input
+ * schema, the ±2^53 bounds zod puts on every integer, and `execution: {taskSupport: "forbidden"}`, which is the
+ * default. Together about a tenth of tools/list, which a client sends along with every request.
+ */
+export function leanToolList<T>(result: T): T {
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip);
+    if (!value || typeof value !== "object") return value;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k === "$schema") continue;
+      if (k === "maximum" && v === Number.MAX_SAFE_INTEGER) continue;
+      if (k === "minimum" && v === Number.MIN_SAFE_INTEGER) continue;
+      out[k] = strip(v);
+    }
+    return out;
+  };
+  const r = result as { tools?: Record<string, unknown>[] };
+  if (!Array.isArray(r.tools)) return result;
+  return {
+    ...r,
+    tools: r.tools.map(({ execution, ...t }) => {
+      const lean = strip(t) as Record<string, unknown>;
+      const support = (execution as { taskSupport?: string } | undefined)
+        ?.taskSupport;
+      return execution && support !== "forbidden"
+        ? { ...lean, execution }
+        : lean;
+    }),
+  } as T;
+}
+{
+  // the SDK's own tools/list handler, wrapped: Protocol keeps its handlers in _requestHandlers (SDK 1.32)
+  const handlers = (
+    server.server as unknown as {
+      _requestHandlers?: Map<
+        string,
+        (request: unknown, extra: unknown) => Promise<unknown>
+      >;
+    }
+  )._requestHandlers;
+  const list = handlers?.get("tools/list");
+  if (handlers && list)
+    handlers.set("tools/list", async (request, extra) =>
+      leanToolList(await list(request, extra)),
+    );
+}
 
 const viewerPort = process.env["CRAFTOS_VIEWER_PORT"] ?? "7878";
 if (viewerPort !== "off") {

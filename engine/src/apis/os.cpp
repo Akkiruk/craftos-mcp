@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <vector>
+#include "../debug_server.hpp"
 #include "../main.hpp"
 #include "../runtime.hpp"
 #include "../util.hpp"
@@ -22,7 +23,8 @@ static const std::chrono::system_clock::time_point processStart = std::chrono::s
 // os.__ccsimAdvance(seconds) jumps the virtual clock forward and fires the timers that fall due in the jump.
 static std::atomic<long long> timeOffsetMs(0);
 static std::chrono::system_clock::time_point vnow() {
-    const auto real = std::chrono::system_clock::now();
+    // a debugger's stop holds the clock: the time spent stopped is taken off (debug_server.cpp; 0 with no debugger)
+    const auto real = std::chrono::system_clock::now() - std::chrono::microseconds(debugsrv::clockHeldMicros());
     const auto offset = std::chrono::milliseconds(timeOffsetMs.load());
     if (timeScale == 1.0) return real + offset;
     return processStart + std::chrono::duration_cast<std::chrono::system_clock::duration>((real - processStart) * timeScale) + offset;
@@ -175,6 +177,8 @@ static Uint32 notifyEvent(Uint32 interval, void* param) {
     // has passed (four 0.05 s timers in a row came to 0.199 s). In the game both move by the same ticks: never fire
     // early, wait out the rest. interval 0 is os.__ccsimAdvance firing it on purpose.
     if (interval != 0 && !exiting && data->comp != NULL) {
+        // stopped in the debugger: the clock stands still, so no timer falls due; look again shortly
+        if (debugsrv::isStopped()) return 20;
         const auto left = data->vdue - vnow();
         if (left > std::chrono::system_clock::duration::zero()) {
             const double leftMs = std::chrono::duration<double, std::milli>(left).count() / timeScale;

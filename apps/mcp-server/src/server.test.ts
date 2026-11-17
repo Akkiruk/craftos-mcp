@@ -61,6 +61,11 @@ describe("what a client gets", () => {
     // 0.2.0 sent about 64k characters (85k with the private tools), most of it the world schema four times
     expect(size).toBeLessThan(45_000);
     for (const t of tools) expect(JSON.stringify(t).length).toBeLessThan(6_000);
+    // none of the SDK's filler: $schema lines, ±2^53 integer bounds, the default taskSupport
+    const raw = JSON.stringify(tools);
+    expect(raw).not.toContain("$schema");
+    expect(raw).not.toContain(String(Number.MAX_SAFE_INTEGER));
+    expect(raw).not.toContain('"taskSupport":"forbidden"');
     const run = tools.find((t) => t.name === "craftos_run")!;
     expect(JSON.stringify(run.inputSchema)).toContain("craftos_help");
     // annotations let a client skip asking before tools that only look
@@ -201,6 +206,29 @@ describe("bad calls fail before a computer boots", () => {
     })) as Result;
     expect(textOf(s)).toMatch(/No session is running.*server restarts/);
   });
+
+  it("a wrong key name, with the right one", async () => {
+    const r = (await client.callTool({
+      name: "craftos_key",
+      arguments: { id: "gone", key: "Enter" },
+    })) as Result;
+    expect(r.isError).toBe(true);
+    expect(textOf(r)).toMatch(/Did you mean "enter"/);
+  });
+});
+
+describe("craftos_info", () => {
+  it("lists the addons as id: version, on and off", async () => {
+    const info = JSON.parse(
+      textOf(await client.callTool({ name: "craftos_info", arguments: {} })),
+    ) as {
+      addons: { on: Record<string, string>; off: Record<string, string> };
+    };
+    expect(Object.keys(info.addons.on)).toContain("advanced-peripherals");
+    expect(typeof info.addons.on["advanced-peripherals"]).toBe("string");
+    expect(info.addons.off).toBeTypeOf("object");
+    expect(JSON.stringify(info).length).toBeLessThan(3_000);
+  });
 });
 
 describe.skipIf(!ready)("results", () => {
@@ -257,5 +285,80 @@ describe.skipIf(!ready)("results", () => {
     expect(r.status).toBe("completed");
     expect(r.warnings[0]).toMatch(/world\.extraStuff/);
     expect(r.sim).not.toHaveProperty("survives");
+  }, 60000);
+
+  it("craftos_test: failing tests in full, passing ones by count and name", async () => {
+    put(
+      "mix.test.lua",
+      [
+        'ccunit.test("adds", function() ccunit.eq(1 + 1, 2) end)',
+        'ccunit.test("wrong", function() ccunit.eq(1 + 1, 3) end)',
+        'ccunit.skip("later")',
+      ].join("\n"),
+    );
+    const r = (await client.callTool({
+      name: "craftos_test",
+      arguments: { paths: ["mix.test.lua"] },
+    })) as Result;
+    expect(r.isError).toBe(true);
+    const result = JSON.parse(textOf(r)) as {
+      passed: number;
+      failed: number;
+      files: Record<string, unknown>[];
+    };
+    expect(result.passed).toBe(1);
+    expect(result.failed).toBe(1);
+    const file = result.files[0]!;
+    expect(file).toMatchObject({
+      file: "mix.test.lua",
+      status: "failed",
+      passed: 1,
+      passedTests: ["adds"],
+      failed: [{ name: "wrong", line: 2 }],
+    });
+    expect(String((file["failed"] as { error: string }[])[0]!.error)).toMatch(
+      /expected 3 but got 2/,
+    );
+    expect(file).not.toHaveProperty("tests");
+    // the banner alone is no terminal worth showing
+    expect(file["terminal"] ?? []).not.toContain("CraftOS 1.8");
+  }, 60000);
+
+  it("craftos_read_terminal delta: an unchanged screen is just a marker", async () => {
+    const created = JSON.parse(
+      textOf(
+        await client.callTool({
+          name: "craftos_session_create",
+          arguments: {},
+        }),
+      ),
+    ) as { id: string };
+    try {
+      const read = async (delta: boolean) =>
+        JSON.parse(
+          textOf(
+            await client.callTool({
+              name: "craftos_read_terminal",
+              arguments: { id: created.id, delta },
+            }),
+          ),
+        ) as Record<string, unknown>[];
+      const first = await read(true);
+      expect(first[0]!["lines"]).toBeDefined();
+      expect(await read(true)).toEqual([{ window: 0, unchanged: true }]);
+      // without delta the whole screen, as before
+      expect((await read(false))[0]!["lines"]).toEqual(first[0]!["lines"]);
+      await client.callTool({
+        name: "craftos_type",
+        arguments: { id: created.id, text: "x", enter: false },
+      });
+      await new Promise((r) => setTimeout(r, 300));
+      expect((await read(true))[0]!["lines"]).toBeDefined();
+    } finally {
+      await client.callTool({
+        name: "craftos_session_destroy",
+        arguments: { id: created.id },
+      });
+    }
   }, 60000);
 });
