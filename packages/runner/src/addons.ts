@@ -16,7 +16,8 @@
  *
  * Each addon names its mod version per Minecraft version (versions.ts). A world on a Minecraft version the mod has
  * no release for cannot switch it on (Bigger Reactors on 1.21.1); "all" and the default leave it out. The Lua side
- * still simulates the 1.18.2 version of every mod: the other versions say which release a later round follows.
+ * simulates one release of each mod, usually its 1.18.2 one; a mod with no 1.18.2 release (Metaphysics, the drone mods)
+ * follows the release its versions entry names. The docs of each addon say which.
  */
 import { DEFAULT_MC } from "./versions.js";
 

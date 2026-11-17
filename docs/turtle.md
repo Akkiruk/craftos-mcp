@@ -1,6 +1,7 @@
 # Turtles
 
-A world with a `turtle` entry makes the computer a CC:Tweaked 1.101.3 turtle. The `turtle` API is there, along
+A world with a `turtle` entry makes the computer a CC:Tweaked 1.101.3 turtle (1.121.0 on 1.20.1 and 1.21.1, see
+"Minecraft versions"). The `turtle` API is there, along
 with `turtle.native`, the ROM's turtle programs (`go`, `tunnel`, `excavate`, `refuel`, `craft`, ...) and a 39x13
 terminal. A normal turtle has no colour; an advanced one does. The turtle stands in a block world made of
 `blocks`, `fills` and `ground`; everything else is air.
@@ -8,7 +9,7 @@ terminal. A normal turtle has no colour; an advanced one does. The turtle stands
 The rules come from the mod's source. [turtle/cct-1.101.3-turtle-rules.md](turtle/cct-1.101.3-turtle-rules.md)
 lists each one with its Java line. Block and item data comes from the real game jars (vanilla 1.18.2 and the 262
 mods in the pack), plus the game's own block report. Known differences are in
-[conformance/emulator-vs-real-deviations.md](conformance/emulator-vs-real-deviations.md) (rows 61-76).
+[conformance/emulator-vs-real-deviations.md](conformance/emulator-vs-real-deviations.md) (rows 61-78, 103, 110 and 111).
 
 ## A world
 
@@ -217,7 +218,7 @@ one `loot.lua` already knows.
 
 ## Minecraft versions
 
-A world's `version` (or `CRAFTOS_VERSION`) picks Minecraft 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or
+A world's `version` (or `CRAFTOS_VERSION`) picks Minecraft 1.18.2 (CC:Tweaked 1.101.3), 1.20.1 or
 1.21.1 (both CC:Tweaked 1.121.0). Everything 1.121.0 does differently is behind `core.cc121`, so 1.18.2 is untouched.
 Each is from CC:Tweaked's 1.121.0 source (tag `v1.20.1-1.121.0`) and tested in
 `packages/runner/src/turtle-cc121.integration.test.ts`; the turtle suites also run whole on 1.20.1

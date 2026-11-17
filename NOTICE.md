@@ -11,8 +11,8 @@
   interoperability. The 1.20.1 set also has each block's map colour and the composter's chances, read from the game
   with Mojang's published mappings. Minecraft is a trademark of Mojang. Not an official
   Minecraft product, not approved by or associated with Mojang or Microsoft.
-- **Advanced Peripherals**, **Mekanism**, **Mekanism Generators**, **Create**, **Create Crafts & Additions**,
-  **Bigger Reactors** and **Extreme Reactors**: not included. Their computer peripherals are reimplemented in Lua from
+- **The mods the addons simulate** (Advanced Peripherals, Mekanism, Create, the reactor mods and the others listed in
+  `packages/runner/src/addons.ts`): not included. Their computer APIs and peripherals are reimplemented in Lua from
   their public source code and documentation, for interoperability.
 - **Tom's Peripherals** (MIT, tom5454): its GPU drawing is reimplemented in Lua from its source. Its font files are
   not included; `scripts/build-toms-fonts.mjs` builds them on your machine from the mod's jar.

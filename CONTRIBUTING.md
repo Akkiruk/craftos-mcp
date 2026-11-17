@@ -14,7 +14,7 @@ Use conventional, focused changes. A feature that executes Lua must include:
 
 - a fixture demonstrating expected CC:Tweaked behavior,
 - tests for invalid input, timeout, and cleanup,
-- Windows and Linux-safe path/process handling,
+- path/process handling that is safe on Windows, Linux and macOS,
 - documentation for any known emulator difference.
 
 Do not commit CraftOS-PC binaries, ROM sources, runtime computer directories,

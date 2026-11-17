@@ -4,7 +4,7 @@ Run and test ComputerCraft (CC:Tweaked) Lua without Minecraft, right in VS Code,
 emulator as an MCP server so it can run, test and fix the code it writes.
 
 [craftos-mcp](https://github.com/Akkiruk/craftos-mcp) is a CC:Tweaked emulator: real CC:Tweaked behaviour (it passes
-1190 of 1191 of CC:Tweaked's own tests at 1.101.3), monitors with touch, several computers on rednet, turtles in a
+1189 of 1190 of CC:Tweaked's own tests at 1.101.3 and 1361 of 1362 at 1.121.0), monitors with touch, several computers on rednet, turtles in a
 block world, and peripherals from Create, Mekanism, Advanced Peripherals, Tom's Peripherals and more.
 
 ![A Mekanism reactor controller on a monitor in craftos-mcp: the temperature climbs until the program scrams the reactor](https://raw.githubusercontent.com/Akkiruk/craftos-mcp/main/docs/media/demo.gif)
@@ -62,8 +62,7 @@ block world, and peripherals from Create, Mekanism, Advanced Peripherals, Tom's 
 ## Requirements
 
 - **Windows x64, Linux x64, or macOS 11+ (Apple silicon or Intel).**
-- **Node.js 22 or newer** on your PATH. The extension starts the emulator with `npx -y craftos-mcp@0.3.0` (and
-  0.2.0 if npm doesn't have 0.3.0 yet).
+- **Node.js 22 or newer** on your PATH. The extension starts the emulator with `npx -y craftos-mcp@0.3.0`.
 
 The first start downloads the engine from the project's GitHub release and builds the CC:Tweaked ROM from the official
 jar on your machine (CC:Tweaked's license does not allow shipping it). That takes about a minute, once per version, and

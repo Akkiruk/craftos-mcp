@@ -13,7 +13,7 @@ give the same JSON inline as `world`.
 | `mekanism-multiblocks-demo.json` | Fission reactor, boiler, turbine, induction matrix and fusion reactor                     | `mekanism`, `mekanism-generators` |
 | `create-demo.json`               | Train stations, gauges, a display link and Crafts & Additions blocks                      | `create`, `create-additions`      |
 | `toms-peripherals-demo.json`     | A GPU on a monitor wall, keyboard, redstone port and watchdog                             | `toms-peripherals`                |
-| `bigger-reactors-demo.json`      | A Bigger Reactors reactor and turbine                                                     | `bigger-reactors`                 |
+| `bigger-reactors-demo.json`      | A Bigger Reactors reactor and turbine (on 1.18.2: the mod has no 1.21.1 release)          | `bigger-reactors`                 |
 | `extreme-reactors-demo.json`     | An Extreme Reactors reactor and turbine                                                   | `extreme-reactors`                |
 
 A world that uses an addon that is switched off fails before the computer boots. Each mod's world format is in its

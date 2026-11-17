@@ -7,7 +7,7 @@ description: Design, run and test ComputerCraft (CC:Tweaked 1.121.0 and 1.101.3)
 
 The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no GUI) with the real CC:Tweaked ROM:
 Minecraft **1.21.1** (CC:Tweaked 1.121.0) by default, or 1.20.1 / 1.18.2 per world (`world.version`). Call
-`craftos_info` first; it lists anything missing. `craftos_help` gives the full world schema, the ccunit API and the
+`craftos_info` first; it lists anything missing, the versions and the addons that are on. `craftos_help` gives the full world schema, the ccunit API and the
 saved worlds on request.
 
 ## Workflow
@@ -86,8 +86,8 @@ saved worlds on request.
   `worlds/advanced-peripherals-demo.json`), and Mekanism 10.2.5 QIO blocks and the Quantum Entangloporter (see
   `docs/mekanism-qio.md` and `worlds/mekanism-qio-demo.json`). During a session `craftos_sim_command` changes the
   world (players join, chat, items appear, the clock jumps) and `craftos_sim_state` reads it, including the computer's own redstone (`redstone.outputs.<side>`, inputs, bundled), so check a door opened there, not by printing. `craftos_session_create` returns `front: "shell" | "program"`: a startup.lua program that never returns leaves no prompt.
-- Other mods are addons (`craftos_info` lists which are on). Use only the ones the user's pack has: a peripheral of
-  an addon that is off fails the world at boot. Create, Mekanism reactors and machines, Tom's Peripherals (GPU
+- Other mods are addons (38 of them; `craftos_info` lists which are on). Use only the ones the user's pack has
+  (`world.addons`, `CRAFTOS_ADDONS`, `--addons`): a peripheral of an addon that is off fails the world at boot. Create, Mekanism reactors and machines, Tom's Peripherals (GPU
   screens appear in screenshots), Bigger and Extreme Reactors each have a doc in `docs/` and a demo in `worlds/`.
   CC's own `energy_storage` and `fluid_storage` work on any block (`docs/generic-storage.md`).
 - Turtles: give the world a `turtle` entry and blocks (`blocks`, `fills`, `ground`); the full turtle API runs in that

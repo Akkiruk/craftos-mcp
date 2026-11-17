@@ -74,12 +74,13 @@ There are no `playerJoin` / `playerLeave` events in this AP version.
   extents of `2x`, `2y`, `2z`.
 - `getPlayerPos` returns `{}` for unknown, offline or out-of-dimension players, and reports
   `yaw`, `pitch`, `dimension` and `eyeHeight` as well as the floored coordinates.
-    <!-- @public: - Chat: a 100 ms cooldown (`chatMessage is on cooldown`); unknown players give -->
-    <!-- @public:   `nil, "incorrect player name/uuid"`; the two `sendFormatted*` methods take a JSON text component. -->
+
+- Chat: a 100 ms cooldown (`chatMessage is on cooldown`); unknown players give `nil, "incorrect player name/uuid"`; the two `sendFormatted*` methods take a JSON text component.
 
 - `environmentDetector.scanEntities` has a 2 s cooldown, refuses radius > 16 with
   `Radius is exceed max value`, and costs no fuel because powered peripherals are off.
-  <!-- @public:   `isSlimeChunk()` is vanilla's answer for the detector's chunk and `environment.seed` (default 0). -->
+
+- `isSlimeChunk()` is vanilla's answer for the detector's chunk and `environment.seed` (default 0).
 
 - ME bridge: `listCraftableItems` reproduces AE2/AP's odd behaviour (an unstocked craftable is
   only listed once a stored non-craftable key is seen). Unknown items from `getItem` return `{}`.
@@ -193,7 +194,8 @@ turtle's chunk. A player's inventory survives a reboot.
 
 ### Not simulated / not confirmed
 
-- The pocket computer geo scanner. There are no pocket computers here.
+- The pocket computer geo scanner: a pocket upgrade, not built (a world can be a pocket computer, `"kind": "pocket"`,
+  but AP's pocket upgrades are not there).
 - `chunkAnalyze` counts blocks from `blocks` and `fills` only, never `ground`, and skips fills larger than 250000
   blocks.
 - Block entities: only containers and blocks with `blockEntity` have one. Signs, beds, computers and the like

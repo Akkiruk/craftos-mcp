@@ -365,7 +365,7 @@ a peripheral your server does not have. Set `CRAFTOS_ADDONS` for the MCP server,
 | `advanced-math`              | Advanced Math 0.3.7 (a datapack: ROM APIs and modules)            |
 | `lectern-hub`                | CC: Lectern Hub 1.0.0-1.115.0 (1.20.1)                            |
 | `crickets-peripherals`       | Cricket's Peripherals 0.1.1 (1.21.1)                              |
-| `cctech`                     | CCTech 0.1.6 (tapes and magnetic cards)                           |
+| `cctech`                     | CCTech 0.1.6 (1.18.2: tapes and magnetic cards)                   |
 | `embedded-computer`          | Embedded Computer 0.6.0 (1.20.1), 1.3.0 (1.21.1)                  |
 | `lakes-cc-additions`         | Lake's CC Additions 1.7.0 (1.20.1)                                |
 | `sc-peripherals`             | SwitchCraft Peripherals 1.20.1-1.10.5 (3D and poster printers)    |

@@ -2,14 +2,16 @@
 
 Agent-authored Lua is untrusted code.
 
-## Required controls before enabling `craftos_run`
+## Required controls for `craftos_run` and sessions
 
 - Launch only a configured CraftOS-PC executable; never accept an executable
   or arbitrary command-line flags from an MCP request.
 - Create a unique runtime directory per invocation.
 - Mount only an explicit workspace subtree. Prefer read-only mounts and copy
   declared outputs back after successful execution.
-- Deny network access by default at both emulator and OS/container layers.
+- Block private and local addresses for HTTP and websockets by default, as
+  CC:Tweaked does (`$private`). Public addresses are reachable, as on a real
+  server; deny them at the OS/container layer if programs must stay offline.
 - Enforce wall-clock timeout, process-tree termination, output-size limits,
   file-count/size quotas, and concurrent-session limits.
 - Resolve and verify every path after normalization and symlink handling.

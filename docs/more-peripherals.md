@@ -225,7 +225,8 @@ the scanned item, the sword, and for the card interfaces the player's inventory,
   (enchantment categories, rarities, compatibility, repair materials, durability, random enchantments) on the
   item. The emulator has no enchantment registry or item durability data for 1.20.1 to run them on.
 - **disk_raid** and **advanced_disk_raid**: they mount each floppy into the computer's file system as `disk`,
-  `disk2`, ...; the emulator cannot add mounts.
+  `disk2`, ...; not built yet (`addons/mounts.lua`, which the hard drives of Cricket's Peripherals and Embedded
+  Computer use, could carry them).
 - The turtle upgrades **magnet**, **ender_bag** and **solar**, the **keyboard** item (it forwards a player's key
   presses from a client screen), the induction charger and the facade tool (no peripheral).
 - Entities: the grinder's `attack()` reaches nothing, the collector only gets what `mpAddXP` gives, dropped items

@@ -51,7 +51,7 @@ Every method runs on the computer thread (no `mainThread`): it answers at once.
 ## Fixtures
 
 ```jsonc
-"version": "1.20.1",              // or 1.18.2 (the default)
+"version": "1.20.1",              // or 1.18.2
 "position": { "x": 2, "y": 1, "z": 3 }, // the computer's block: shipyard coordinates when it is on a ship
 "ccvs": {
   "family": "command",            // normal (default), advanced or command; a turtle world is a turtle
@@ -143,8 +143,9 @@ force wrappers refuse vectors, so only numbers work.
   and 1.101.3's `os.loadAPI` rethrows it: the bios stops (what CC:Tweaked then shows was not seen). The sim boots
   normally, without `ship` but with `matrix` and `quaternion`.
 - **The mod's other ROM files**: `rom/modules/main/ccvs/` (pidcontrollers, utilities), `rom/modules/main/advanced_math/`
-  (mmath, pid, stats), `rom/programs/simple_altitude_pid.lua` and the help pages. The sim cannot add files to `/rom`
-  for one addon, so `require("ccvs.pidcontrollers")` and `help ship` fail here.
+  (mmath, pid, stats), `rom/programs/simple_altitude_pid.lua` and the help pages. The module carries only the
+  `apis/` files and loads them itself; its `types.lua` has no `rom`, so nothing else of the mod is in `/rom` and
+  `require("ccvs.pidcontrollers")` and `help ship` fail here.
 - The `commands` API of a command computer: `family: "command"` only changes CC: VS's admin check.
 - How many physics ticks a game tick's event carries depends on when Valkyrien Skies clears its queue relative to the
   computer's update; the sim sends `physicsTicksPerGameTick` (3) snapshots, all with the ship's current values.

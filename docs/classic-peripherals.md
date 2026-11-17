@@ -203,4 +203,5 @@ last 50 broadcasts, the cards and the pocket's `os.nfc` data.
 - **Ed25519 verification of crafted small-order signatures.** Bouncy Castle checks `[v]([S]B - R - [k]A) = 0` for a
   short `v`; the emulator checks `[S]B - [k]A = R`. They agree on every valid and corrupted signature; a signature
   built on purpose with a small-order component could in theory be judged differently.
-- Pocket computers in general: the emulator has none, so `classicPeripherals.pocket` only switches on `os.nfc`.
+- Pocket computers: `classicPeripherals.pocket` only switches on `os.nfc`. A world with `"kind": "pocket"` is a
+  pocket computer (terminal, `pocket` API), but that does not set `classicPeripherals.pocket` by itself.

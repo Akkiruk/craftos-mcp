@@ -1,5 +1,6 @@
 {
   "$schema": "../schemas/world.schema.json",
+  "version": "1.18.2",
   "biggerReactors": {
     "gameTime": 0,
     "seed": 1

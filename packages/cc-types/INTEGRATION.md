@@ -1,7 +1,7 @@
 # Shipping the types in the VS Code extension
 
-How `apps/vscode` should ship `packages/cc-types` and switch it on. Nothing here is wired up yet: this is the plan,
-checked against the Lua extension 3.19.2 (`sumneko.lua`, lua-language-server 3.19.2), whose source is named where it
+How `apps/vscode` ships `packages/cc-types` and switches it on. This was the plan; the extension now does it
+(`apps/vscode/esbuild.mjs`, `apps/vscode/src/luaTypes.ts`). Checked against the Lua extension 3.19.2 (`sumneko.lua`, lua-language-server 3.19.2), whose source is named where it
 decides something.
 
 ## The short version
@@ -54,7 +54,7 @@ The folder name `cc-tweaked` matters: the language server lists an addon by its 
 
 ## 2. A path that survives updates
 
-`context.extensionPath` is `…/extensions/<publisher>.craftos-mcp-0.2.0`. After an update that folder is gone and
+`context.extensionPath` is `…/extensions/<publisher>.craftos-mcp-0.3.0`. After an update that folder is gone and
 every `settings.json` that names it points at nothing. `context.globalStorageUri` stays put, so copy there and point
 at the copy:
 

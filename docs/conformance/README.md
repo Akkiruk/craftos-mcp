@@ -1,14 +1,14 @@
 # CC:Tweaked conformance
 
 The engine is checked against CC:Tweaked's own test suite (`mcfly` + `spec/`)
-at the exact version in the modpack, tag `v1.18.2-1.101.3`, and, for Minecraft 1.20.1 and 1.21.1
+for Minecraft 1.18.2 at tag `v1.18.2-1.101.3`, and, for Minecraft 1.20.1 and 1.21.1
 (`world.version`, `packages/runner/src/versions.ts`), at tag `v1.20.1-1.121.0`.
 
 ```text
 git clone --depth 1 --branch v1.18.2-1.101.3 https://github.com/cc-tweaked/CC-Tweaked <dir>
 # Git Bash: keep in-computer paths from being rewritten, and use UTC like upstream CI
-MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs <dir> docs/conformance/cct-1.101.3.log /test-rom/spec 200 lua
-MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs <dir> docs/conformance/cct-1.101.3-lua.log /test-rom/spec 120 apis,modules,programs,lua/timeout_spec.lua
+MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs --mc 1.18.2 <dir> docs/conformance/cct-1.101.3.log /test-rom/spec 200 lua
+MSYS_NO_PATHCONV=1 TZ=UTC node scripts/run-cct-conformance.mjs --mc 1.18.2 <dir> docs/conformance/cct-1.101.3-lua.log /test-rom/spec 120 apis,modules,programs,lua/timeout_spec.lua
 ```
 
 CC:Tweaked 1.121.0 (needs its ROM: `node scripts/build-rom.mjs --download 1.20.1`). A full checkout of the newer tags
@@ -56,15 +56,13 @@ The 29 cleared: file handles (raw bytes in every mode, `r+`/`w+`, seek on every 
 `fs.list` "No such file"), `fs.combine` with `". ."` and `fs.getDir("..")` (1.117 path rules), the `io` library on
 top of them, http (`[::1]` is private, websocket "Invalid protocol") and `os.queueEvent` copying its arguments. The one
 failure left is `os.date` on Windows, the same as on 1.101.3. The suite hardly tests the Lua VM. Its 1.121.0 behaviour
-(Cobalt 0.9.9) is checked against Cobalt itself instead: `packages/runner/src/versions-vm.integration.test.ts` and
-`tools/conformance/cobalt-oracle/`, which also runs Cobalt 0.9.9's own spec suite in the engine (268 of 303 on 1.20.1;
-the rest are mostly tests for later Lua versions). See rows 99, 108 and 115 of the deviations list.
+(Cobalt 0.9.9) is checked against Cobalt itself instead: `packages/runner/src/versions-vm.integration.test.ts`.
 
 ## The one remaining failure
 
-| Test                            | Cause                                                                                                                                                                                                                                              |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `os.date` "formats as expected" | The test passes `os.epoch("local")` (milliseconds) as a time in seconds, i.e. a year around 58000. The Windows C runtime cannot format years beyond 3000, so `os.date` returns nil. Not a problem on Linux. Open as row 96 of the deviations list. |
+| Test                            | Cause                                                                                                                                                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `os.date` "formats as expected" | The test passes `os.epoch("local")` (milliseconds) as a time in seconds, i.e. a year around 58000. The Windows C runtime cannot format years beyond 3000, so `os.date` returns nil. Not a problem on Linux. |
 
 The `io` "a readable handle support seeking" spec (a raw `0xE1` byte in the spec source) passes now.
 

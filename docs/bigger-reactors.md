@@ -13,6 +13,10 @@ The addon id is `bigger-reactors`. The Lua is `rom-overlay/rom/ccsim/addons/bigg
 `packages/runner/src/bigger-reactors.integration.test.ts` (with an independent TypeScript port of the Java for the
 numbers). Method list: `packages/runner/src/bigger-reactors-surface.json`. Demo world: `worlds/bigger-reactors-demo.json`.
 
+The addon can be switched on for Minecraft 1.18.2 and 1.20.1 (where it names `1.20.1-0.6.0-beta.10.5`, the release a
+later round follows; the Lua is 1.18.2's). There is no Bigger Reactors for 1.21.1, so a 1.21.1 world cannot switch it
+on; give such a world `"version": "1.18.2"`.
+
 Paths below are relative to `src/main/java/net/roguelogix/biggerreactors/`. `R/` is `multiblocks/reactor/`, `T/` is
 `multiblocks/turbine/`.
 

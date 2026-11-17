@@ -36,30 +36,24 @@ checkout they are in.
 
 ## VS Code extension
 
-`apps/vscode` should ship the schema and register it for `*.world.json`:
+`apps/vscode` ships the schema and registers it for `*.world.json`:
 
-1. In `package.json`, next to `snippets` under `contributes`:
+1. In `package.json`, under `contributes`:
 
    ```json
    "jsonValidation": [
      {
-       "fileMatch": "*.world.json",
+       "fileMatch": ["*.world.json"],
        "url": "./schemas/world.schema.json"
      }
    ]
    ```
 
-2. Copy the schema into the extension when it builds, e.g. at the top of `esbuild.mjs`:
+2. `esbuild.mjs` copies the schema into the extension when it builds (a stand-in that accepts any object when the
+   original is missing).
 
-   ```js
-   import { cpSync, mkdirSync } from "node:fs";
-
-   mkdirSync("schemas", { recursive: true });
-   cpSync("../../schemas/world.schema.json", "schemas/world.schema.json");
-   ```
-
-3. Package it: add `!schemas/world.schema.json` to `.vscodeignore`, and `schemas/` to the extension's `.gitignore`
-   (the copy is build output; this folder is the original).
+3. `.vscodeignore` has `!schemas/world.schema.json`, and the extension's `.gitignore` has `schemas/` (the copy is
+   build output; this folder is the original).
 
 `fileMatch` matches the file name, so it covers worlds in any folder. Files in `worlds/` are named `<name>.json`; they
 carry `$schema` instead.
