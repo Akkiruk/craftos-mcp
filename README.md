@@ -19,7 +19,10 @@ passes), writes and runs tests, and fixes what broke until it works. All without
 ```
 
 That one entry works in Claude Code, Cursor, VS Code and any other MCP client; the first start downloads the engine
-and builds the ROM by itself. The world it simulates is what CC programs depend on: several computers on modems with
+and builds the ROM by itself. In VS Code, Cursor or Windsurf you can install the
+[extension](https://marketplace.visualstudio.com/items?itemName=Rogiedoji.craftos-mcp) instead (also on
+[Open VSX](https://open-vsx.org/extension/Rogiedoji/craftos-mcp)): it sets up the server for Copilot, and adds Run in
+CraftOS for any `.lua` file and your `*.test.lua` files in the Testing view. The world it simulates is what CC programs depend on: several computers on modems with
 real rednet, turtles in a block world, and peripherals from Create, Mekanism, Advanced Peripherals and more.
 
 No agent? The same emulator works for people too:
