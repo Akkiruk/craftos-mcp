@@ -71,7 +71,7 @@ local problem = kit.run(function()
 
   -- three pegs are not a code
   enter("123", 1)
-  seen.short = kit.S.toast and kit.S.toast.text
+  seen.short = kit.toast()
   -- the fourth peg, and Red's code is hidden; then Blue hides theirs on the other wall
   tapPeg(4, 1)
   kit.tap("go", nil, 1)
@@ -82,7 +82,7 @@ local problem = kit.run(function()
 
   -- Red cracks it first time; Blue still gets a guess, misses, and Red wins
   enter("5566", 1)
-  seen.cracked = kit.S.toast and kit.S.toast.text
+  seen.cracked = kit.toast()
   seen.blueToAnswer = g.state.turn == 2 and g.state.winner == 0
   enter("1111", 2)
   kit.waitEnd(5)
@@ -95,12 +95,18 @@ local problem = kit.run(function()
   kit.seats("player", "hard")
   kit.start()
   enter("1234", 1)
-  local guesses = { "5555", "6666", "5656", "6565", "5566", "6655", "5665", "6556", "5555", "6666" }
-  local n = 0
-  while kit.S.view == "game" and n < #guesses do
+  -- never the computer's own code: it is drawn at random, and could be one of these
+  local guesses = { "5555", "6666", "5656", "6565", "5566", "6655", "5665", "6556", "5565", "6656" }
+  local n, tried = 0, 0
+  while kit.S.view == "game" and tried < #guesses do
     if kit.waitTurn(1, 30) and kit.S.view == "game" then
       n = n + 1
-      enter(guesses[n], 1)
+      local secret = kit.S.match.state.secrets[2]
+      if guesses[n] ~= secret then
+        tried = tried + 1
+        enter(guesses[n], 1)
+      end
+      if n >= #guesses then break end
     end
   end
   kit.waitEnd(30)

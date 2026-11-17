@@ -1,7 +1,7 @@
 // Compose a ROM directory from a CC:Tweaked jar plus our overlay.
 // usage: node scripts/build-rom.mjs <cc-tweaked.jar> <outDir>
 //        node scripts/build-rom.mjs --download [mc] [outDir]
-// --download fetches the CC:Tweaked jar pinned for Minecraft <mc> (default 1.18.2, CC:Tweaked 1.101.3) from Modrinth,
+// --download fetches the CC:Tweaked jar pinned for Minecraft <mc> (default: DEFAULT_MC in versions.ts) from Modrinth,
 // checks it against the pinned sha512 (packages/runner/src/versions.ts, so `npm run build` first), caches it under
 // .cache/ and builds from it. outDir defaults to that version's ROM: rom/cc-1.101.3 for 1.18.2, rom/cc-1.121.0 for
 // 1.20.1 and 1.21.1 (one ROM serves both).
@@ -24,12 +24,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { inflateRawSync } from "node:zlib";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-const DEFAULT_MC = "1.18.2";
 const LUA_PREFIX = "data/computercraft/lua/";
 
 const usage = [
   "usage: node scripts/build-rom.mjs <cc-tweaked.jar> <outDir>",
-  "       node scripts/build-rom.mjs --download [mc] [outDir]   (mc: 1.18.2, 1.20.1 or 1.21.1; default 1.18.2)",
+  "       node scripts/build-rom.mjs --download [mc] [outDir]   (mc: 1.18.2, 1.20.1 or 1.21.1; default: the emulator's default)",
 ].join("\n");
 
 if (
@@ -52,7 +51,7 @@ async function main(args) {
     // a Minecraft version first is the version; anything else is the output folder (the old form)
     const mc = /^\d+\.\d+(\.\d+)?$/.test(rest[0] ?? "")
       ? rest.shift()
-      : DEFAULT_MC;
+      : undefined;
     if (rest.length > 1) throw new Error(usage);
     const pinned = await pinnedJar(mc);
     out = rest[0] ?? join(repoRoot, "rom", pinned.romDir);
@@ -68,7 +67,7 @@ async function main(args) {
   buildRom(resolve(jar), resolve(out));
 }
 
-/** The jar pinned for a Minecraft version (packages/runner/src/versions.ts) and the ROM folder it builds. */
+/** The jar pinned for a Minecraft version (packages/runner/src/versions.ts; default its DEFAULT_MC) and its ROM folder. */
 export async function pinnedJar(mc) {
   const versionsJs = join(
     repoRoot,
@@ -79,7 +78,8 @@ export async function pinnedJar(mc) {
   );
   if (!existsSync(versionsJs))
     throw new Error(`${versionsJs} is missing: run  npm run build  first`);
-  const { VERSIONS } = await import(pathToFileURL(versionsJs).href);
+  const { VERSIONS, DEFAULT_MC } = await import(pathToFileURL(versionsJs).href);
+  mc ??= DEFAULT_MC;
   const info = VERSIONS.find((v) => v.mc === mc);
   if (!info)
     throw new Error(
@@ -206,7 +206,13 @@ export function buildRom(jarPath, outDir) {
   patchFile(
     join(outDir, "bios.lua"),
     "function os.shutdown()\n    nativeShutdown()",
-    "function os.shutdown(...)\n    nativeShutdown(...)",
+    // On the same line, so no bios line number moves: take the engine's own terminal functions (CraftOS-PC's graphics
+    // mode) off `term` before rom/apis/term.lua reads it. term.redirect gives its target a stand-in that raises
+    // "Redirect object is missing method X" for every native function the target lacks, so with these still there
+    // the shell's window got a getGraphicsMode, and a program that asks `if win.getGraphicsMode then` called it.
+    'do local t = term for _, n in ipairs({ "drawPixels", "getFrozen", "getGraphicsMode", "getPixel", "getPixels", ' +
+      '"relativeMouse", "screenshot", "setFrozen", "setGraphicsMode", "setPixel", "showMouse" }) do t[n] = nil end end ' +
+      "function os.shutdown(...)\n    nativeShutdown(...)",
     "os.shutdown",
   );
 

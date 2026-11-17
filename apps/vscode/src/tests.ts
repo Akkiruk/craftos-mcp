@@ -2,10 +2,18 @@
 // `craftos-mcp test <files> --dir <folder>`, reads its report (testOutput.ts) and marks each test, with failures at
 // the line Lua named.
 import { existsSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import * as vscode from "vscode";
 import { killTree, spawnCommand } from "./launcher";
-import { base, projectFolder, settings, settingsEnv } from "./settings";
+import { globToRegExp, isExcluded } from "./projectScan";
+import {
+  base,
+  configuredWorkspace,
+  noteMissingVersion,
+  projectFolder,
+  settings,
+  settingsEnv,
+} from "./settings";
 import {
   type ReportFile,
   declaredTests,
@@ -16,7 +24,34 @@ import {
 } from "./testOutput";
 
 const PATTERN = "**/*.test.lua";
-const IGNORE = "**/{node_modules,.git}/**";
+
+/** files.exclude and search.exclude globs set to true, for a folder. */
+function excludeGlobs(folder: vscode.WorkspaceFolder): RegExp[] {
+  const globs: RegExp[] = [];
+  for (const section of ["files", "search"]) {
+    const map = vscode.workspace
+      .getConfiguration(section, folder.uri)
+      .get<Record<string, unknown>>("exclude", {});
+    for (const [glob, on] of Object.entries(map))
+      if (on === true) globs.push(globToRegExp(glob));
+  }
+  return globs;
+}
+
+/**
+ * Whether a found test file belongs in the Testing view: not excluded (ALWAYS_SKIP, files.exclude, search.exclude),
+ * and inside craftos-mcp.workspace when that is set.
+ */
+function wanted(uri: vscode.Uri): boolean {
+  const folder = vscode.workspace.getWorkspaceFolder(uri);
+  if (!folder) return true;
+  const rel = relative(folder.uri.fsPath, uri.fsPath);
+  if (isExcluded(rel, excludeGlobs(folder))) return false;
+  const { dir } = configuredWorkspace(folder);
+  if (!dir) return true;
+  const inside = relative(dir, uri.fsPath);
+  return !inside.startsWith("..") && !isAbsolute(inside);
+}
 
 /** `foo.test.lua` runs in `foo.world.json` next to it, when there is one (its `monitors` become --monitor). */
 export function worldFor(file: string): string | undefined {
@@ -45,12 +80,24 @@ export class CraftosTests implements vscode.Disposable {
       true,
     );
     const watcher = vscode.workspace.createFileSystemWatcher(PATTERN);
-    watcher.onDidCreate((uri) => this.parseFile(this.fileItem(uri)));
-    watcher.onDidChange((uri) => this.parseFile(this.fileItem(uri)));
+    watcher.onDidCreate((uri) => {
+      if (wanted(uri)) this.parseFile(this.fileItem(uri));
+    });
+    watcher.onDidChange((uri) => {
+      if (wanted(uri)) this.parseFile(this.fileItem(uri));
+    });
     watcher.onDidDelete((uri) => this.controller.items.delete(uri.toString()));
     this.disposables.push(
       watcher,
       this.controller,
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+          e.affectsConfiguration("craftos-mcp.workspace") ||
+          e.affectsConfiguration("files.exclude") ||
+          e.affectsConfiguration("search.exclude")
+        )
+          void this.discover();
+      }),
       vscode.workspace.onDidChangeTextDocument((e) => {
         const item = this.controller.items.get(e.document.uri.toString());
         if (item) this.parseFile(item, e.document.getText());
@@ -63,7 +110,10 @@ export class CraftosTests implements vscode.Disposable {
   }
 
   async discover(): Promise<void> {
-    const found = await vscode.workspace.findFiles(PATTERN, IGNORE);
+    // no exclude argument, so files.exclude applies; search.exclude, ALWAYS_SKIP and craftos-mcp.workspace on top
+    const found = (await vscode.workspace.findFiles(PATTERN)).filter((u) =>
+      wanted(u),
+    );
     const keep = new Set(found.map((u) => u.toString()));
     this.controller.items.forEach((item) => {
       if (!keep.has(item.id)) this.controller.items.delete(item.id);
@@ -183,7 +233,11 @@ export class CraftosTests implements vscode.Disposable {
         // a broken world file: craftos-mcp says what is wrong with it
       }
     }
-    const { code, stdout, stderr } = await this.exec(args, folder, run, token);
+    let result = await this.exec(args, folder, run, token);
+    // the pinned craftos-mcp is not on npm yet: once more on the release before it
+    if (result.code !== 0 && noteMissingVersion(result.stderr))
+      result = await this.exec(args, folder, run, token);
+    const { code, stdout, stderr } = result;
     if (token.isCancellationRequested) {
       for (const item of items) run.skipped(item);
       return;

@@ -1,0 +1,58 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["cc-vs"],
+  "position": { "x": 2, "y": 1, "z": 3 },
+  "ccvs": {
+    "family": "command",
+    "config": { "canTeleport": true },
+    "ship": {
+      "id": 42,
+      "slug": "skylark",
+      "mass": 2500,
+      "inertia": [
+        [900, 0, 0],
+        [0, 1200, 0],
+        [0, 0, 700]
+      ],
+      "position": { "x": 100.5, "y": 100, "z": -40.5 },
+      "shipyardPosition": { "x": 2, "y": 1, "z": 3 },
+      "rotation": {
+        "x": 0,
+        "y": 0.3826834323650898,
+        "z": 0,
+        "w": 0.9238795325112867
+      },
+      "velocity": { "x": 0, "y": -1.5, "z": 0 },
+      "aabb": {
+        "minX": 0,
+        "minY": 0,
+        "minZ": 0,
+        "maxX": 5,
+        "maxY": 4,
+        "maxZ": 11
+      },
+      "joints": [
+        {
+          "shipId0": 42,
+          "shipId1": 7,
+          "type": "DISTANCE",
+          "pose0": {
+            "pos": { "x": 0, "y": 0, "z": 0 },
+            "rot": { "x": 0, "y": 0, "z": 0, "w": 1 }
+          },
+          "pose1": {
+            "pos": { "x": 0, "y": 2, "z": 0 },
+            "rot": { "x": 0, "y": 0, "z": 0, "w": 1 }
+          },
+          "maxDistance": 4
+        }
+      ],
+      "drag": {
+        "dragForce": { "x": 0, "y": 120, "z": 0 },
+        "liftForce": { "x": 0, "y": 15, "z": 0 }
+      }
+    },
+    "aero": { "air": { "density": 1.1, "pressure": 95000, "temperature": 285 } }
+  }
+}

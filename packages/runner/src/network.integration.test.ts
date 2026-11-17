@@ -384,13 +384,20 @@ describe.skipIf(!ready)("modems over a linked network", () => {
   it(
     "has the real surface and errors",
     async () => {
+      // measured on 1.18.2: CC:Tweaked 1.101.3 puts "pcall: " in front of a Java method's error, 1.121.0 does not
       const r = await start([
-        { name: "a", world: place(1, 0, [wireless()]) },
+        {
+          name: "a",
+          world: { ...place(1, 0, [wireless()]), version: "1.18.2" },
+        },
         {
           name: "w",
-          world: place(2, 5, [
-            { name: "left", type: "modem", kind: "wired", network: "n" },
-          ]),
+          world: {
+            ...place(2, 5, [
+              { name: "left", type: "modem", kind: "wired", network: "n" },
+            ]),
+            version: "1.18.2",
+          },
         },
       ]);
       const [out] = await r.lua(

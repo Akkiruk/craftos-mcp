@@ -1,0 +1,120 @@
+{
+  "1.5.1": {
+    "animatronic": [
+      "setLeftArmRot",
+      "getAppliedHeadRot",
+      "getStoredLeftArmRot",
+      "getStoredRightArmRot",
+      "push",
+      "getAppliedRightArmRot",
+      "setHeadRot",
+      "getStoredBodyRot",
+      "getAppliedLeftArmRot",
+      "getStoredHeadRot",
+      "setFace",
+      "getAppliedBodyRot",
+      "setBodyRot",
+      "setRightArmRot"
+    ],
+    "redrouter": [
+      "getAnalogOutput",
+      "setAnalogueOutput",
+      "getAnalogueOutput",
+      "getAnalogueInput",
+      "getInput",
+      "getAnalogInput",
+      "setOutput",
+      "setAnalogOutput",
+      "getOutput"
+    ],
+    "scroller": [
+      "setLock",
+      "getValue",
+      "getLimit",
+      "setLimit",
+      "isLocked",
+      "setValue",
+      "hasMinusSpectrum",
+      "toggleMinusSpectrum"
+    ],
+    "create_source": [
+      "getSize",
+      "scroll",
+      "clear",
+      "getLine",
+      "setCursorPos",
+      "clearLine",
+      "getCursorPos",
+      "write"
+    ],
+    "create_target": ["clear", "getLine", "clearLine", "getSize", "setWidth"]
+  },
+  "1.7": {
+    "animatronic": [
+      "setLeftArmRot",
+      "getAppliedHeadRot",
+      "getStoredLeftArmRot",
+      "getStoredRightArmRot",
+      "push",
+      "getAppliedRightArmRot",
+      "setHeadRot",
+      "getStoredBodyRot",
+      "getAppliedLeftArmRot",
+      "getStoredHeadRot",
+      "setFace",
+      "getAppliedBodyRot",
+      "setTransition",
+      "setBodyRot",
+      "setRightArmRot"
+    ],
+    "redrouter": [
+      "getAnalogOutput",
+      "setAnalogueOutput",
+      "getAnalogueOutput",
+      "getAnalogueInput",
+      "getInput",
+      "getAnalogInput",
+      "setOutput",
+      "setAnalogOutput",
+      "getOutput"
+    ],
+    "scroller": [
+      "setLock",
+      "getValue",
+      "getLimit",
+      "setLimit",
+      "isLocked",
+      "setValue",
+      "hasMinusSpectrum",
+      "toggleMinusSpectrum"
+    ],
+    "create_source": [
+      "getTextColour",
+      "getBackgroundColor",
+      "setBackgroundColour",
+      "getTextColor",
+      "getCursorPos",
+      "getPaletteColour",
+      "getBackgroundColour",
+      "isColor",
+      "getCursorBlink",
+      "clearLine",
+      "setPaletteColor",
+      "blit",
+      "write",
+      "setBackgroundColor",
+      "getLine",
+      "scroll",
+      "clear",
+      "setTextColor",
+      "setCursorPos",
+      "setCursorBlink",
+      "getSize",
+      "setTextColour",
+      "setPaletteColour",
+      "getPaletteColor",
+      "isColour"
+    ],
+    "create_target": ["getLine", "resize", "getSize", "dump"]
+  }
+}

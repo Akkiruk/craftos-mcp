@@ -29,8 +29,8 @@ local simCount = 0
 local function sim(command)
   simCount = simCount + 1
   -- a token starting with "sim:" is a command the emulator accepts from the computer itself (world.simProgram)
+  -- applied as the event goes past, before anything queued after it: what changed is then up to the board to show
   os.queueEvent("ccsim_cmd", ("sim:%d:%.0f"):format(simCount, os.epoch("utc")), textutils.serializeJSON(command))
-  sleep(2) -- the board redraws every second
 end
 
 local function waitFor(condition, limit)
@@ -41,16 +41,23 @@ end
 
 local seen = {}
 
+-- The board redraws once a second. Each step waits for the board to show the change, not a fixed time: on a 20x clock a
+-- busy host could take longer than two seconds of it to redraw.
 local function scenario()
-  sleep(2)
+  waitFor(function() return rowOf("Central") ~= "" and rowOf("Mine") ~= "" end, 30)
   seen.idle = rowOf("Central")
   seen.mine = rowOf("Mine")
   sim({ cmd = "createTrainApproach", train = "Harvest", station = "Central", distance = 300 })
+  waitFor(function()
+    local row = rowOf("Central")
+    return row:find("EXPECTED", 1, true) or row:find("ARRIVING", 1, true)
+  end, 60)
   seen.expected = rowOf("Central")
   -- the train drives in
   waitFor(function() return rowOf("Central"):find("AT PLATFORM", 1, true) end, 200)
   seen.arrived = rowOf("Central")
   sim({ cmd = "createTrainLeave", train = "Harvest" })
+  waitFor(function() return not rowOf("Central"):find("Harvest", 1, true) end, 30)
   seen.left = rowOf("Central")
 end
 

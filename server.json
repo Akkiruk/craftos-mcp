@@ -3,7 +3,7 @@
   "name": "io.github.Akkiruk/craftos-mcp",
   "title": "craftos-mcp",
   "description": "CC:Tweaked (ComputerCraft) emulator: run, test and screenshot Lua programs, monitors and turtles.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": {
     "url": "https://github.com/Akkiruk/craftos-mcp",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "craftos-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "runtimeHint": "npx",
       "runtimeArguments": [{ "type": "positional", "value": "-y" }],
       "transport": { "type": "stdio" },
@@ -34,8 +34,8 @@
         },
         {
           "name": "CRAFTOS_VERSION",
-          "description": "Minecraft version new computers start on: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1.",
-          "choices": ["1.18.2", "1.20.1", "1.21.1"],
+          "description": "Minecraft version new computers start on: 1.21.1 (CC:Tweaked 1.121.0, the default), 1.20.1 (CC:Tweaked 1.121.0) or 1.18.2 (CC:Tweaked 1.101.3).",
+          "choices": ["1.21.1", "1.20.1", "1.18.2"],
           "isRequired": false
         }
       ]

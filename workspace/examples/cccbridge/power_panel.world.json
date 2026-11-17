@@ -1,0 +1,16 @@
+{
+  "version": "1.18.2",
+  "simProgram": true,
+  "addons": ["create", "cccbridge"],
+  "peripherals": [
+    { "name": "scroller_0", "type": "scroller", "value": 0 },
+    { "name": "redrouter_0", "type": "redrouter", "facing": "east" },
+    {
+      "name": "create_source_0",
+      "type": "create_source",
+      "link": { "rows": 4, "columns": 16 }
+    },
+    { "name": "create_target_0", "type": "create_target" },
+    { "name": "animatronic_0", "type": "animatronic" }
+  ]
+}

@@ -114,6 +114,40 @@ return function(core, data)
     return nil
   end
 
+  --- The name of the block at a position, or nil for air, without making the block: for a scan over many blocks.
+  function M.nameAt(x, y, z)
+    local b = blocks[key(x, y, z)]
+    if b ~= nil then return b and b.name or nil end
+    for i = #fills, 1, -1 do
+      local f = fills[i]
+      if inFill(f, x, y, z) then
+        if f.air then return nil end
+        return data.id(f.def.name)
+      end
+    end
+    if ground and y <= ground.y and y >= M.limits(core.position.dimension) then
+      return y == ground.y and ground.top or ground.name
+    end
+    return nil
+  end
+
+  --- The lowest y at which anything but the plain ground can be: below it every block has ground on all six sides.
+  --- nil when the world has no ground.
+  function M.lowest()
+    if not ground then return nil end
+    local low = ground.y
+    for _, f in ipairs(fills) do if f.y1 < low then low = f.y1 end end
+    for k in pairs(changed) do
+      local y = tonumber(k:match("^-?%d+,(-?%d+),"))
+      if y and y < low then low = y end
+    end
+    for _, def in ipairs(core.world.blocks or {}) do
+      local y = def.y or def[2]
+      if y and y < low then low = y end
+    end
+    return low
+  end
+
   --- Forget a block the world file put where this computer itself stands (a placed turtle's own block), unchanged.
   function M.forget(x, y, z) blocks[key(x, y, z)] = false end
 

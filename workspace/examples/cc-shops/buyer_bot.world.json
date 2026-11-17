@@ -1,0 +1,39 @@
+{
+  "version": "1.18.2",
+  "simProgram": true,
+  "addons": ["cc-shops"],
+  "turtle": {
+    "x": 0,
+    "y": 64,
+    "z": 0,
+    "facing": "north",
+    "inventory": {
+      "1": { "name": "minecraft:emerald", "count": 10 },
+      "2": { "name": "minecraft:cobblestone", "count": 32 }
+    }
+  },
+  "blocks": [
+    {
+      "x": 0,
+      "y": 64,
+      "z": -1,
+      "name": "simpleshops:simple_shop",
+      "shop": {
+        "stock": { "name": "minecraft:bread", "count": 4 },
+        "stored": 12,
+        "cost": { "name": "minecraft:emerald", "count": 2 },
+        "owner": "4f3a2b1c-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "x": 0,
+      "y": 65,
+      "z": 0,
+      "name": "simpleshops:creative_simple_shop",
+      "shop": {
+        "stock": { "name": "minecraft:torch", "count": 16 },
+        "cost": { "name": "minecraft:cobblestone", "count": 8 }
+      }
+    }
+  ]
+}

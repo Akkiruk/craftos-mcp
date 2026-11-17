@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type SimCommand,
   type SimState,
@@ -22,6 +22,15 @@ import {
   SessionManager,
   worldJson,
 } from "./index.js";
+
+// Every surface and number here was read off the 1.18.2 jars, and Bigger Reactors has no 1.21.1 release: this file
+// runs on 1.18.2 whatever the default version is.
+beforeAll(() => {
+  vi.stubEnv("CRAFTOS_VERSION", "1.18.2");
+});
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 /**
  * Bigger Reactors 1.18.2-0.6.0-beta.1.4 (Phosphophyllite 1.18.2-0.6.0-beta.1.6), checked against behaviour read from

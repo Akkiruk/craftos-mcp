@@ -896,6 +896,11 @@ int main(int argc, char*argv[]) {
     try {
         if (factory) factory->init();
         else SDL_Init(SDL_INIT_TIMER | SDL_INIT_AUDIO);
+#ifdef __APPLE__
+        // Every os.startTimer is an SDL timer, and SDL's timer thread is the one that waits for them: a callback
+        // runs on that thread, so this one makes its waits exact for good.
+        SDL_AddTimer(1, [](Uint32, void*)->Uint32 {darwinPreciseTimers(); return 0;}, NULL);
+#endif
     } catch (std::exception &e) {
         if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Failed to initialize renderer", ("An error occurred while initializing the renderer: " + std::string(e.what()) + ". See https://www.craftos-pc.cc/docs/error-messages for more info. CraftOS-PC will now close").c_str(), NULL);
         else fprintf(stderr, "An error occurred while initializing the renderer: %s. See https://www.craftos-pc.cc/docs/error-messages for more info. CraftOS-PC will now close.\n", e.what());

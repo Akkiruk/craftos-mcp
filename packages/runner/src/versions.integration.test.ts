@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   type TestRunResult,
+  DEFAULT_MC,
   type WorldConfig,
   checkConfig,
   loadConfig,
@@ -64,7 +65,7 @@ end
 `;
 
 describe.skipIf(!ready)("the version reaches the engine", () => {
-  it("1.18.2 by default: CC:Tweaked 1.101.3's _HOST and file handles", async () => {
+  it("1.18.2: CC:Tweaked 1.101.3's _HOST and file handles", async () => {
     const result = await runLua(
       `${worldVersionLua}
 ccunit.test("host", function() ccunit.truthy(_HOST:find("ComputerCraft 1.101.3 ", 1, true), _HOST) end)
@@ -86,8 +87,22 @@ ccunit.test("numbers written as Java doubles", function()
 end)
 ccunit.finish()
 `,
-      undefined,
+      { version: "1.18.2" },
       "default.test.lua",
+    );
+    expect(failures(result)).toEqual([]);
+  });
+
+  it(`no version runs the default one (${DEFAULT_MC}, or CRAFTOS_VERSION)`, async () => {
+    const want = resolveVersion(undefined);
+    const result = await runLua(
+      `${worldVersionLua}
+ccunit.test("host", function() ccunit.truthy(_HOST:find("ComputerCraft ${want.cc} ", 1, true), _HOST) end)
+ccunit.test("world.json", function() ccunit.eq(worldVersion().mc, "${want.mc}") end)
+ccunit.finish()
+`,
+      undefined,
+      "no-version.test.lua",
     );
     expect(failures(result)).toEqual([]);
   });

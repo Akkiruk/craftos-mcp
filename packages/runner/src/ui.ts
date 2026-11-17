@@ -361,7 +361,13 @@ export async function settle(
       quietSince = now;
     }
     const waiting = readWaiting(handle);
-    const ready = waiting === undefined || waiting.blocked;
+    // An engine that has shown nothing yet is still starting, not quiet: a slow start (the first run of the binary
+    // on macOS takes a few hundred ms) must not look settled before the computer has booted.
+    const started =
+      waiting !== undefined ||
+      version > 0 ||
+      handle.session.exitInfo !== undefined;
+    const ready = started && (waiting === undefined || waiting.blocked);
     if (ready && now - quietSince >= quietMs) {
       return { settled: true, waiting, elapsedMs: now - start };
     }

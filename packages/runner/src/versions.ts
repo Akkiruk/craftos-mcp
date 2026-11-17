@@ -6,7 +6,7 @@
  * Which version a world runs, first match wins:
  *   1. `world.version`: "1.18.2", "1.20.1", "1.21.1", or { mc, cc?, loader? }.
  *   2. The CRAFTOS_VERSION environment variable: the same forms, the object as JSON.
- *   3. 1.18.2 (CC:Tweaked 1.101.3), the version the emulator was built for and measured against.
+ *   3. The newest version in VERSIONS (NEWEST_MC): 1.21.1 (CC:Tweaked 1.121.0) today, the next one once it is added.
  *
  * Accuracy on 1.20.1 and 1.21.1 rests on CC:Tweaked's source and its own test suite (docs/conformance), not on a
  * real game: there is no instance of those versions to compare against.
@@ -40,7 +40,6 @@ export interface McVersionInfo {
   readonly blockDataDir: string;
 }
 
-export const DEFAULT_MC = "1.18.2";
 /** The CC:Tweaked version the engine behaves as without --cc-version. */
 export const ENGINE_DEFAULT_CC = "1.101.3";
 
@@ -115,7 +114,14 @@ export const VERSIONS: readonly McVersionInfo[] = [
 /** What a world (or CRAFTOS_VERSION) may say. */
 export type VersionSpec =
   | string
-  | { readonly mc: string; readonly cc?: string; readonly loader?: string };
+  | {
+      /** Minecraft version. */
+      readonly mc: string;
+      /** CC:Tweaked version; must be the one this Minecraft version has. */
+      readonly cc?: string;
+      /** Mod loader (forge, fabric, neoforge). Default: the version's first. */
+      readonly loader?: string;
+    };
 
 /** A version resolved against VERSIONS: what the runner, the engine and ccsim (core.version) get. */
 export interface ResolvedVersion {
@@ -125,6 +131,28 @@ export interface ResolvedVersion {
   /** rom/<romDir> */
   readonly romDir: string;
   readonly blockDataDir: string;
+}
+
+const numbers = (mc: string): number[] => mc.split(".").map(Number);
+/** The newest Minecraft version there is a ROM for, by its numbers (1.21.1 over 1.20.1 over 1.18.2). */
+export const NEWEST_MC: string = VERSIONS.map((v) => v.mc).reduce((a, b) => {
+  const [x, y] = [numbers(a), numbers(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++)
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0) ? a : b;
+  return a;
+});
+
+/** The version a world runs with none given: the newest there is (NEWEST_MC), so a new version moves it. */
+export const DEFAULT_MC: string = NEWEST_MC;
+
+/** The versions for a help line: "1.18.2 (CC:Tweaked 1.101.3), 1.20.1 or 1.21.1 (CC:Tweaked 1.121.0); default ...". */
+export function versionChoices(): string {
+  const groups: string[] = [];
+  for (const cc of new Set(VERSIONS.map((v) => v.cc))) {
+    const mcs = VERSIONS.filter((v) => v.cc === cc).map((v) => v.mc);
+    groups.push(`${mcs.join(" or ")} (CC:Tweaked ${cc})`);
+  }
+  return `${groups.join(", ")}; default ${DEFAULT_MC}`;
 }
 
 const BY_MC = new Map(VERSIONS.map((v) => [v.mc, v]));
@@ -197,7 +225,7 @@ function parseSpec(spec: VersionSpec, from: string): ResolvedVersion {
   };
 }
 
-/** The version a world runs as: world.version, else CRAFTOS_VERSION, else 1.18.2. Unknown versions are refused. */
+/** The version a world runs as: world.version, else CRAFTOS_VERSION, else DEFAULT_MC. Unknown versions are refused. */
 export function resolveVersion(
   worldVersion: VersionSpec | undefined,
   env: NodeJS.ProcessEnv = process.env,
@@ -216,8 +244,8 @@ export function isDefaultVersion(version: ResolvedVersion): boolean {
 }
 
 /**
- * The ROM for a version. 1.18.2 (CC:Tweaked 1.101.3) uses config.romDir, as every run did before versions existed;
- * other versions use rom/<romDir>. CRAFTOS_ROM (config.romsDir then unset) names one ROM for every version.
+ * The ROM for a version. The default version (DEFAULT_MC) uses config.romDir, as every run did before versions
+ * existed; other versions use rom/<romDir>. CRAFTOS_ROM (config.romsDir then unset) names one ROM for every version.
  */
 export function romDirFor(
   config: RunnerConfig,

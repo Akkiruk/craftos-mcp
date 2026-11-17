@@ -1,3 +1,4 @@
 {
+  "$schema": "../../../../schemas/world.schema.json",
   "peripherals": [{ "name": "speaker_0", "type": "speaker" }]
 }

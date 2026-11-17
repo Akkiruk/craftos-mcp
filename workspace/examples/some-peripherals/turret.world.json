@@ -1,0 +1,64 @@
+{
+  "version": "1.18.2",
+  "simProgram": true,
+  "addons": ["some-peripherals"],
+  "position": { "x": 0, "y": 64, "z": 0 },
+  "somePeripherals": {
+    "players": [
+      {
+        "name": "Steve",
+        "x": 3.5,
+        "y": 64,
+        "z": 2.5,
+        "health": 17,
+        "experienceLevel": 16,
+        "xRot": 0,
+        "yRot": 90
+      }
+    ]
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [{ "x": 120, "y": 69, "z": 40, "name": "minecraft:oak_planks" }],
+  "entities": [
+    {
+      "type": "minecraft:zombie",
+      "x": 120.5,
+      "y": 70,
+      "z": 40.5,
+      "health": 20,
+      "speed": 0.23
+    },
+    { "type": "minecraft:zombie", "x": 300.5, "y": 64, "z": 0.5, "health": 20 },
+    {
+      "type": "minecraft:cow",
+      "x": -5.5,
+      "y": 64,
+      "z": 7.5,
+      "health": 10,
+      "maxHealth": 10,
+      "baby": true
+    }
+  ],
+  "items": [
+    { "x": 1.5, "y": 64, "z": 1.5, "name": "minecraft:diamond", "count": 1 }
+  ],
+  "peripherals": [
+    { "name": "sp_radar_0", "type": "sp_radar" },
+    { "name": "ballistic_accelerator_0", "type": "ballistic_accelerator" },
+    { "name": "world_scanner_0", "type": "world_scanner" },
+    {
+      "name": "digitizer_0",
+      "type": "digitizer",
+      "item": { "name": "minecraft:iron_ingot", "count": 20 }
+    },
+    {
+      "name": "chest_0",
+      "type": "minecraft:chest",
+      "items": { "1": { "name": "minecraft:gold_ingot", "count": 5 } }
+    }
+  ]
+}

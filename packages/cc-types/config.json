@@ -1,0 +1,29 @@
+{
+  "name": "CC:Tweaked",
+  "words": [
+    "os%.pullEvent%w*",
+    "os%.queueEvent",
+    "os%.startTimer",
+    "peripheral%.wrap",
+    "peripheral%.find",
+    "term%.setCursorPos",
+    "term%.setTextColou?r",
+    "term%.setBackgroundColou?r",
+    "textutils%.%w+",
+    "paintutils%.%w+",
+    "rednet%.%w+",
+    "turtle%.%w+",
+    "colou?rs%.%l+",
+    "require%s*%(?%s*[\"']cc%.[%w%.]+"
+  ],
+  "files": ["startup%.lua"],
+  "settings": {
+    "Lua.runtime.version": "Lua 5.2",
+    "Lua.runtime.builtin": {
+      "os": "disable",
+      "io": "disable",
+      "ffi": "disable",
+      "jit": "disable"
+    }
+  }
+}

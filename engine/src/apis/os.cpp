@@ -136,6 +136,7 @@ struct timer_data_t {
     std::mutex * lock;
     bool isAlarm;
     std::chrono::steady_clock::time_point due; // real time the SDL timer fires, for os.__ccsimAdvance
+    std::chrono::system_clock::time_point vdue; // virtual time (vnow) it is due: it never fires before
 };
 
 template<typename T>
@@ -170,6 +171,16 @@ static Uint32 notifyEvent(Uint32 interval, void* param) {
     LockGuard lock2(runningTimerData);
     for (const auto& i : *runningTimerData) if (i.second == param) { found = true; break; }
     if (!found) return 0;
+    // SDL counts whole milliseconds of its own clock, so a timer can go off a little before os.clock says its time
+    // has passed (four 0.05 s timers in a row came to 0.199 s). In the game both move by the same ticks: never fire
+    // early, wait out the rest. interval 0 is os.__ccsimAdvance firing it on purpose.
+    if (interval != 0 && !exiting && data->comp != NULL) {
+        const auto left = data->vdue - vnow();
+        if (left > std::chrono::system_clock::duration::zero()) {
+            const double leftMs = std::chrono::duration<double, std::milli>(left).count() / timeScale;
+            return (Uint32)(std::max)(1.0, ceil(leftMs));
+        }
+    }
     data->lock->lock();
     if (exiting || data->comp == NULL) {
         runningTimerData->erase(data->timer);
@@ -218,6 +229,7 @@ int os_startTimer(lua_State *L) {
             else time = (Uint32)ceil(time / 50.0) * 50;
         }
         LockGuard lock(runningTimerData);
+        data->vdue = vnow() + std::chrono::milliseconds(time);
         data->due = std::chrono::steady_clock::now() + std::chrono::milliseconds(scaledMs(time));
         data->timer = SDL_AddTimer(scaledMs(time), notifyEvent, data);
         if (data->timer) runningTimerData->insert(std::make_pair(data->timer, data));
@@ -459,6 +471,7 @@ static int os_setAlarm(lua_State *L) {
         Uint32 time = real_time;
         if (config.standardsMode) time = (Uint32)ceil(time / 50.0) * 50;
         LockGuard lock(runningTimerData);
+        data->vdue = vnow() + std::chrono::milliseconds(time);
         data->due = std::chrono::steady_clock::now() + std::chrono::milliseconds(scaledMs(time) + 3);
         data->timer = SDL_AddTimer(scaledMs(time) + 3, notifyEvent, data);
         runningTimerData->insert(std::make_pair(data->timer, data));

@@ -20,6 +20,7 @@ import {
   romDirFor,
   terminalSize,
   worldJson,
+  versionChoices,
   worldVersion,
 } from "@craftos-mcp/runner";
 import type { Command } from "../command.js";
@@ -38,7 +39,7 @@ const USAGE = `
   Opens the emulated computer in a desktop window, with the same simulated world as craftos_run.
   world           a world JSON file or the name of one in worlds/ (also --world): players, peripherals, addons,
                   and for this command "monitors": [{ name, blocksWide, blocksHigh, textScale }]. Default: none.
-  --mc            the Minecraft version: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1 (CC:Tweaked 1.121.0)
+  --mc            the Minecraft version: ${versionChoices()}
                   (overrides the world's version and CRAFTOS_VERSION)
   --addons        all, none, or addon ids separated by commas (overrides the world's and CRAFTOS_ADDONS)
   --dir           the computer's files, live: edit them in your editor, hold Ctrl+R in the window to reboot.

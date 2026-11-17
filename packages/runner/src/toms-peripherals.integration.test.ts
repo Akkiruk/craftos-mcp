@@ -1228,6 +1228,13 @@ describe.skipIf(!ready)("redstone port and watchdog on the clock", () => {
             `return peripheral.call("wdt", "isEnabled"), peripheral.call("wdt", "getTimeout")`,
           ),
         ).toEqual([false, 20]);
+        // a busy host can catch state.json between the restarted computer's writes: wait until it reads
+        await a.waitFor(
+          () =>
+            (a.state() as { peripherals?: Record<string, unknown> } | undefined)
+              ?.peripherals?.["wdt"] !== undefined,
+          "the state after the restart",
+        );
         expect(a.state().peripherals!["wdt"]).toMatchObject({
           enabled: false,
           timeout: 20,

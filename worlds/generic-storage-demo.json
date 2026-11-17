@@ -1,4 +1,5 @@
 {
+  "$schema": "../schemas/world.schema.json",
   "peripherals": [
     {
       "name": "furnace_0",

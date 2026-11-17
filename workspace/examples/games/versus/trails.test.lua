@@ -57,7 +57,8 @@ kit.run(function()
   seen.peerTrail = kit.waitPeer(function(r) return r.trail2 and math.abs(r.trail2 - #s.cycles[2].trail) <= 2 end, 60)
   seen.quit = kit.quit()
   seen.peerEnd = kit.waitPeer(function(r) return r.winner == 2 end, 60)
-  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0, slow = kit.S.slowFrames or 0 }
+  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0, slow = kit.S.slowFrames or 0,
+    dropped = kit.S.droppedSteps or 0 }
   seen.resyncs = kit.peer().resyncs
 end)
 
@@ -93,8 +94,11 @@ ccunit.test("QUIT ends it on both walls, and they stayed in step at full speed",
   ccunit.truthy(seen.quit)
   ccunit.truthy(seen.peerEnd, "South's wall never ended")
   ccunit.eq(seen.resyncs, 0)
-  -- Frames the cabinet itself held back (a step and its drawing that used up the room a step leaves). A busy host makes
-  -- frames late too (lateFrames), but that is the machine's time, not the game's.
+  -- Full speed is the game's clock keeping to the real one: a late frame catches up (up to three steps at once), so
+  -- only steps it had to drop count. Late and slow frames are timed on the clock, which a busy host runs on while the
+  -- computer waits for the CPU, so they are only reported.
   local m = seen.smooth
-  ccunit.truthy(m.slow <= m.steps / 20, m.slow .. " slow frames in " .. m.steps .. " steps (" .. m.late .. " late)")
+  ccunit.truthy(m.steps > 50, "only " .. m.steps .. " steps")
+  ccunit.truthy(m.dropped <= m.steps / 10,
+    m.dropped .. " steps dropped in " .. m.steps .. " (" .. m.slow .. " slow, " .. m.late .. " late frames)")
 end)

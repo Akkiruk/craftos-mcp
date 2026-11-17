@@ -32,6 +32,17 @@ jobs:
       # apps/vscode has its own lockfile: it is not one of the root workspaces, so its tools stay out of the emulator's
       - run: npm ci
 
+      # npm 12 skips dependency install scripts that allowScripts in package.json does not name (exact versions, so a
+      # dependency bump needs `npx -y npm@12 install-scripts approve ...` again); npm 10 and 11 run them all. Either
+      # way, make sure the two that matter ran: vsce-sign's puts its signing binary in bin/ (vsce publish needs it),
+      # esbuild's checks its native binary. Both are safe to run twice.
+      - name: Dependency install scripts
+        run: |
+          echo "npm $(npm --version)"
+          test -x node_modules/@vscode/vsce-sign/bin/vsce-sign || node node_modules/@vscode/vsce-sign/src/postinstall.js
+          test -x node_modules/@vscode/vsce-sign/bin/vsce-sign
+          npx esbuild --version
+
       # vscode:prepublish typechecks and bundles
       - run: npx vsce package --no-dependencies --out craftos-mcp.vsix
 

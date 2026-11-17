@@ -17,13 +17,25 @@ export function luaString(value: string): string {
   return out + '"';
 }
 
+/** A monitor wall next to the computer, emulated by the engine. */
 export interface MonitorSpec {
-  /** Peripheral side/name, e.g. "top" or "monitor_0". */
-  readonly name: string;
-  /** Size in blocks (like a real monitor wall). Default 1x1 = 7x5 characters. */
+  /**
+   * Peripheral side/name, e.g. "top" or "monitor_0".
+   * @example "top"
+   */
+  readonly name:
+    | "top"
+    | "bottom"
+    | "left"
+    | "right"
+    | "front"
+    | "back"
+    | (string & {});
+  /** Width in blocks, like a real monitor wall (1 block is 7 characters at scale 1). @default 1 @integer @minimum 1 @maximum 8 */
   readonly blocksWide?: number;
+  /** Height in blocks (1 block is 5 characters at scale 1). @default 1 @integer @minimum 1 @maximum 6 */
   readonly blocksHigh?: number;
-  /** Text scale, 0.5 to 5. */
+  /** Text scale at the start, 0.5 to 5 in steps of 0.5. @default 1 @minimum 0.5 @maximum 5 */
   readonly textScale?: number;
 }
 

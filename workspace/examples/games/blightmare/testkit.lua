@@ -54,10 +54,36 @@ function kit.waitFor(condition, limit)
   return value
 end
 
---- Touch the wall at surface cell (px, py), 0-based, as a player would, and give the shell a moment.
-function kit.tap(px, py, pause)
+--- Let the shell take every event queued so far: it handles a touch (and redraws) the moment it gets one, so an event
+--- queued behind the touch comes back only when that's done. A fixed sleep instead let the game's clock run on for as
+--- long as a busy machine took to wake the scenario. Twice round: with some mods on, the emulator queues a touch
+--- again behind its own touch event, which puts it behind the first marker.
+function kit.settle()
+  for _ = 1, 2 do
+    os.queueEvent("testkit_settle")
+    os.pullEvent("testkit_settle")
+  end
+end
+
+--- In play a tap only queues its action: the game takes one a tick. Wait until it has taken them all (a fight takes
+--- its taps at once and never queues), so whoever looks next sees the state the taps made.
+function kit.drained(limit)
+  return kit.waitFor(function()
+    local s = kit.state()
+    return not s or s.mode == "battle" or not s.queue or #s.queue == 0
+  end, limit or 20)
+end
+
+local function touchNow(px, py)
   os.queueEvent("monitor_touch", monitorName, px + 1, py + 1)
-  sleep(pause or 0.15)
+  kit.settle()
+end
+
+--- Touch the wall at surface cell (px, py), 0-based, as a player would. A player's pace (pause, default 0.1 s) goes
+--- before the touch; the shell has taken the touch when this returns, so what the test reads next is what it did.
+function kit.tap(px, py, pause)
+  sleep(pause or 0.1)
+  touchNow(px, py)
 end
 
 --- The button on the wall with this id (and data, if given), or nil.
@@ -68,11 +94,13 @@ function kit.button(id, data)
   return nil
 end
 
---- Tap the middle of a button. Returns false if it isn't on the wall.
+--- Tap the middle of a button, once it is on the wall (the screen before it may still be on its way out). Returns
+--- false if it never shows. The pause goes first, so the button found is the one touched.
 function kit.press(id, data, pause)
-  local b = kit.button(id, data)
+  sleep(pause or 0.1)
+  local b = kit.waitFor(function() return kit.button(id, data) end, 10)
   if not b then return false end
-  kit.tap(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2), pause)
+  touchNow(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2))
   return true
 end
 
@@ -101,21 +129,29 @@ function kit.spotFor(action)
   return nil
 end
 
---- Tap the wall where the game reads this action. Returns false if no spot on the wall gives it.
+--- Tap the wall where the game reads this action, and wait until the game has taken it. Returns false if no spot on
+--- the wall gives it.
 function kit.act(action, pause)
+  -- the action was chosen from the state as it is now: tap at once, and pause (if asked) after
   local px, py = kit.spotFor(action)
   if not px then return false end
-  kit.tap(px, py, pause)
+  touchNow(px, py)
+  kit.drained()
+  if pause then sleep(pause) end
   return true
 end
 
---- Did the speaker get asked for this sound (a name from lib/sound.lua)?
-function kit.heard(name)
+--- Has the speaker been asked for this sound (a name from lib/sound.lua)? A sound that comes right after another waits
+--- its turn in the shell's queue, which plays it on a later tick: a busy host can make that later than the moment the
+--- test asks, so wait up to `limit` seconds (default 5) for it.
+function kit.heard(name, limit)
   local id = require("lib.sound").SOUNDS[name][1]
-  for _, played in ipairs(kit.sounds) do
-    if played == id then return true end
-  end
-  return false
+  return kit.waitFor(function()
+    for _, played in ipairs(kit.sounds) do
+      if played == id then return true end
+    end
+    return false
+  end, limit or 5)
 end
 
 --- Run the game beside scenario() until the scenario returns. o.preload: load every part first, as the game does.

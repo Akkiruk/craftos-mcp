@@ -1,0 +1,104 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["unlimited-peripheral-works"],
+  "position": { "x": 0, "y": 64, "z": 0 },
+  "upw": {
+    "dayTime": 1000,
+    "biome": "minecraft:plains",
+    "light": { "block": 0, "sky": 15 },
+    "players": [
+      {
+        "name": "Steve",
+        "uuid": "8667ba71-b85a-4004-af54-457a9734eed7",
+        "x": 2.5,
+        "y": 64,
+        "z": -1.5
+      }
+    ]
+  },
+  "ground": {
+    "y": 60,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    { "x": 3, "y": 58, "z": 1, "name": "minecraft:iron_ore" },
+    { "x": 3, "y": 57, "z": 1, "name": "minecraft:iron_ore" },
+    { "x": -4, "y": 59, "z": 2, "name": "minecraft:coal_ore" },
+    { "x": 1, "y": 55, "z": -3, "name": "minecraft:diamond_ore" },
+    {
+      "x": 0,
+      "y": 64,
+      "z": 1,
+      "name": "minecraft:chest",
+      "items": { "1": { "name": "minecraft:diamond", "count": 3 } }
+    }
+  ],
+  "entities": [
+    { "type": "minecraft:zombie", "x": -2.5, "y": 61, "z": 3.5, "health": 20 }
+  ],
+  "items": [
+    { "x": 1.5, "y": 61, "z": 1.5, "name": "minecraft:diamond", "count": 2 }
+  ],
+  "peripherals": [
+    {
+      "name": "universal_scanner_0",
+      "type": "universal_scanner",
+      "x": 0,
+      "y": 63,
+      "z": 0,
+      "facing": "east"
+    },
+    {
+      "name": "ultimate_sensor_0",
+      "type": "ultimate_sensor",
+      "x": 0,
+      "y": 65,
+      "z": 0
+    },
+    { "name": "display_pedestal_0", "type": "display_pedestal" },
+    { "name": "item_pedestal_0", "type": "item_pedestal" },
+    {
+      "name": "chest_0",
+      "type": "minecraft:chest",
+      "items": {
+        "1": { "name": "minecraft:diamond", "count": 3 },
+        "2": { "name": "minecraft:music_disc_cat", "count": 1 },
+        "3": {
+          "name": "minecraft:writable_book",
+          "count": 1,
+          "__book": { "pages": ["first page", "second page"] }
+        }
+      }
+    },
+    {
+      "name": "minecraft:note_block_0",
+      "type": "minecraft:note_block",
+      "note": 12,
+      "instrument": "bell"
+    },
+    {
+      "name": "minecraft:jukebox_0",
+      "type": "minecraft:jukebox",
+      "disc": { "name": "minecraft:music_disc_13", "count": 1 }
+    },
+    { "name": "minecraft:beacon_0", "type": "minecraft:beacon", "levels": 4 },
+    {
+      "name": "minecraft:lectern_0",
+      "type": "minecraft:lectern",
+      "book": {
+        "name": "minecraft:written_book",
+        "count": 1,
+        "__book": {
+          "title": "Field Notes",
+          "author": "Alex",
+          "pages": [
+            "{\"text\":\"Iron at \",\"extra\":[{\"text\":\"y=58\"}]}",
+            "\"plain\""
+          ]
+        }
+      }
+    }
+  ]
+}

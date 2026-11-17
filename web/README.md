@@ -129,7 +129,7 @@ Styling: everything is under `.ccp`; colours are CSS variables on `.ccp` (`--ccp
 ```js
 {
   format: 1,
-  id: "reversi", title: "Reversi", kind: "board",   // kind: board | action | versus | demo | shell
+  id: "reversi", title: "Reversi", kind: "board",   // kind: board | action | versus | rpg | demo | shell
   description: "...", controls: "...",               // one line each, for the library
   source: "https://github.com/Akkiruk/craftos-mcp/tree/main/workspace/examples/...",
   screenshot: "reversi.png",                         // next to the cart
@@ -152,7 +152,9 @@ Styling: everything is under `.ccp`; colours are CSS variables on `.ccp` (`--ccp
 A cart with two or more computers links their modems: the player routes `ccsim_net` / `ccsim_link` between them
 exactly as the runner's network does (`packages/runner/src/network.ts`); range and channel rules are in
 `ccsim/modem.lua`. Carts are made by `web/build-carts.mjs`; add one there (a folder, a world, the program, monitors,
-layout, world buttons).
+layout, world buttons). A cart can also name a `build` script run first (BLIGHTMARE's `build.mjs` makes the packed
+`install/` it ships), files to `exclude`, and a `still` from `docs/media/showcase` for its card instead of a screenshot.
 
 Computers start fresh from their cart every time: files they write live until the cart is reset or the computer is
-turned off and on.
+turned off and on. So a BLIGHTMARE save lasts while the page is open, through SAVE & QUIT and CONTINUE, and is gone
+after Reset or a reload.

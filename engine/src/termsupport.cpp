@@ -611,6 +611,8 @@ static bool renderTerminal(Terminal * term, bool& pushEvent) {
 void termRenderLoop() {
 #ifdef __APPLE__
     pthread_setname_np("Render Thread");
+    // the sleep between frames must not run late either, or a 20 fps screen drops to 8 (see darwinPreciseTimers)
+    darwinPreciseTimers();
 #endif
 #ifdef __ANDROID__
     Android_JNI_SetupThread();

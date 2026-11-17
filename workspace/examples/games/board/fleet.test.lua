@@ -84,7 +84,7 @@ local problem = kit.run(function()
   -- two people tapping PLAYER at the same wall would see each other's ships: refused
   kit.tap("blueSeat", "player", 1)
   kit.tap("start", nil, 1)
-  seen.sameWall = kit.S.toast and kit.S.toast.text
+  seen.sameWall = kit.toast()
   -- Blue walks round and taps PLAYER on the other wall
   kit.tap("blueSeat", "player", 2)
   kit.start(1)
@@ -93,13 +93,13 @@ local problem = kit.run(function()
 
   -- a touch on Blue's wall while Red places is refused
   kit.tapCell(5, 5, 2)
-  seen.wrongWall = kit.S.toast and kit.S.toast.text
+  seen.wrongWall = kit.toast()
   -- Red places the Carrier across from the corner, then a Battleship down through it is refused
   kit.tapCell(1, 1, 1)
   seen.placed = g.state.placed[1]
   kit.tap("rotate", nil, 1)
   kit.tapCell(2, 1, 1)
-  seen.overlap = kit.S.toast and kit.S.toast.text
+  seen.overlap = kit.toast()
   -- RANDOM places the rest, and it is Blue's turn: only Blue's wall offers RANDOM now
   kit.tap("auto", nil, 1)
   seen.blueToPlace = g.state.turn == 2 and kit.button("auto", nil, 2) ~= nil and kit.button("auto", nil, 1) == nil
@@ -110,7 +110,7 @@ local problem = kit.run(function()
   kit.tapCell(1, 1, 1)
   kit.tapCell(1, 1, 2)
   kit.tapCell(1, 1, 1)
-  seen.twice = kit.S.toast and kit.S.toast.text
+  seen.twice = kit.toast()
 
   -- then each fires along the rows from their own wall until a fleet is gone
   local stuck = false

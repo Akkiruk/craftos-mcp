@@ -7,6 +7,7 @@
 // running the cart on the native engine with the runner (so the site's library has thumbnails; skipped when the cart
 // has not changed since the last one). Then web/dist/carts/index.json lists them all. Needs the runner built
 // (npm run build) and, for screenshots, the native engine and ROM (npm run setup).
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -54,9 +55,9 @@ const only = args.includes("--only") ? new Set(onlyArg.split(",")) : null;
 // ---------------------------------------------------------------------------------------------------------------
 
 const readJson = (path) => JSON.parse(readFileSync(join(REPO, path), "utf8"));
-/** A world file without its "monitors" (the tests pass those separately, as the player does). */
+/** A world file without its "monitors" (the tests pass those separately, as the player does) and "$schema". */
 const worldOf = (path) => {
-  const { monitors: _m, ...world } = readJson(path);
+  const { monitors: _m, $schema: _s, ...world } = readJson(path);
   return world;
 };
 const monitorsOf = (path) => readJson(path).monitors ?? [];
@@ -64,6 +65,7 @@ const monitorsOf = (path) => readJson(path).monitors ?? [];
 const BOARD = `${EXAMPLES}/games/board`;
 const ACTION = `${EXAMPLES}/games/action`;
 const VERSUS = `${EXAMPLES}/games/versus`;
+const BLIGHTMARE = `${EXAMPLES}/games/blightmare`;
 const WALL = { blocksWide: 6, blocksHigh: 6 };
 
 const BOARD_GAMES = [
@@ -293,6 +295,32 @@ const CARTS = [
       "play.lua": listLauncher(game, title.toUpperCase()),
     }),
   })),
+  {
+    id: "blightmare",
+    title: "BLIGHTMARE",
+    kind: "rpg",
+    description:
+      "A dark first-person RPG: a whole continent, towns and dungeons a square at a time, people to talk to, quests and turn-based fights. Plays on a 6x6 monitor wall.",
+    controls:
+      "Tap the wall: the top steps forward, the bottom back, the sides turn, the middle talks, opens and fights. The bar at the foot is the menu. Saves last until the page is reloaded.",
+    source: `${BLIGHTMARE}/`,
+    // the packed copy (install/, made by build.mjs): about a third of the plain source to download
+    build: `${BLIGHTMARE}/build.mjs`,
+    // card art: a still from the showcase, at half size (the size the other carts' screenshots are)
+    still: "docs/media/showcase/blightmare-town.png",
+    computers: [
+      {
+        dir: `${BLIGHTMARE}/install`,
+        // startup.lua restarts the game after a crash; the cart's boot script starts it instead
+        exclude: ["startup.lua"],
+        world: worldOf(`${BLIGHTMARE}/blightmare.world.json`),
+        monitors: monitorsOf(`${BLIGHTMARE}/blightmare.world.json`),
+        program: "blightmare",
+        terminal: "hide",
+        screens: ["monitor:top"],
+      },
+    ],
+  },
   {
     id: "reactor",
     title: "Fission Reactor Dashboard",
@@ -613,6 +641,10 @@ function bootLua(c) {
 }
 
 function buildCart(def) {
+  if (def.build)
+    execFileSync(process.execPath, [join(REPO, def.build)], {
+      stdio: "ignore",
+    });
   const many = def.computers.length > 1;
   const worlds = many
     ? linkedWorlds(
@@ -632,7 +664,11 @@ function buildCart(def) {
       ...(c.label && { label: c.label }),
       id: world.computerId ?? 0,
       advanced: c.advanced !== false,
-      files: { ...exampleFiles(c.dir), ...(c.files ?? {}) },
+      files: Object.fromEntries(
+        Object.entries({ ...exampleFiles(c.dir), ...(c.files ?? {}) }).filter(
+          ([path]) => !(c.exclude ?? []).includes(path),
+        ),
+      ),
       world: json,
       boot: [enginePeripheralLua(world), bootLua(c)].filter(Boolean).join("\n"),
       monitors: (c.monitors ?? []).map((m) => ({
@@ -764,6 +800,32 @@ async function screenshot(cart, native) {
   }
 }
 
+/** A cart's card art from a showcase still (drawn at 2x): halved with ffmpeg when it is there, else as it is. */
+function stillShot(path) {
+  const from = join(REPO, path);
+  try {
+    return execFileSync(
+      "ffmpeg",
+      [
+        "-v",
+        "error",
+        "-i",
+        from,
+        "-vf",
+        "scale=iw/2:ih/2:flags=neighbor",
+        "-f",
+        "image2pipe",
+        "-c:v",
+        "png",
+        "-",
+      ],
+      { maxBuffer: 64 << 20 },
+    );
+  } catch {
+    return readFileSync(from);
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 
 mkdirSync(OUT, { recursive: true });
@@ -792,6 +854,10 @@ for (const def of CARTS) {
   writeFileSync(join(OUT, `${cart.id}.json`), text);
   sizes.push(`${cart.id} ${(text.length / 1024).toFixed(0)} KB`);
   const hash = createHash("sha256").update(text).digest("hex").slice(0, 16);
+  if (def.still) {
+    writeFileSync(join(OUT, cart.screenshot), stillShot(def.still));
+    continue;
+  }
   if (
     !noShots &&
     (shotHashes[cart.id] !== hash || !existsSync(join(OUT, cart.screenshot)))

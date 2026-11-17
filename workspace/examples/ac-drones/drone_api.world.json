@@ -1,0 +1,40 @@
+{
+  "version": "1.20.1",
+  "addons": ["ac-drones"],
+  "simProgram": true,
+  "acDrone": {
+    "x": 0,
+    "y": 64,
+    "z": 0,
+    "inventory": {
+      "1": { "name": "minecraft:cobblestone", "count": 8 },
+      "2": { "name": "minecraft:cobblestone", "count": 8 },
+      "3": { "name": "minecraft:cobblestone", "count": 3 }
+    },
+    "accessory": "claw",
+    "attachments": ["modem", "chunkloader"]
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    {
+      "x": 3,
+      "y": 63,
+      "z": 0,
+      "name": "minecraft:chest",
+      "items": {
+        "1": { "name": "minecraft:redstone", "count": 10 },
+        "2": { "name": "minecraft:coal", "count": 16 },
+        "3": { "name": "minecraft:coal", "count": 30 }
+      }
+    },
+    { "x": -3, "y": 64, "z": 0, "name": "minecraft:stone" },
+    { "x": 2, "y": 63, "z": 2, "name": "minecraft:obsidian" }
+  ],
+  "items": [
+    { "x": 0, "y": 64, "z": 2, "name": "minecraft:cobblestone", "count": 3 }
+  ]
+}

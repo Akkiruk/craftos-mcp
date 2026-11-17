@@ -1,0 +1,28 @@
+{
+  "version": "1.18.2",
+  "addons": ["cctech"],
+  "peripherals": [
+    {
+      "name": "right",
+      "type": "reel_to_reel",
+      "locked": true,
+      "tape": {
+        "uuid": "0b5e7a54-0000-4000-8000-00000000c0de",
+        "length": 4096,
+        "label": "log"
+      }
+    },
+    {
+      "name": "left",
+      "type": "cassette_deck",
+      "tape": { "length": 64, "data": "HELLO" }
+    },
+    {
+      "name": "back",
+      "type": "card_writer",
+      "writerUUID": "11111111-2222-4333-8444-555555555555",
+      "card": {}
+    },
+    { "name": "top", "type": "magnetic_card_reader" }
+  ]
+}

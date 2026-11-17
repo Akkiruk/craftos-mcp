@@ -59,18 +59,31 @@ local function hideSimFolder()
         if hidden(path) then return false end
         return call(raw.isDir, path)
     end
+    -- The harness's two mounts, /ccunit (its Lua library) and /results (what a run reports back). A new computer's
+    -- root holds only `rom`, and programs act on what they find there: a file manager shows it, an installer that
+    -- wipes the disk deletes it, a backup copies it. So the two are not listed and wildcards do not find them; a
+    -- path that names one still reaches it, which is how tests and the simulation use them.
+    local mounts = { ccunit = true, results = true }
     function wrapped.list(path)
         if hidden(path) then error(where(path) .. ": Not a directory", 0) end
         local list = call(raw.list, path)
-        if canonical(path) == "rom" and type(list) == "table" then
+        local at = canonical(path)
+        if at == "rom" and type(list) == "table" then
             for i = #list, 1, -1 do if list[i] == "ccsim" then table.remove(list, i) end end
+        elseif at == "" and type(list) == "table" then
+            for i = #list, 1, -1 do if mounts[list[i]] then table.remove(list, i) end end
         end
         return list
     end
     function wrapped.find(pattern)
         local found = call(raw.find, pattern)
         if type(found) == "table" then
-            for i = #found, 1, -1 do if hidden(found[i]) then table.remove(found, i) end end
+            -- only a wildcard in the first part of the pattern can come across a mount by accident
+            local first = type(pattern) == "string" and (canonical(pattern) or ""):match("^[^/]*") or ""
+            local wild = first:find("[*?]") ~= nil
+            for i = #found, 1, -1 do
+                if hidden(found[i]) or (wild and mounts[found[i]:match("^[^/]*")]) then table.remove(found, i) end
+            end
         end
         return found
     end
@@ -111,7 +124,8 @@ local function hideEmulator()
     if emulatorHidden then return end
     emulatorHidden = true
     for _, name in ipairs({ "periphemu", "config", "mounter", "ccpc", "collectgarbage", "__inext", "_CC_DISABLE_LUA51_FEATURES",
-        "_CCPC_FIRST_RUN", "_CCPC_STARTUP_SCRIPT", "_CCPC_STARTUP_ARGS", "_CCPC_PLUGIN_ERRORS", "" }) do
+        "_CCPC_FIRST_RUN", "_CCPC_UPDATED_VERSION", "_CCPC_STARTUP_SCRIPT", "_CCPC_STARTUP_ARGS", "_CCPC_PLUGIN_ERRORS",
+        "_HEADLESS", "" }) do
         _G[name] = nil
     end
     table.setn, os.about, os.__ccsimNative = nil, nil, nil

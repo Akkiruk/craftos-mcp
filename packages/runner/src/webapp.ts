@@ -7,7 +7,6 @@
  * one-shot run (`lastRun`).
  */
 import {
-  cpSync,
   existsSync,
   openSync,
   readFileSync,
@@ -24,7 +23,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { basename, dirname, extname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import {
   type KeyName,
   Keys,
@@ -45,6 +44,7 @@ import { MONITOR_LIMIT, type MonitorSpec } from "./lua.js";
 import { type Session, type SessionManager, waitForBoot } from "./sessions.js";
 import { describeAll, readWaiting } from "./ui.js";
 import { listWorkspace, resolveInWorkspace } from "./workspace.js";
+import { copyWorkspaceAsync } from "./copy.js";
 import {
   type ModemSpec,
   type SimCommand,
@@ -209,9 +209,6 @@ const TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
 };
 const staticDir = new URL("../webapp/", import.meta.url);
-
-/** Directory names never copied into the computer (as startEngine). */
-const SKIP = new Set([".git", "node_modules", "__snapshots__"]);
 
 class HttpError extends Error {
   constructor(
@@ -830,9 +827,8 @@ export function startWebApp(options: WebAppOptions): Server {
     if (method === "POST" && sub === "/sync") {
       // copy the project folder onto the computer again, then reboot so the program picks it up
       mkdirSync(dir, { recursive: true });
-      cpSync(config.workspaceDir, dir, {
-        recursive: true,
-        filter: (source) => !SKIP.has(basename(source)),
+      await copyWorkspaceAsync(config.workspaceDir, dir, {
+        exclude: [config.runtimeDir],
       });
       await reboot(session, "reboot");
       return json(res, {});

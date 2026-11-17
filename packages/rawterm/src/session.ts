@@ -105,9 +105,32 @@ export class RawSession extends EventEmitter<{
       this.emit("stderr", chunk.toString()),
     );
     this.child.stdin.on("error", () => undefined);
-    this.child.on("exit", (code, signal) => {
-      this.exitInfo = { code, signal };
+    // the engine could not start (missing, not executable, blocked by antivirus): an exit with the reason on stderr,
+    // never an unhandled error that takes the whole process down
+    this.child.on("error", (error: NodeJS.ErrnoException) => {
+      this.emit(
+        "stderr",
+        `could not start the engine ${options.executable}: ${error.code ?? error.message}\n`,
+      );
+      if (this.exitInfo !== undefined) return;
+      this.exitInfo = { code: null, signal: null };
       this.emit("exit", this.exitInfo);
+    });
+    // "exit" can come before the last of stdout has been read: the frames the engine drew just before it stopped. Say
+    // it has exited once the pipe is drained ("close"), so a caller reading the screens then sees them all. A pipe
+    // that some other process holds open never closes, so that wait has a generous limit.
+    this.child.on("exit", (code, signal) => {
+      if (this.exitInfo !== undefined) return;
+      const info = { code, signal };
+      const done = (): void => {
+        clearTimeout(limit);
+        if (this.exitInfo !== undefined) return;
+        this.exitInfo = info;
+        this.emit("exit", info);
+      };
+      const limit = setTimeout(done, 5000);
+      if (this.child.stdout.readableEnded) done();
+      else this.child.once("close", done);
     });
     this.sendPayload(encodeFeatures(this.clientFlags));
   }
@@ -323,7 +346,9 @@ export class RawSession extends EventEmitter<{
     try {
       return await this.waitForExit(graceMs);
     } catch {
-      this.child.kill();
+      // SIGKILL, not the default SIGTERM: once SDL has opened audio it catches SIGTERM and only queues a quit event,
+      // which a program stuck in a loop never reads (seen on macOS; Windows always kills outright).
+      this.child.kill("SIGKILL");
       return this.waitForExit(5000);
     }
   }

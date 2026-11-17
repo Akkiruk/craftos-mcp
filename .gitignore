@@ -22,3 +22,5 @@ __pycache__/
 /rom-overlay/rom/ccsim/addons/toms-peripherals/fonts.lua
 # make-showcase.mjs --keep work folder
 /docs/media/showcase/.work/
+# lua-language-server fetched by packages/cc-types/scripts/check.mjs --download
+/packages/cc-types/.cache/

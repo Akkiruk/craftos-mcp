@@ -1,4 +1,5 @@
 {
+  "$schema": "../schemas/world.schema.json",
   "peripherals": [
     {
       "name": "fissionReactorLogicAdapter_0",
@@ -359,7 +360,7 @@
         {
           "type": "SORTER_TAG_FILTER",
           "tag": "forge:ingots/*",
-          "color": "blue",
+          "color": "dark_blue",
           "max": 64
         }
       ]

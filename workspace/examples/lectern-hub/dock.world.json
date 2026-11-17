@@ -1,0 +1,21 @@
+{
+  "version": "1.20.1",
+  "addons": ["lectern-hub"],
+  "peripherals": [
+    {
+      "name": "left",
+      "type": "cc_lectern",
+      "pocket": { "id": 7, "label": "Scout", "on": false }
+    },
+    {
+      "name": "right",
+      "type": "cc_lectern",
+      "pocket": { "id": 12, "on": true }
+    },
+    {
+      "name": "back",
+      "type": "cc_lectern",
+      "item": "computercraft:printed_book"
+    }
+  ]
+}

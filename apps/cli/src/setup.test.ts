@@ -77,7 +77,8 @@ describe("setup: engine zip", () => {
   it("picks the release asset suffix by OS", () => {
     expect(setup.platformKey("win32", "x64")).toBe("windows-x64");
     expect(setup.platformKey("linux", "x64")).toBe("linux-x64");
-    expect(setup.platformKey("darwin", "arm64")).toBeUndefined();
+    expect(setup.platformKey("darwin", "arm64")).toBe("macos-arm64");
+    expect(setup.platformKey("darwin", "x64")).toBe("macos-x64");
     expect(setup.platformKey("linux", "arm64")).toBeUndefined();
   });
 
@@ -159,5 +160,108 @@ describe("setup: ROM versions", () => {
     expect(() => setup.romVersions(["--mc", "1.12.2"], versions, {})).toThrow(
       /known: 1\.18\.2, 1\.20\.1, 1\.21\.1/,
     );
+  });
+});
+
+// scripts/npm/first-run.mjs: the npm package's first run, offline and failing
+const firstRun = (await import(
+  /* @vite-ignore */ pathToFileURL(
+    join(
+      import.meta.dirname,
+      "..",
+      "..",
+      "..",
+      "scripts",
+      "npm",
+      "first-run.mjs",
+    ),
+  ).href
+)) as {
+  setUp(o: {
+    env?: Record<string, string>;
+    version?: string;
+  }): Promise<{ ok: boolean; error?: string; offline?: boolean }>;
+  setupGate(
+    run: () => Promise<{ ok: boolean; error?: string; offline?: boolean }>,
+    o?: { retryMs?: number },
+  ): {
+    ready: boolean;
+    wait(): Promise<{ ok: boolean }>;
+    note(): string;
+  };
+  causeOf(error: unknown): string;
+};
+
+describe("first run: offline", () => {
+  it("says which host it could not reach and why, and that it is the network", async () => {
+    const home = mkdtempSync(join(scratch, "home-"));
+    // a port that was free a moment ago: nothing listens, so it is refused at once, like a machine with no network
+    const { createServer } = await import("node:net");
+    const port = await new Promise<number>((done) => {
+      const s = createServer().listen(0, "127.0.0.1", () => {
+        const p = (s.address() as { port: number }).port;
+        s.close(() => done(p));
+      });
+    });
+    const result = await firstRun.setUp({
+      version: "9.9.9",
+      env: {
+        CRAFTOS_HOME: home,
+        CRAFTOS_ENGINE_URL: `http://127.0.0.1:${port}/craftos-mcp-v9.9.9-windows-x64.zip`,
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.offline).toBe(true);
+    expect(result.error).toBe(
+      `could not reach 127.0.0.1:${port}: ECONNREFUSED 127.0.0.1:${port}`,
+    );
+    // the lock is gone, so the next try can start
+    expect(existsSync(join(home, "9.9.9", "setup.lock"))).toBe(false);
+  });
+
+  it("names the innermost cause of a fetch failure", () => {
+    const inner = Object.assign(new Error("getaddrinfo ENOTFOUND github.com"), {
+      code: "ENOTFOUND",
+      hostname: "github.com",
+    });
+    expect(
+      firstRun.causeOf(new TypeError("fetch failed", { cause: inner })),
+    ).toBe("ENOTFOUND github.com");
+  });
+
+  it("the MCP server's gate tries a failed setup again on a later call", async () => {
+    let calls = 0;
+    const gate = firstRun.setupGate(
+      async () =>
+        ++calls === 1
+          ? {
+              ok: false,
+              error: "could not reach github.com: ENOTFOUND",
+              offline: true,
+            }
+          : { ok: true },
+      { retryMs: 0 },
+    );
+    expect(gate.note()).toMatch(/still downloading/);
+    expect((await gate.wait()).ok).toBe(false);
+    expect(gate.note()).toMatch(
+      /failed: could not reach github\.com.*HTTPS_PROXY.*tries again/,
+    );
+    // the network is back: the next call sets up, no restart needed
+    expect((await gate.wait()).ok).toBe(true);
+    expect(gate.ready).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("does not hammer: a failure is tried again only after retryMs", async () => {
+    let calls = 0;
+    const gate = firstRun.setupGate(
+      async () => (calls++, { ok: false, error: "x" }),
+      { retryMs: 60_000 },
+    );
+    await gate.wait();
+    await gate.wait();
+    expect(calls).toBe(1);
+    expect(gate.note()).toMatch(/after \d+ s/);
   });
 });

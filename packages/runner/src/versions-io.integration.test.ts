@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -185,7 +186,23 @@ async function runLua(
     httpRules: { deny: [] },
   });
   try {
-    await handle.session.waitForExit(30000);
+    // a run that never finishes names the test it was in (results.jsonl streams each start), and the engine is
+    // stopped before its folder goes: deleting it under a live engine failed with EPERM and hid what happened
+    await handle.session.waitForExit(50000).catch(async () => {
+      await handle.session.stop(0);
+      let streamed = "";
+      try {
+        streamed = readFileSync(
+          join(handle.resultsDir, "results.jsonl"),
+          "utf8",
+        );
+      } catch {
+        // nothing streamed: it never got to a test
+      }
+      throw new Error(
+        `${name} still running after 50 s; streamed: ${streamed.slice(-600)}`,
+      );
+    });
     const parsed = readResultFile<{ tests: Case[] }>(
       handle.resultsDir,
       "results.json",
@@ -272,7 +289,7 @@ ccunit.test("path parts are trimmed before . and .. are read", function()
   ccunit.eq(fs.isReadOnly("   /x"), false)
 end)
 `,
-      undefined,
+      { version: "1.18.2" },
       "io-default.test.lua",
     );
     expect(failed).toEqual([]);

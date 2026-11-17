@@ -24,6 +24,8 @@
     "test": "vitest run",
     "build:web": "node web/build-runtime.mjs && node web/build-carts.mjs",
     "test:web": "node web/test.mjs",
+    "types:generate": "node packages/cc-types/scripts/generate.mjs",
+    "types:check": "node packages/cc-types/scripts/check.mjs",
     "typecheck": "tsc -b --pretty false"
   },
   "devDependencies": {

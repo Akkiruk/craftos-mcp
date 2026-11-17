@@ -23,6 +23,18 @@ end
 local main = require("cabinet.main")
 kit.app = main.app
 kit.S = main.app.S
+
+-- Every toast the cabinet puts up, noted as it is set: a toast lasts a second or two of the cabinet's clock, which a
+-- busy host can run past before the scenario gets to look at S.toast.
+local touchToast
+local setToast = kit.app.setToast
+kit.app.setToast = function(text, ...)
+  touchToast = text
+  return setToast(text, ...)
+end
+
+--- The last toast the cabinet put up since the last touch, or nil.
+function kit.toast() return touchToast end
 kit.rules = function(id) return require("games." .. id .. ".rules") end
 kit.plugin = function(id) return require("games." .. id .. ".plugin") end
 
@@ -37,10 +49,27 @@ local function wall(index)
   return kit.app.env.walls[index or 1]
 end
 
+--- Let the cabinet take every event queued so far. It handles a touch and redraws as soon as it gets the event, so an
+--- event queued behind the touch comes back only once the cabinet is done with it. A sleep instead let the cabinet's
+--- own clock run on by however long a busy machine took to wake the scenario: a toast could be gone, or a computer
+--- move made, before the scenario looked.
+--- Twice round: with some mods on, the emulator takes a touch and queues it again behind its own touch event, so the touch
+--- the cabinet gets is behind the first marker; the second marker is queued behind that.
+function kit.settle()
+  for _ = 1, 2 do
+    os.queueEvent("testkit_settle")
+    os.pullEvent("testkit_settle")
+  end
+end
+
 --- Touch the monitor at a surface cell (0-based, as the cabinet draws). wallIndex 1 is the main wall.
+--- A player's pace goes before the touch (sounds and animations play out as they would), and the cabinet has taken
+--- the touch when this returns, so what the scenario reads next is what the touch did.
 function kit.touch(px, py, wallIndex)
-  os.queueEvent("monitor_touch", wall(wallIndex).name, px + 1, py + 1)
   sleep(0.2)
+  touchToast = nil
+  os.queueEvent("monitor_touch", wall(wallIndex).name, px + 1, py + 1)
+  kit.settle()
 end
 
 --- The button with this id (and data, if given) on a wall, or nil.

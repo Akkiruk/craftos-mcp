@@ -1,0 +1,21 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["cloud-solutions"],
+  "cloudSolutions": {
+    "owner": "8667ba71-b85a-4004-af54-457a9734eed7",
+    "ownerName": "Steve",
+    "kv": {
+      "8667ba71-b85a-4004-af54-457a9734eed7": {
+        "score.Alex": "150",
+        "score.Bob": "90"
+      }
+    }
+  },
+  "peripherals": [
+    { "name": "kv_storage_0", "type": "kv_storage" },
+    { "name": "crafka_broker_0", "type": "crafka_broker" },
+    { "name": "statsd_bridge_0", "type": "statsd_bridge" },
+    { "name": "kv_storage_1", "type": "kv_storage", "owner": false }
+  ]
+}

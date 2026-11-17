@@ -1,0 +1,20 @@
+{
+  "version": "1.20.1",
+  "addons": ["sc-peripherals"],
+  "peripherals": [
+    {
+      "name": "left",
+      "type": "3d_printer",
+      "items": {
+        "1": { "name": "sc-peripherals:chamelium", "count": 4 },
+        "2": { "name": "sc-peripherals:ink_cartridge", "count": 1 }
+      }
+    },
+    {
+      "name": "right",
+      "type": "poster_printer",
+      "ink": 20000,
+      "items": { "1": { "name": "minecraft:paper", "count": 2 } }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 name: Release
 
-# On a v* tag: build the engine for Windows and Linux, build the TypeScript packages, and attach one zip per OS to a
+# On a v* tag: build the engine for Windows, Linux and macOS, build the TypeScript packages, and attach one zip per OS to a
 # GitHub release. The zips hold paths relative to the repository root, so they unzip over a clone. They never contain
 # CC:Tweaked's ROM (its license does not allow redistribution): users build it with `node scripts/build-rom.mjs --download`.
 on:
@@ -30,6 +30,14 @@ jobs:
           - os: ubuntu-22.04
             platform: linux-x64
             triplet: x64-linux
+          # macOS: Apple silicon and Intel, each built on its own kind of runner. Both run on macOS 11 and newer
+          # (engine/triplets), whatever the runner has.
+          - os: macos-15
+            platform: macos-arm64
+            triplet: arm64-osx
+          - os: macos-15-intel
+            platform: macos-x64
+            triplet: x64-osx
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     steps:
@@ -54,6 +62,10 @@ jobs:
             libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxss-dev libxtst-dev \
             libwayland-dev libxkbcommon-dev libegl1-mesa-dev libibus-1.0-dev libltdl-dev
 
+      - name: macOS packages vcpkg needs to build SDL2 and friends
+        if: runner.os == 'macOS'
+        run: brew install ninja pkg-config autoconf autoconf-archive automake libtool
+
       - name: Get vcpkg
         shell: bash
         run: |
@@ -66,16 +78,37 @@ jobs:
         shell: cmd
         run: call "%CRAFTOS_VCPKG%\bootstrap-vcpkg.bat" -disableMetrics
 
-      - name: Bootstrap vcpkg (Linux)
-        if: runner.os == 'Linux'
+      - name: Bootstrap vcpkg (Linux, macOS)
+        if: runner.os != 'Windows'
         run: '"$CRAFTOS_VCPKG/bootstrap-vcpkg.sh" -disableMetrics'
 
       - name: vcpkg binary cache
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_CACHE }}
-          key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('engine/vcpkg.json') }}
+          key: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('engine/vcpkg.json', 'engine/triplets/*') }}
           restore-keys: vcpkg-${{ matrix.triplet }}-${{ env.VCPKG_COMMIT }}-
+
+      # macOS runners share their addresses, so GitHub's API answers vcpkg's anonymous downloads with 403 (rate limit)
+      # every so often. Give vcpkg a download script that sends the job's token, to api.github.com only.
+      - name: Let vcpkg use the job's token for api.github.com
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          umask 077
+          printf '%s' "$GH_TOKEN" > "$RUNNER_TEMP/gh-token"
+          cat > "$RUNNER_TEMP/gh-fetch.sh" <<'EOF'
+          #!/bin/bash
+          # gh-fetch.sh <url> <file>. Anything but api.github.com fails here, and vcpkg then downloads it itself.
+          case "$1" in
+            https://api.github.com/*)
+              exec curl -fsSL --retry 3 -H "Authorization: Bearer $(cat "$(dirname "$0")/gh-token")" -o "$2" "$1" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$RUNNER_TEMP/gh-fetch.sh"
+          echo "X_VCPKG_ASSET_SOURCES=clear;x-script,bash $RUNNER_TEMP/gh-fetch.sh {url} {dst}" >> "$GITHUB_ENV"
 
       - name: Build the engine (Windows)
         if: runner.os == 'Windows'
@@ -86,11 +119,29 @@ jobs:
         if: runner.os == 'Linux'
         run: bash engine/build.sh
 
+      # twice: a download that fails (the runners' DNS drops out now and then) stops vcpkg, and the second go picks
+      # up from the packages already built
+      - name: Build the engine (macOS)
+        if: runner.os == 'macOS'
+        run: bash engine/build.sh || bash engine/build.sh
+
       - name: Check the Linux binary finds its libraries
         if: runner.os == 'Linux'
         run: |
           ldd engine/build/craftos
           if ldd engine/build/craftos | grep -q "not found"; then exit 1; fi
+
+      # Only liblua52.dylib (beside the binary, found through @loader_path) and what macOS itself ships may be needed.
+      - name: Check the macOS binary finds its libraries
+        if: runner.os == 'macOS'
+        run: |
+          otool -L engine/build/craftos engine/build/liblua52.dylib
+          otool -l engine/build/craftos | grep -A2 LC_RPATH
+          if otool -L engine/build/craftos engine/build/liblua52.dylib | grep '^[[:space:]]' \
+            | grep -Ev '^[[:space:]]+(/usr/lib/|/System/Library/|@rpath/liblua52[.]dylib)'; then
+            echo "the engine links a library a clean Mac does not have" >&2; exit 1
+          fi
+          otool -l engine/build/craftos | grep -q 'path @loader_path '
 
       - uses: actions/setup-node@v4
         with:
@@ -109,12 +160,14 @@ jobs:
             cp engine/build/craftos.exe engine/build/*.dll "$stage/engine/build/"
           else
             cp engine/build/craftos "$stage/engine/build/"
-            find engine/build -maxdepth 1 -name '*.so*' -exec cp -P {} "$stage/engine/build/" \;
+            find engine/build -maxdepth 1 \( -name '*.so*' -o -name '*.dylib' \) -exec cp -P {} "$stage/engine/build/" \;
           fi
           # Everything else the tools need at run time, in the repository layout.
           cp package.json package-lock.json LICENSE "$stage/"
           for f in README.md NOTICE.md; do if [ -f "$f" ]; then cp "$f" "$stage/"; fi; done
           for pkg in apps/* packages/*; do
+            # apps/vscode is the extension: its own package, not built here and not part of the zip
+            if [ ! -d "$pkg/dist" ]; then continue; fi
             mkdir -p "$stage/$pkg"
             cp "$pkg/package.json" "$stage/$pkg/"
             cp -r "$pkg/dist" "$stage/$pkg/"
@@ -159,3 +212,33 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" dist-release/*.zip --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
           fi
+
+  # After the release has its engine zips (the package's first run downloads them), publish craftos-mcp to npm through
+  # npm's Trusted Publishing: OIDC, no token. npmjs.com trusts this repository and this file name, so keep both.
+  npm:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted Publishing needs npm 11.5.1 or newer
+      - run: npm install -g npm@latest
+      - name: The tag matches server.json
+        run: |
+          want="v$(node -p "require('./server.json').version")"
+          if [ "$want" != "$GITHUB_REF_NAME" ]; then echo "tag $GITHUB_REF_NAME but server.json says $want" >&2; exit 1; fi
+      - name: Pack
+        run: node scripts/pack-npm.mjs . --out "$RUNNER_TEMP/npm"
+      - name: Publish (skipped when this version is already on npm)
+        run: |
+          version="$(node -p "require('./server.json').version")"
+          if npm view "craftos-mcp@$version" version >/dev/null 2>&1; then echo "craftos-mcp $version is already published"; exit 0; fi
+          npm publish "$RUNNER_TEMP"/npm/craftos-mcp-*.tgz --access public

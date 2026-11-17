@@ -51,6 +51,18 @@ writeFileSync(
     "",
   ].join("\n"),
 );
+// copies of it where scratch runs and agent worktrees live: the Testing view must not list them
+for (const copy of [
+  ".runtime/run-1",
+  ".claude/worktrees/wt",
+  "node_modules/pkg",
+]) {
+  mkdirSync(join(project, copy), { recursive: true });
+  writeFileSync(
+    join(project, copy, "math.test.lua"),
+    'ccunit.test("copy", function() end)\n',
+  );
+}
 writeFileSync(
   join(project, "clock.lua"),
   [
@@ -75,6 +87,30 @@ writeFileSync(
   }),
 );
 
+// world files: one with a typo'd key for the schema's diagnostics
+writeFileSync(
+  join(project, "typo.world.json"),
+  '{\n  "addons": ["advanced-peripherals"],\n  "periferals": []\n}\n',
+);
+// a CC program for the Lua language server, and Lua settings of the user's own that Set Up Lua Types must keep
+writeFileSync(
+  join(project, "files.lua"),
+  'local h = fs.open("notes.txt", "w")\nif h then h.write("hi") h.close() end\nprint(fs.exists("notes.txt"))\n',
+);
+mkdirSync(join(project, "otherlib"), { recursive: true });
+mkdirSync(join(project, ".vscode"), { recursive: true });
+writeFileSync(
+  join(project, ".vscode", "settings.json"),
+  `${JSON.stringify(
+    {
+      "Lua.workspace.library": [join(project, "otherlib")],
+      "Lua.runtime.builtin": { os: "enable" },
+    },
+    null,
+    2,
+  )}\n`,
+);
+
 const code = process.env.CODE ?? (await downloadAndUnzipVSCode("stable"));
 const [cli, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(code, {
   reuseMachineInstall: false,
@@ -94,6 +130,20 @@ const line = [
   vsix,
 ];
 execSync(line.map(quote).join(" "), { stdio: "inherit" });
+// the Lua extension, into the same throwaway folder, for the "no more Undefined global" check. Without the network
+// the Lua steps still check the settings and say the language server part was skipped.
+let luaInstalled = "0";
+if (process.env.SKIP_LUA_EXTENSION !== "1") {
+  try {
+    execSync([...line.slice(0, -1), "sumneko.lua"].map(quote).join(" "), {
+      stdio: "inherit",
+      timeout: 300_000,
+    });
+    luaInstalled = "1";
+  } catch (error) {
+    console.warn(`could not install sumneko.lua: ${error.message}`);
+  }
+}
 
 let failed = false;
 try {
@@ -109,7 +159,13 @@ try {
       "--skip-welcome",
       "--skip-release-notes",
     ],
-    extensionTestsEnv: { CRAFTOS_PROJECT: project },
+    extensionTestsEnv: {
+      CRAFTOS_PROJECT: project,
+      CRAFTOS_USER_DATA: userData,
+      CRAFTOS_LUA_INSTALLED: luaInstalled,
+      // only the lua types and schema steps, for a quick run
+      CRAFTOS_IT_ONLY: process.env.CRAFTOS_IT_ONLY ?? "",
+    },
   });
 } catch (error) {
   console.error(`integration tests failed: ${error.message ?? error}`);

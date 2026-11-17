@@ -7,10 +7,34 @@ local realMonitor = peripheral.find("monitor")
 local width, height = realMonitor.getSize()
 local screen = window.create(realMonitor, 1, 1, width, height)
 screen.setTextScale = realMonitor.setTextScale
+-- What the controller decided, with the buffer reading it decided on: the test judges those, not a reading of its
+-- own taken whenever a busy host next woke it (on a 20x clock the buffer moves a long way in that time).
+local decisions = {}
+local lastFill
+local controlled = setmetatable({
+  getEnergyStored = function()
+    local stored = reactor.getEnergyStored()
+    lastFill = stored / reactor.getEnergyCapacity()
+    return stored
+  end,
+  setAllControlRodLevels = function(level)
+    decisions[#decisions + 1] = { rods = level, fill = lastFill }
+    return reactor.setAllControlRodLevels(level)
+  end,
+}, { __index = reactor })
+
 local find = peripheral.find
 peripheral.find = function(kind, ...)
   if kind == "monitor" then return screen end
+  if kind == "BigReactors-Reactor" then return controlled end
   return find(kind, ...)
+end
+
+--- The first decision from index `from` on that passes `test`, and its index.
+local function firstDecision(from, test)
+  for i = from, #decisions do
+    if test(decisions[i]) then return decisions[i], i end
+  end
 end
 
 local function screenText()
@@ -46,12 +70,14 @@ local function scenario()
   -- A town switches on: demand far above what the reactor makes. The buffer empties.
   sim({ cmd = "erSetLoad", peripheral = "BigReactors-Reactor_0", rate = 3000 })
   seen.reachedZeroRods = waitFor(function() return rods() == 0 end, 300)
-  seen.lowFill = fill()
+  local out, at = firstDecision(1, function(d) return d.rods == 0 end)
+  seen.lowFill = out and out.fill or fill()
 
   -- Demand stops. The reactor, rods out, fills the buffer again and the rods go back in.
   sim({ cmd = "erSetLoad", peripheral = "BigReactors-Reactor_0", rate = 0 })
   seen.reachedHalfRods = waitFor(function() return rods() >= 50 end, 300)
-  seen.fillAtHalfRods = fill()
+  local back = firstDecision(at or 1, function(d) return d.rods >= 50 end)
+  seen.fillAtHalfRods = back and back.fill or fill()
 end
 
 parallel.waitForAny(function() shell.run("examples/extreme-reactors/rod_controller.lua") end, scenario)

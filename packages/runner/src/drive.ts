@@ -18,7 +18,7 @@ import {
   readWaiting,
   settle,
 } from "./ui.js";
-import type { SimCommand } from "./world.js";
+import { type SimCommand, shownState } from "./world.js";
 
 /*
  * The cheap way to drive and verify any CC program, built on ui.ts:
@@ -370,7 +370,7 @@ export function diffJson(
 
 /** Sim state, or just what changed since the last call (the first call returns everything). */
 export function simState(handle: EngineHandle, delta: boolean): unknown {
-  const state = handle.readState() ?? {};
+  const state = shownState(handle.readState()) ?? {};
   const m = memory(handle);
   const prev = m.lastSim;
   m.lastSim = state;

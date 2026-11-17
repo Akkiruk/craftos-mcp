@@ -39,6 +39,10 @@ export interface AddonInfo {
   readonly commands?: string;
 }
 
+/** Sim commands every mob addon has (rom-overlay/rom/ccsim/mob.lua): the world around the mob. */
+const MOB_COMMANDS =
+  "mobSpawn {type, x, y, z, uuid?, name?, health?, drops?}, mobMove {uuid, x, y, z}, mobRemove {uuid}, mobDropItem {x, y, z, name, count?}, mobSetBlock {x, y, z, name?, state?, items?}";
+
 export const ADDONS: readonly AddonInfo[] = [
   {
     id: "advanced-peripherals",
@@ -253,6 +257,394 @@ export const ADDONS: readonly AddonInfo[] = [
     commands:
       'erAddFuel {peripheral, amount, fuelType?}, erAddWaste {peripheral, amount}, erSetLoad {peripheral, rate}, erDrainEnergy {peripheral, amount}, erAddCoolant/erAddSteam {peripheral, amount}, erSetCoolantSupply {peripheral, rate|"full"}, erSetSteamSupply {peripheral, rate|"full"}, erSetActive {peripheral, active}, erSetAssembled {peripheral, assembled}, erSetConnected {peripheral, connected}',
   },
+  {
+    id: "unlimited-peripheral-works",
+    name: "UnlimitedPeripheralWorks",
+    // 1.18.2 has only a Fabric build (0.2.9, a different API); the emulator's 1.18.2 is Forge
+    versions: { "1.20.1": "1.20.1-1.9.2", "1.21.1": "1.21.1-1.9.2" },
+    types: [
+      "universal_scanner",
+      "ultimate_sensor",
+      "item_pedestal",
+      "display_pedestal",
+      "minecraft:note_block",
+      "minecraft:jukebox",
+      "minecraft:beacon",
+      "minecraft:lectern",
+    ],
+    worldKeys: ["upw"],
+    docs: "docs/unlimited-peripheral-works.md",
+    commands:
+      "upwSetBlock {x, y, z, name?, state?}, upwAddEntity {entity}, upwRemoveEntity {uuid?|type?}, upwSetPlayer {player, remove?}, " +
+      "upwSetWorld {dayTime?, raining?, thundering?, biome?, light?, dimensions?}, upwTurnPage {peripheral, page}, upwPlaceBook {peripheral, book|null, player?}, " +
+      "upwSetJukebox {peripheral, playing}, upwSetBeacon {peripheral, levels}",
+  },
+  {
+    id: "metaphysics",
+    name: "Metaphysics",
+    versions: { "1.20.1": "0.0.6" },
+    // no peripherals: the crypto and coord APIs are globals, there when the world has a `metaphysics` key
+    types: [],
+    worldKeys: ["metaphysics"],
+    docs: "docs/metaphysics.md",
+    commands:
+      "metaPlayerDeath {name, source?, killer?, killerTags?}, metaSetPlayer {player, remove?}, metaSetBlock {x, y, z, name?, state?, explosionResistance?, solid?}, " +
+      "metaAddEntity {entity}, metaRemoveEntity {uuid?|type?}, metaSetShips {ships, computerShip?, leaveShip?}",
+  },
+  {
+    id: "some-peripherals",
+    name: "Some Peripherals",
+    // 1.18.2 only (its 1.19.2 branch has no release for a version the emulator runs)
+    versions: { "1.18.2": "0.0.12" },
+    types: ["sp_radar", "world_scanner", "ballistic_accelerator", "digitizer"],
+    worldKeys: ["somePeripherals"],
+    docs: "docs/some-peripherals.md",
+    commands:
+      "spSetPlayer {player, remove?}, spAddEntity {entity}, spRemoveEntity {uuid?|type?}, spSetBlock {x, y, z, name?, state?}, spSetShips {ships, computerShip?, leaveShip?}",
+  },
+  {
+    id: "cloud-solutions",
+    name: "SirEdvin's Cloud Solutions",
+    versions: { "1.20.1": "1.20.1-0.3.4", "1.21.1": "1.21.1-0.3.4" },
+    types: ["kv_storage", "crafka_broker", "statsd_bridge"],
+    worldKeys: ["cloudSolutions"],
+    docs: "docs/cloud-solutions.md",
+    commands:
+      "csPut {key, value|null, owner?, expire?} (another computer writes a key), csPublish {topic, message, owner?}, csSetOwnerOnline {online}",
+  },
+  {
+    id: "cccbridge",
+    name: "CC:C Bridge",
+    versions: { "1.18.2": "1.5.1-forge", "1.20.1": "1.7.1", "1.21.1": "1.7.3" },
+    types: [
+      "animatronic",
+      "redrouter",
+      "scroller",
+      "create_source",
+      "create_target",
+    ],
+    worldKeys: ["cccbridge"],
+    requires: ["create"],
+    docs: "docs/cccbridge.md",
+    commands:
+      "cccbSetInput {peripheral, side, level}, cccbScroll {peripheral, value}, cccbLinkSource {peripheral, rows?, columns?, powered?, linked?, read?}, cccbLinkTarget {peripheral, lines, line?}",
+  },
+  {
+    id: "create-cc-logistics",
+    name: "Create: CC Total Logistics",
+    // Create 6 logistics: there is no 1.18.2 release
+    versions: { "1.20.1": "0.3.7", "1.21.1": "0.3.6" },
+    types: [
+      "stockcheckingblock",
+      "packageport",
+      "redstonerequester",
+      "clipboard",
+    ],
+    worldKeys: ["createLogistics"],
+    requires: ["create"],
+    docs: "docs/create-cc-logistics.md",
+    commands:
+      "cclAddItems {network, link?, items}, cclRemoveItems {network, link?, name, count?}, cclSetLinkPower {network, link, power}, cclAddLink {network, link}, cclDeliverPackage {port, slot?, address?, items, final?}, cclTakePackage {port, slot}, cclSetClipboard {peripheral, pages}",
+  },
+  {
+    id: "cc-liftlink",
+    name: "CC: LiftLink",
+    // there is no LiftLink for 1.18.2
+    versions: { "1.20.1": "1.0.3", "1.21.1": "1.0.4-neoforge" },
+    types: ["create_elevator"],
+    worldKeys: ["liftlink"],
+    requires: ["create"],
+    docs: "docs/cc-liftlink.md",
+    commands:
+      "liftlinkAssemble {column}, liftlinkDisassemble {column}, liftlinkSetSpeed {column, rpm}, liftlinkPower {column, y, powered?}, liftlinkRename {column, y, shortName?, longName?}, liftlinkAddContact {column, y, shortName?, longName?}, liftlinkRemoveContact {column, y}",
+  },
+  {
+    id: "cc-vs",
+    name: "CC: VS",
+    versions: { "1.18.2": "0.5.1", "1.20.1": "0.6.6" },
+    types: [],
+    worldKeys: ["ccvs"],
+    docs: "docs/cc-vs.md",
+    commands:
+      "ccvsSetShip {ship|null}, ccvsSet {position?, shipyardPosition?, rotation?, velocity?, omega?, scale?, mass?, inertia?, static?, slug?, dimension?, joints?, constraints?, drag?}, ccvsCollision {phase, shipIdA?, shipIdB?, dimensionId?, contactPoints?} (1.20.1)",
+  },
+  {
+    id: "cc-shops",
+    name: "CC Shops",
+    versions: { "1.18.2": "0.0.1", "1.20.1": "0.0.1-fixed" },
+    types: ["shop"],
+    worldKeys: ["ccShops"],
+    docs: "docs/cc-shops.md",
+    commands:
+      "shopPlayerBuy {shop|pos, player, item, uuid?, creativeMode?}, shopSet {shop|pos, stock?, cost?, bar?, stored?, gains?, owner?}, shopSetPlayers {players?, entities?}",
+  },
+  // Mobs with a computer in them (mobs.ts): `world.android` and the like make the computer that mob.
+  {
+    id: "cc-androids",
+    name: "CC: Androids",
+    versions: { "1.20.1": "1.3.0" },
+    types: [],
+    worldKeys: ["android", "androidConfig"],
+    docs: "docs/cc-androids.md",
+    commands:
+      "androidSetHand {hand?, item|null}, androidSetSlot {slot, item|null}, androidSetFuel {fuel}, androidSetHealth {health}, androidTeleport {x, y, z}, " +
+      MOB_COMMANDS,
+  },
+  {
+    id: "ac-drones",
+    name: "AC-Drones",
+    // the 1.21 jar asks for Minecraft 1.21 exactly (fabric.mod.json), so it does not load on 1.21.1
+    versions: { "1.20.1": "1.20.1-alpha-7" },
+    types: [],
+    worldKeys: ["acDrone"],
+    docs: "docs/ac-drones.md",
+    commands:
+      "acDroneSetSlot {slot, item|null}, acDroneSetAccessory {accessory|null, carrying?}, acDroneSetAttachment {slot, attachment|null}, acDroneTeleport {x, y, z, yaw?, pitch?}, " +
+      MOB_COMMANDS,
+  },
+  {
+    id: "cc-drones",
+    name: "CC: Drones",
+    // Modrinth lists 0.0.1 for 1.20.1 to 1.20.6; it is built for 1.20.1
+    versions: { "1.20.1": "0.0.1" },
+    types: ["droneworkbench"],
+    worldKeys: ["drone"],
+    docs: "docs/cc-drones.md",
+    commands:
+      "droneTeleport {x, y, z, yaw?, pitch?}, dronePush {x?, y?, z?}, " +
+      MOB_COMMANDS,
+  },
+  {
+    // A fork of CC: Drones with the same mod id, so a real pack has one or the other. The drone workbench is in
+    // both: with both addons on it is the original's (docs/cc-drones.md).
+    id: "cc-drones-plus",
+    name: "CC: Drones+",
+    versions: { "1.20.1": "0.2.0" },
+    types: ["droneworkbench"],
+    worldKeys: ["dronePlus"],
+    docs: "docs/cc-drones.md",
+    commands:
+      "droneTeleport {x, y, z, yaw?, pitch?}, dronePush {x?, y?, z?}, droneAddUpgrade {upgrade}, droneRemoveUpgrades {}, " +
+      MOB_COMMANDS,
+  },
+  {
+    id: "advanced-math",
+    name: "Advanced Math",
+    // a datapack: one release for every Minecraft version
+    versions: { "1.18.2": "0.3.7", "1.20.1": "0.3.7", "1.21.1": "0.3.7" },
+    types: [],
+    docs: "docs/advanced-math.md",
+  },
+  {
+    id: "lectern-hub",
+    name: "CC: Lectern Hub",
+    // needs CC:Tweaked's pocket computers on lecterns (1.115+): 1.20.1 only
+    versions: { "1.20.1": "1.0.0-1.115.0" },
+    types: ["cc_lectern"],
+    docs: "docs/lectern-hub.md",
+    commands: "lhSetPocket {peripheral, on?, label?, id?}",
+  },
+  {
+    id: "crickets-peripherals",
+    name: "Cricket's Peripherals",
+    versions: { "1.21.1": "0.1.1" },
+    types: ["hard_drive", "data_coprocessor"],
+    worldKeys: ["cricketsPeripherals"],
+    docs: "docs/crickets-peripherals.md",
+  },
+  {
+    id: "cctech",
+    name: "CCTech",
+    // only ever released for 1.18.2
+    versions: { "1.18.2": "0.1.6" },
+    types: [
+      "cassette_deck",
+      "reel_to_reel",
+      "magnetic_card_reader",
+      "card_writer",
+    ],
+    worldKeys: ["cctech"],
+    docs: "docs/cctech.md",
+    commands:
+      "ctSetDoor {peripheral, open}, ctInsert {peripheral, tape?}, ctEject {peripheral}, ctInsertCard {peripheral, card?}, ctEjectCard {peripheral}, ctSwipe {peripheral, uuid?, contents?}",
+  },
+  {
+    id: "embedded-computer",
+    name: "Embedded Computer",
+    versions: { "1.20.1": "0.6.0", "1.21.1": "1.3.0" },
+    types: ["embeddedcomputer", "harddrive"],
+    worldKeys: ["embeddedComputer"],
+    docs: "docs/embedded-computer.md",
+  },
+  {
+    id: "lakes-cc-additions",
+    name: "Lake's CC Additions",
+    versions: { "1.20.1": "1.7.0" },
+    types: ["scanner"],
+    worldKeys: ["lakesCcAdditions"],
+    docs: "docs/lakes-cc-additions.md",
+    commands:
+      "lkSetItem {peripheral, item|null}, lkBiometric {peripheral, player?, uuid?}",
+  },
+  {
+    id: "sc-peripherals",
+    name: "SwitchCraft Peripherals",
+    versions: { "1.20.1": "1.20.1-1.10.5" },
+    types: ["3d_printer", "poster_printer"],
+    worldKeys: ["scPeripherals"],
+    docs: "docs/sc-peripherals.md",
+    commands: "scSetItem {peripheral, slot, item|null}",
+  },
+  {
+    id: "ccsecureboot",
+    name: "CCSecureBoot",
+    // needs CC:Tweaked 1.112+: not on 1.18.2
+    versions: { "1.20.1": "1.0.2", "1.21.1": "1.0.2" },
+    types: [],
+    docs: "docs/ccsecureboot.md",
+  },
+  {
+    id: "ccx",
+    name: "CCX",
+    // 1.21.1's CCX (0.3.x) is a separate code base with no public source: left out
+    versions: { "1.20.1": "6.1.1" },
+    types: ["pcie", "usb_port"],
+    docs: "docs/ccx.md",
+    commands:
+      "ccxSetCard {peripheral, slot, card|null}, ccxSetUsb {peripheral, usb|null}",
+  },
+  {
+    id: "directgpu",
+    name: "CC: DirectGPU",
+    // every release is NeoForge 1.21.1
+    versions: { "1.21.1": "1.0.25" },
+    types: ["directgpu"],
+    docs: "docs/directgpu.md",
+    commands: "dgMouse {peripheral, display, x, y, type?, button?}",
+  },
+  {
+    id: "cide",
+    name: "CIDE",
+    versions: { "1.21.1": "1.1.0" },
+    types: [],
+    docs: "docs/cide.md",
+  },
+  {
+    id: "plethora",
+    name: "Plethora Peripherals",
+    // Lemmmy / SwitchCraft's Fabric port; its releases are all for 1.19.x and 1.20.1
+    versions: { "1.20.1": "1.20.1-1.13.0" },
+    types: [
+      "neuralInterface",
+      "manipulator",
+      "redstone_integrator",
+      // modules as turtle upgrades: TurtleUpgradeModule names the peripheral after the module
+      "plethora:scanner",
+      "plethora:sensor",
+      "plethora:introspection",
+      "plethora:laser",
+    ],
+    worldKeys: ["plethora"],
+    docs: "docs/plethora.md",
+    commands:
+      "plethoraSetModules {peripheral, modules}, plethoraAddEntity {entity}, plethoraMoveEntity {uuid, x?, y?, z?, yaw?, pitch?, health?}, plethoraRemoveEntity {uuid}, " +
+      "plethoraSetPlayer {player, food?, saturation?, heldItemSlot?, health?, slot?, item?, ender?, feet?, legs?, chest?, head?, offhand?, sneaking?, gameMode?, ...}, " +
+      "plethoraSetRedstoneInput {peripheral, side, level?, bundled?}, plethoraSetEnergy {peripheral, energy}; setPlayerPos moves the wearer",
+  },
+  {
+    id: "cc-link",
+    name: "CC: Link",
+    // Forge 1.20.1 only
+    versions: { "1.20.1": "6.2.1" },
+    types: ["link_armor"],
+    worldKeys: ["ccLink"],
+    docs: "docs/cc-link.md",
+    commands:
+      'ccLinkSetPlayer {x?, y?, z?, yaw?, pitch?, food?, saturation?, ...}, ccLinkSetItem {inventory?: "inv"|"ender", slot, item|null}, ccLinkSetUpgrades {upgrades}, ccLinkSetWorld {raining?, thundering?, day?, canSeeSky?, biome?, dimension?}, ccLinkSetEntities {entities}, ccLinkChat {message}',
+  },
+  {
+    id: "finer-peripherals",
+    name: "Finer Peripherals",
+    // Fabric 1.20.1 only. World types are the mod's block and upgrade ids; getType gives the mod's names
+    versions: { "1.20.1": "1.20.1-0.6.1" },
+    types: [
+      "finerperipherals:chatbox",
+      "finerperipherals:chatbox_pocket",
+      "finerperipherals:chatbox_turtle",
+      "finerperipherals:geoexplorer",
+      "finerperipherals:geoexplorer_pocket",
+      "finerperipherals:geoexplorer_turtle",
+      "finerperipherals:player_finder",
+      "finerperipherals:eventrelayer",
+      "finerperipherals:eventrelayer_pocket",
+      "finerperipherals:eventrelayer_turtle",
+      "finerperipherals:holoitemdisplay",
+      "finerperipherals:compass_turtle",
+      "finerperipherals:enderchest_turtle",
+      "finerperipherals:debug_pocket",
+    ],
+    worldKeys: ["finerPeripherals"],
+    docs: "docs/finer-peripherals.md",
+    commands:
+      "finerChat {player, message}, finerSetEnder {slot, item|null}, finerSetOwner {owner}",
+  },
+  {
+    id: "ducky-peripherals",
+    name: "Ducky Peripherals",
+    // 1.18.2 had only a Fabric release (for CC: Restitched); 1.21.1 has none
+    versions: { "1.18.2": "1.0.2", "1.20.1": "1.20.1-1.3.1" },
+    types: ["entity_detector", "weather_machine", "keyboard", "sculkophone"],
+    worldKeys: ["duckyPeripherals"],
+    docs: "docs/ducky-peripherals.md",
+    commands:
+      "duckyAddEntity {peripheral?, entity}, duckyMoveEntity {peripheral?, entity, x?, y?, z?}, duckyRemoveEntity {peripheral?, entity}, duckySetWeather {raining?, thundering?}, duckySetBiome {peripheral?, biome?, temperature?, precipitation?}, " +
+      "duckyKey/duckyKeyUp {peripheral?, key, repeat?}, duckyChar {char}, duckyType {text}, duckyKeyboardEvent {event}, duckyVibration {peripheral?, event, distance}, duckyStepOn {peripheral?}",
+  },
+  {
+    id: "more-peripherals",
+    name: "More Peripherals",
+    // Forge 1.20.1 only here: the 1.18.2 line stopped at 1.18.2-1.8 with a smaller API that is not emulated
+    versions: { "1.20.1": "1.20.1-1.13.0" },
+    types: [
+      "xp_collector",
+      "xp_bottler",
+      "crafter",
+      "loom_interface",
+      "magnetic_card_manipulator",
+      "beehive_interface",
+      "trading_interface",
+      "spawner_interface",
+      "player_interface",
+      "ender_chest_interface",
+      // its "scanner" (Classic Peripherals has one too); peripheral.getType says "scanner"
+      "moreperipherals:scanner",
+      "grinder",
+    ],
+    worldKeys: ["morePeripherals"],
+    docs: "docs/more-peripherals.md",
+    commands:
+      "mpAddXP {peripheral, amount}, mpSetCard {peripheral, card|null}, mpSwipeCard {peripheral, data?}, mpSetBeehive {peripheral, beehive?, beehives?}, mpSetVillager {peripheral, villager|null}, " +
+      "mpSetSpawner {peripheral, mob?|false, spawners?}, mpSetPlayerCard {peripheral, card|null}, mpSetPlayer {player, inventory?, enderChest?, selected?, food?, saturation?, effects?, online?, dimension?}, mpSetScannerItem {peripheral, item|null}",
+  },
+  {
+    id: "classic-peripherals",
+    name: "Classic Peripherals",
+    // 0.5.1 is the last 1.20.1 release (Fabric only); 0.6.x is 1.21.1 only; nothing for 1.18.2
+    versions: { "1.20.1": "0.5.1", "1.21.1": "0.6.6" },
+    types: [
+      "cryptographic_accelerator",
+      "radio_tower",
+      "nfc_reader",
+      "rfid_scanner",
+      // its "scanner" (More Peripherals has one too); peripheral.getType says "scanner"
+      "classicperipherals:scanner",
+    ],
+    worldKeys: ["classicPeripherals"],
+    docs: "docs/classic-peripherals.md",
+    commands:
+      "cpNfcTap {peripheral, card}, cpNfcTapPocket {peripheral, self?|data?, privateKey?}, cpNfcCardToPocket {card}, cpRadioReceive {frequency, data, x?, y?, z?, dimension?, range?}, " +
+      "cpSetRadio {peripheral, valid?, height?, complete?, x?, y?, z?}, cpSetEntities {entities}, cpSetPrintout {peripheral, printout|null}",
+  },
 ];
 
 const BY_ID = new Map(ADDONS.map((a) => [a.id, a]));
@@ -275,6 +667,22 @@ export function addonVersion(
   mc: string = DEFAULT_MC,
 ): string | undefined {
   return addon.versions[mc];
+}
+
+/**
+ * Why an addon cannot be on for a Minecraft version, and what to do: the versions the mod has a release for, and the
+ * three ways to pick one. Every addon without a release somewhere says it the same way.
+ */
+export function noReleaseMessage(addon: AddonInfo, mc: string): string {
+  const has = Object.keys(addon.versions);
+  const pick = has.at(-1) ?? DEFAULT_MC;
+  return (
+    `${addon.name} (addon "${addon.id}") has no release for Minecraft ${mc}; it has ${has
+      .map((v) => `${v} (${addon.name} ${addon.versions[v]})`)
+      .join(", ")}. ` +
+    `Run this world on one of those: world.version "${pick}", --mc ${pick} on the command line, or ` +
+    `CRAFTOS_VERSION=${pick} for every computer; or leave ${addon.name} out`
+  );
 }
 
 /** The addons that exist on a Minecraft version. */
@@ -300,12 +708,12 @@ function parseList(spec: string | readonly string[], mc: string): string[] {
   );
   if (missing.length > 0) {
     throw new Error(
-      `${missing.map((id) => `${BY_ID.get(id)!.name} (addon "${id}")`).join(", ")} has no release for Minecraft ${mc}; ` +
-        `addons on ${mc}: ${
+      `${missing.map((id) => noReleaseMessage(BY_ID.get(id)!, mc)).join(". ")}. ` +
+        `Addons on ${mc}: ${
           addonsFor(mc)
             .map((a) => a.id)
             .join(", ") || "none"
-        }. Leave it out or pick another world.version.`,
+        }.`,
     );
   }
   return ids;
@@ -353,12 +761,22 @@ export function checkWorldAddons(
 ): void {
   const on = new Set(enabled);
   const problems: string[] = [];
-  const absent: string[] = [];
+  // what uses an addon with no release on this version, per addon, so each gets one full explanation
+  const absent = new Map<AddonInfo, string[]>();
+  const noRelease = (addon: AddonInfo, what: string): void => {
+    absent.set(addon, [...(absent.get(addon) ?? []), what]);
+  };
   for (const p of world.peripherals ?? []) {
-    const addon = p.type ? addonOfType(p.type) : undefined;
-    if (addon && !on.has(addon.id)) {
+    // a type two mods share (a fork keeps its parent's blocks) is fine while either of them is on
+    const owners = p.type
+      ? ADDONS.filter((a) => a.types.includes(p.type!))
+      : [];
+    const addon =
+      owners.find((a) => addonVersion(a, mc) !== undefined) ?? owners[0];
+    if (addon && !owners.some((a) => on.has(a.id))) {
       const what = `peripheral ${JSON.stringify(p.name)} is a ${p.type} from ${addon.name} (addon "${addon.id}")`;
-      if (addonVersion(addon, mc) === undefined) absent.push(what);
+      if (addonVersion(addon, mc) === undefined)
+        noRelease(addon, `peripheral ${JSON.stringify(p.name)} (${p.type})`);
       else problems.push(what);
     }
   }
@@ -367,14 +785,20 @@ export function checkWorldAddons(
     for (const key of addon.worldKeys ?? []) {
       if (world[key] !== undefined) {
         const what = `world.${key} configures ${addon.name} (addon "${addon.id}")`;
-        if (addonVersion(addon, mc) === undefined) absent.push(what);
+        if (addonVersion(addon, mc) === undefined)
+          noRelease(addon, `world.${key}`);
         else problems.push(what);
       }
     }
   }
-  if (absent.length > 0) {
+  if (absent.size > 0) {
     throw new Error(
-      `${absent.join("; ")}, which has no release for Minecraft ${mc}. Leave it out or pick another world.version.`,
+      [...absent]
+        .map(
+          ([addon, uses]) =>
+            `${uses.join(" and ")}: ${noReleaseMessage(addon, mc)}.`,
+        )
+        .join(" "),
     );
   }
   if (problems.length > 0) {

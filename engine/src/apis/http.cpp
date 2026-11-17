@@ -36,6 +36,7 @@
 #include "../runtime.hpp"
 #include "../util.hpp"
 #include "handles/http_handle.hpp"
+#include "handles/fs_handle.hpp" // decodeTextFile
 
 #ifdef __ANDROID__
 extern "C" {extern int Android_JNI_SetupThread(void);}
@@ -56,6 +57,7 @@ struct http_param_t {
     std::string old_url;
     bool redirect;
     double timeout;
+    bool binary = false; // craftos-agent: the `binary` argument or field: a binary response handle
 };
 
 struct http_check_t {
@@ -93,7 +95,7 @@ static std::string http_success(lua_State *L, void* data) {
 
     lua_pushstring(L, "read");
     lua_pushvalue(L, -3);
-    lua_pushcclosure(L, http_handle_readByte, 1);
+    lua_pushcclosure(L, http_handle_read, 1);
     lua_settable(L, -3);
 
     lua_pushstring(L, "seek");
@@ -145,7 +147,7 @@ static std::string http_failure(lua_State *L, void* data) {
 
         lua_pushstring(L, "read");
         lua_pushvalue(L, -3);
-        lua_pushcclosure(L, http_handle_readByte, 1);
+        lua_pushcclosure(L, http_handle_read, 1);
         lua_settable(L, -3);
 
         lua_pushstring(L, "seek");
@@ -324,17 +326,34 @@ downloadThread_entry:
         }
         http_handle_t * handle;
         try {
-            if (config.standardsMode) {
-                // Fix seeking by reading the entire data into a stringstream
+            {
+                // craftos-agent: the whole body, in memory, on every run (CraftOS-PC did this in standards mode only,
+                // "to fix seeking"). CC:Tweaked hands a program a handle over a byte array, so read(n) gives n bytes;
+                // a handle over the socket gave what had arrived. A text handle on CC:Tweaked before 1.109 decodes
+                // the body as UTF-8 (EncodedReadableHandle); from 1.109 on text and binary handles hold the same bytes.
                 std::istream& instream = session->receiveResponse(*response);
-                std::stringstream * ss = new std::stringstream;
+                std::string body;
                 while (!instream.eof()) {
                     char buf[4096];
                     instream.read(buf, 4096);
-                    ss->write(buf, instream.gcount());
+                    if (instream.gcount() <= 0) break;
+                    body.append(buf, (size_t)instream.gcount());
                 }
-                handle = new http_handle_t(ss);
-            } else handle = new http_handle_t(&session->receiveResponse(*response));
+                if (!param->binary && !ccAtLeast(param->comp, 1, 109, 0)) {
+                    // HttpUtil.getCharset: the charset the Content-Type header names, UTF-8 without one. ISO-8859-1
+                    // maps every byte to the character of that number, which is the body as it is.
+                    std::string type = response->get("Content-Type", "");
+                    for (char& ch : type) ch = (char)std::tolower((unsigned char)ch);
+                    const size_t at = type.find("charset=");
+                    std::string charset = at == std::string::npos ? "" : type.substr(at + 8);
+                    charset = charset.substr(0, charset.find(';'));
+                    charset.erase(std::remove_if(charset.begin(), charset.end(), [](char ch) { return ch == '"' || ch == ' '; }), charset.end());
+                    if (charset != "iso-8859-1" && charset != "latin1") body = decodeTextFile(body);
+                }
+                handle = new http_handle_t(new std::stringstream(body));
+                handle->owned = true;
+                handle->binary = param->binary;
+            }
         } catch (Poco::TimeoutException &e) {
             http_handle_t * err = new http_handle_t(NULL);
             err->url = param->url;
@@ -358,7 +377,7 @@ downloadThread_entry:
             err->url = param->url;
             err->failureReason = "Response is too large";
             queueEvent(param->comp, http_failure, err);
-            if (config.standardsMode) delete (std::stringstream*)handle->stream;
+            if (handle->owned) delete (std::stringstream*)handle->stream;
             delete handle;
             delete response;
             delete session;
@@ -373,7 +392,7 @@ downloadThread_entry:
                 if (location[0] == '/') location = uri.getScheme() + "://" + uri.getHost() + location;
                 else location = uri.getScheme() + "://" + uri.getHost() + path.substr(0, path.find('?')) + "/" + location;
             }
-            if (config.standardsMode) delete (std::stringstream*)handle->stream;
+            if (handle->owned) delete (std::stringstream*)handle->stream;
             delete handle->handle;
             delete handle->session;
             delete handle;
@@ -526,6 +545,9 @@ static int http_request(lua_State *L) {
         else if (lua_isnumber(L, -1)) param->timeout = lua_tonumber(L, -1);
         else param->timeout = 0;
         lua_pop(L, 1);
+        lua_getfield(L, 1, "binary");
+        param->binary = lua_toboolean(L, -1);
+        lua_pop(L, 1);
     } else {
         param->url = checkstring(L, 1);
         param->old_url = param->url;
@@ -542,6 +564,7 @@ static int http_request(lua_State *L) {
             }
             lua_pop(L, 1);
         }
+        param->binary = lua_toboolean(L, 4);
         param->method = luaL_optstring(L, 5, "");
         param->redirect = !lua_isboolean(L, 6) || lua_toboolean(L, 6);
         param->timeout = 0;

@@ -114,7 +114,7 @@ local problem = kit.run(function()
   play(6, 3, 5, 4)
   seen.selected = nil
   kit.tapCell(7, 6) -- another Red piece: it has no legal move while a jump is on offer
-  seen.mustJump = kit.S.toast and kit.S.toast.text
+  seen.mustJump = kit.toast()
   play(4, 5, 6, 3)
   local s = kit.S.match.state
   seen.afterJump = { pieces = { s.pieces[1], s.pieces[2] }, turn = s.turn, at = s.board[3][6] }

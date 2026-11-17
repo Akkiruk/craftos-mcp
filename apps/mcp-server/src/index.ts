@@ -19,6 +19,10 @@ import {
   holdKey,
   touchMonitorAs,
   checkConfig,
+  cleanStaleRuntime,
+  measureWorkspace,
+  MAX_COPY_BYTES,
+  MAX_COPY_FILES,
   ADDONS,
   DEFAULT_MC,
   VERSIONS,
@@ -54,28 +58,133 @@ import {
   runProgram,
   runTests,
   writeWorkspaceFile,
+  WORLD_KEYS,
+  checkProgram,
+  checkTestPaths,
+  checkWorld,
 } from "@craftos-mcp/runner";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  ResourceTemplate,
+  type RegisteredTool,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { CCUNIT_GUIDE, GUIDE, INSTRUCTIONS } from "./guide.js";
 import { startViewer } from "./viewer.js";
 
 const config = loadConfig();
 const sessions = new SessionManager(config);
+// scratch folders of runs whose process died (a crash, a kill): in the background, never one a live process owns
+void cleanStaleRuntime(config).catch(() => undefined);
+/** The clone, or the installed package (it keeps the clone's layout): docs/, worlds/ and workspace/examples/. */
+const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
+/** Every computer's copy of the workspace, said once in the tools that start one. */
+const COPY_NOTE =
+  " The computer gets a copy of the workspace (without .git, node_modules, .runtime and what .gitignore ignores); for a big workspace give world.deploy to copy only some folders.";
 
 let lastRun: { label: string; screens: ScreenCapture[] } | undefined;
 
-const server = new McpServer({
-  name: "craftos-mcp",
-  version: packageVersion() ?? "0.1.0",
-});
+const server = new McpServer(
+  {
+    name: "craftos-mcp",
+    version: packageVersion() ?? "0.1.0",
+  },
+  { instructions: INSTRUCTIONS },
+);
+
+/**
+ * Which tools the server offers (CRAFTOS_TOOLS): "all" (the default, every tool) or "core", the ones a normal
+ * write-run-test loop and UI checks need, for clients that pay for every tool in every request. The rest stay
+ * reachable by setting CRAFTOS_TOOLS=all; what they do is covered by the core ones (act covers type/key/touch, expect
+ * covers wait_for_text, ui covers read_terminal, sim_command covers seed/advance).
+ */
+export const CORE_TOOLS = new Set([
+  "craftos_info",
+  "craftos_help",
+  "craftos_write_file",
+  "craftos_read_file",
+  "craftos_run",
+  "craftos_test",
+  "craftos_session_create",
+  "craftos_session_destroy",
+  "craftos_session_list",
+  "craftos_ui",
+  "craftos_act",
+  "craftos_expect",
+  "craftos_script",
+  "craftos_sim_command",
+  "craftos_sim_state",
+  "craftos_screenshot",
+  "craftos_network_create",
+]);
+const toolSet = (process.env["CRAFTOS_TOOLS"] ?? "all").trim().toLowerCase();
+if (!["all", "full", "core", ""].includes(toolSet))
+  console.error(
+    `craftos-mcp: CRAFTOS_TOOLS=${toolSet} is not "core" or "all"; offering all tools`,
+  );
+const registered: [string, RegisteredTool][] = [];
+/** server.registerTool, remembering each tool so CRAFTOS_TOOLS=core can take the extra ones away again. */
+/** Tools that only look (clients may skip asking before them), and the ones that change or remove what is there. */
+const READ_ONLY = new Set([
+  "craftos_info",
+  "craftos_help",
+  "craftos_read_file",
+  "craftos_list_files",
+  "craftos_session_list",
+  "craftos_ui",
+  "craftos_sim_state",
+  "craftos_read_terminal",
+  "craftos_screenshot",
+  "craftos_trace",
+]);
+const DESTRUCTIVE = new Set(["craftos_write_file", "craftos_session_destroy"]);
+const tool = ((name: string, toolConfig: object, cb: never) => {
+  const annotations = READ_ONLY.has(name)
+    ? { readOnlyHint: true }
+    : name.startsWith("craftos_")
+      ? { destructiveHint: DESTRUCTIVE.has(name), openWorldHint: false }
+      : undefined;
+  const made = server.registerTool(
+    name,
+    (annotations ? { ...toolConfig, annotations } : toolConfig) as never,
+    cb,
+  );
+  registered.push([name, made]);
+  return made;
+}) as typeof server.registerTool;
 
 type Content =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
 
+// compact JSON: results go into an agent's context, and indentation is a third of their size
 const text = (value: unknown): Content => ({
   type: "text",
-  text: typeof value === "string" ? value : JSON.stringify(value, null, 2),
+  text: typeof value === "string" ? value : JSON.stringify(value),
 });
+
+/** Screens as results show them: lines stop at the last non-blank one (height still says how many there are). */
+function trimScreens<T extends { lines: string[] }>(
+  screens: T[],
+  full = false,
+): T[] {
+  if (full) return screens;
+  return screens.map((s) => {
+    let end = s.lines.length;
+    while (end > 0 && s.lines[end - 1] === "") end--;
+    return end === s.lines.length ? s : { ...s, lines: s.lines.slice(0, end) };
+  });
+}
+
+const fullScreensSchema = z
+  .boolean()
+  .default(false)
+  .describe(
+    "Keep every line, trailing blank ones too (default: lines stop at the last non-blank one).",
+  );
 
 /** Screens as text, with PNGs split out into image content blocks. */
 function screensToContent(screens: ScreenCapture[]): Content[] {
@@ -217,11 +326,13 @@ const worldSchema = z
         moonPhase: z.number().int().min(0).max(7).optional(),
         dimensions: z.array(z.string()).optional(),
         seed: z
-          .number()
-          .int()
+          .union([z.number().int(), z.string()])
           .optional()
-          .describe("World seed for isSlimeChunk (default 0)."),
+          .describe(
+            "World seed for isSlimeChunk (default 0); a long past 2^53 as a decimal string.",
+          ),
       })
+      .passthrough()
       .optional()
       .describe("World facts for environmentDetector peripherals."),
     entities: z
@@ -232,6 +343,7 @@ const worldSchema = z
       .describe("Living entities visible to environmentDetector.scanEntities."),
     ap: z
       .object({ config: z.record(z.string(), z.unknown()).optional() })
+      .passthrough()
       .optional()
       .describe("Overrides of the Advanced Peripherals server config."),
     turtle: z
@@ -316,28 +428,125 @@ const worldSchema = z
       .describe(
         "Pin math.random to this seed (later math.randomseed calls by the program are ignored), so shuffles and dice are reproducible.",
       ),
+    deploy: z
+      .array(
+        z.object({
+          from: z.string().describe("Workspace-relative folder or file."),
+          to: z
+            .string()
+            .optional()
+            .describe("Computer-relative target; default the root."),
+        }),
+      )
+      .optional()
+      .describe(
+        'Put only these workspace folders or files on the computer, as an installer does, instead of a copy of the whole workspace. Use it when the workspace is big (a repo root): [{"from": "src"}] puts src\'s contents at the root. Later entries win; .gitignore does not apply to what is named here.',
+      ),
   })
+  // every other world field (mekanism, create, deploy, simProgram, ...: schemas/world.schema.json) goes through as it is
+  .passthrough()
   .optional()
   .describe(
     "Simulated world around the computer: players, virtual inventories, Advanced Peripherals and Mekanism blocks, modems, environment, and a turtle's block world.",
+  );
+
+/** The world's JSON Schema with every field described: craftos_help {topic:"world"} and craftos://schema/world. */
+function worldJsonSchema(): unknown {
+  return z.toJSONSchema(worldSchema.unwrap(), { unrepresentable: "any" });
+}
+
+/**
+ * What the tools that start a computer take as `world`: any object, checked by the server (resolveWorld) against the
+ * full schema above. The full schema is about 8k characters; repeated in four tools it was half the tool list, so the
+ * tools carry this one line and the schema is served once, on request.
+ */
+const worldArg = z
+  .object({})
+  .passthrough()
+  .optional()
+  .describe(
+    `The world around the computer (an object). Fields: ${WORLD_KEYS.filter((k) => !["modemLink", "placed"].includes(k)).join(", ")}; e.g. {"peripherals":[{"name":"chest_0","type":"minecraft:chest","size":27}],"deploy":[{"from":"src"}]}. ` +
+      'Every field with its options: craftos_help {topic:"world"} (or the craftos://schema/world resource). Checked before boot: a wrong key or peripheral type comes back as an error with a suggestion.',
   );
 
 const worldFileSchema = z
   .string()
   .optional()
   .describe(
-    'Name of a saved world in the worlds folder (for example "phoneos"). Fields in `world` override it.',
+    'A saved world: a name in the worlds folder (e.g. "advanced-peripherals-demo") or a workspace path to a .json file (e.g. "door.world.json"). Fields in `world` override it.',
   );
 
+/** The saved worlds' names, for error messages and craftos_help. */
+function worldNames(): string[] {
+  try {
+    return readdirSync(config.worldsDir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.slice(0, -5))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function loadWorldFile(worldFile: string): WorldConfig {
+  if (/\.json$/i.test(worldFile)) {
+    const path = resolveInWorkspace(config.workspaceDir, worldFile);
+    if (!existsSync(path))
+      throw new Error(
+        `worldFile: no file ${worldFile} in the workspace ${config.workspaceDir}`,
+      );
+    try {
+      return JSON.parse(readFileSync(path, "utf8")) as WorldConfig;
+    } catch (error) {
+      throw new Error(`worldFile ${worldFile}: ${(error as Error).message}`);
+    }
+  }
+  try {
+    return loadNamedWorld(config.worldsDir, worldFile);
+  } catch (error) {
+    const names = worldNames();
+    throw new Error(
+      `worldFile: no saved world named "${worldFile}". ` +
+        (names.length
+          ? `Saved worlds: ${names.join(", ")}.`
+          : "There are no saved worlds.") +
+        " A workspace file works too: give its path, ending in .json.",
+      { cause: error },
+    );
+  }
+}
+
+/** A world from `worldFile` plus `world`, checked before anything boots: throws on errors, returns the warnings. */
 function resolveWorld(
   world: unknown,
   worldFile: string | undefined,
+  warnings: string[] = [],
+  where = "world",
 ): WorldConfig | undefined {
-  const base = worldFile
-    ? loadNamedWorld(config.worldsDir, worldFile)
-    : undefined;
+  const base = worldFile ? loadWorldFile(worldFile) : undefined;
   if (!base && !world) return undefined;
-  return { ...base, ...(world as WorldConfig | undefined) };
+  const merged = { ...base, ...(world as WorldConfig | undefined) };
+  const problems: string[] = [];
+  const typed = worldSchema.safeParse(merged);
+  if (!typed.success)
+    for (const issue of typed.error.issues)
+      problems.push(
+        `${[where, ...issue.path].join(".").replace(/\.(\d+)(?=\.|$)/g, "[$1]")}: ${issue.message}`,
+      );
+  const check = checkWorld(merged);
+  problems.push(
+    ...check.errors.map((e) =>
+      where === "world" ? e : e.replace(/^world\b/, where),
+    ),
+  );
+  if (problems.length)
+    throw new Error(
+      problems.length === 1
+        ? problems[0]!
+        : `the world has ${problems.length} problems:\n- ${problems.join("\n- ")}`,
+    );
+  warnings.push(...check.warnings);
+  return merged;
 }
 
 const monitorSchema = z.object({
@@ -373,12 +582,13 @@ const timeScaleSchema = z
     "Virtual clock speed. 10 makes sleep(), os.clock() and os.epoch() run 10x faster than real time, so slow scripts finish quickly. timeoutMs stays in real time.",
   );
 
-/** craftos_info's version part: the default version (CRAFTOS_VERSION, else 1.18.2), its ROM and addons, and every version. */
+/** craftos_info's version part: the default version (CRAFTOS_VERSION, else DEFAULT_MC), its ROM and addons, and every version. */
 function infoVersion(): Record<string, unknown> {
   const report = versionReport();
   let rom = config.romDir;
   let mc = DEFAULT_MC;
-  let computercraft = "CC:Tweaked 1.101.3 (Minecraft 1.18.2)";
+  let computercraft =
+    "unknown: CRAFTOS_VERSION is invalid (see versions.source)";
   try {
     const v = resolveVersion(undefined);
     rom = romDirFor(config, v);
@@ -398,7 +608,7 @@ function infoVersion(): Record<string, unknown> {
   };
 }
 
-server.registerTool(
+tool(
   "craftos_info",
   {
     description:
@@ -411,14 +621,47 @@ server.registerTool(
         ...infoVersion(),
         engine: config.engineExe,
         workspace: config.workspaceDir,
-        problems: checkConfig(config),
+        problems: [...checkConfig(config), ...(await workspaceProblems())],
         sessions: sessions.list(),
+        tools:
+          toolSet === "core"
+            ? "core (CRAFTOS_TOOLS=all for every tool)"
+            : "all",
       }),
     ],
   }),
 );
 
-server.registerTool(
+/** craftos_info's warning when every computer would get a huge copy of the workspace (a repo root, a home folder). */
+async function workspaceProblems(): Promise<string[]> {
+  try {
+    const size = await measureWorkspace(config.workspaceDir, {
+      exclude: [config.runtimeDir],
+    });
+    const problems: string[] = [];
+    const fix =
+      'Set CRAFTOS_WORKSPACE (or the folder the server starts in) to the folder with your programs, or give each world a deploy list ({"deploy": [{"from": "src"}]}).';
+    if (size.tooBig)
+      problems.push(
+        `the workspace ${config.workspaceDir} is too big to copy onto a computer (over ${MAX_COPY_FILES} files or ${MAX_COPY_BYTES / 1e6} MB, after skipping ${COPY_SKIP_NOTE}): runs without a deploy list fail. ${fix}`,
+      );
+    else if (size.bytes > 25_000_000)
+      problems.push(
+        `the workspace copies ${Math.round(size.bytes / 1e6)} MB onto every computer, more than a real computer's 25 MB disk. ${fix}`,
+      );
+    if (size.skippedHeavy.includes("node_modules"))
+      problems.push(
+        `the workspace ${config.workspaceDir} holds ${size.skippedHeavy.join(", ")}: it looks like a project root, not a folder of Lua programs. Those folders are skipped, but the rest of the project is still copied onto every computer. ${fix}`,
+      );
+    return problems;
+  } catch (error) {
+    return [`could not read the workspace: ${(error as Error).message}`];
+  }
+}
+const COPY_SKIP_NOTE =
+  ".git, node_modules, .runtime and what .gitignore ignores";
+
+tool(
   "craftos_write_file",
   {
     description:
@@ -437,7 +680,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_read_file",
   { description: "Read a workspace file.", inputSchema: { path: z.string() } },
   async ({ path }) => {
@@ -449,7 +692,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_list_files",
   {
     description: "List files in the workspace recursively.",
@@ -464,45 +707,78 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_run",
   {
     description:
-      "Run a workspace program in a fresh emulated CC:Tweaked computer, optionally with monitors attached, and return its exit status plus the final text of the terminal and every monitor. Set screenshots to also get PNG images. Pass snapshot to compare the screens against a golden file.",
+      "Run a workspace program in a fresh emulated CC:Tweaked computer, optionally with monitors attached, and return its exit status (completed, program_failed, timed_out) plus the final text of the terminal and every monitor; a failed program also gets error {kind, message, file, line}. Set screenshots to also get PNG images. Pass snapshot to compare the screens against a golden file. timeoutMs covers copying the workspace too; a run that outlasts it comes back with status timed_out (normal for a program that waits for input forever)." +
+      COPY_NOTE,
     inputSchema: {
       program: z
         .string()
-        .describe('Workspace-relative path, e.g. "hello.lua".'),
-      args: z.array(z.string()).default([]),
-      monitors: z.array(monitorSchema).default([]),
-      timeoutMs: z.number().int().min(100).default(30000),
+        .describe(
+          'Workspace-relative path, e.g. "hello.lua" (as on the computer, so a deploy list\'s target path).',
+        ),
+      args: z
+        .array(z.string())
+        .default([])
+        .describe("The program's arguments."),
+      monitors: z
+        .array(monitorSchema)
+        .default([])
+        .describe("Monitors attached before it starts."),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(100)
+        .default(30000)
+        .describe("Real time before the run stops as timed_out."),
       timeScale: timeScaleSchema,
-      world: worldSchema,
+      world: worldArg,
       worldFile: worldFileSchema,
-      screenshots: z.boolean().default(false),
-      scale: z.number().int().min(1).max(8).default(2),
+      screenshots: z
+        .boolean()
+        .default(false)
+        .describe("Also return a PNG of every screen."),
+      scale: z
+        .number()
+        .int()
+        .min(1)
+        .max(8)
+        .default(2)
+        .describe("PNG pixels per screen pixel."),
       snapshot: z
         .object({ name: z.string(), update: z.boolean().default(false) })
         .optional()
         .describe(
           "Compare final screens with __snapshots__/<name>.json (created on first use).",
         ),
+      fullScreens: fullScreensSchema,
     },
   },
-  async ({
-    program,
-    args,
-    monitors,
-    timeoutMs,
-    timeScale,
-    world,
-    worldFile,
-    screenshots,
-    scale,
-    snapshot,
-  }) => {
+  async (
+    {
+      program,
+      args,
+      monitors,
+      timeoutMs,
+      timeScale,
+      world,
+      worldFile,
+      screenshots,
+      scale,
+      snapshot,
+      fullScreens,
+    },
+    extra,
+  ) => {
     try {
-      resolveInWorkspace(config.workspaceDir, program);
+      resolveInWorkspace(config.workspaceDir, program.trim().split(/\s+/)[0]!);
+      const warnings: string[] = [];
+      const resolved = resolveWorld(world, worldFile, warnings);
+      // a program that is not there fails here, before a computer boots to say "No such program"
+      const missing = checkProgram(config, program, resolved);
+      if (missing) return failure(missing);
       // Always render PNGs so the web viewer can show the last run; only return them on request.
       const result = await runProgram(config, {
         program,
@@ -510,9 +786,10 @@ server.registerTool(
         monitors,
         timeoutMs,
         timeScale,
-        world: resolveWorld(world, worldFile),
+        world: resolved,
         screenshots: true,
         scale,
+        signal: extra.signal,
       });
       const snapshotResult = snapshot
         ? compareSnapshot(
@@ -528,12 +805,17 @@ server.registerTool(
         label: `${program} (${result.status})`,
         screens: result.screens,
       };
+      // empty fields add nothing an agent can use
+      const { stderr, messages, ...core } = rest;
       return {
         content: [
           text({
-            ...rest,
-            screens: stripPng(screens),
-            snapshot: snapshotResult,
+            ...core,
+            ...(stderr ? { stderr } : {}),
+            ...(messages.length ? { messages } : {}),
+            ...(warnings.length ? { warnings } : {}),
+            screens: trimScreens(stripPng(screens), fullScreens),
+            ...(snapshotResult ? { snapshot: snapshotResult } : {}),
           }),
           ...(screenshots ? screensToContent(screens) : []),
         ],
@@ -544,11 +826,12 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_test",
   {
     description:
-      'Run *.test.lua files. Inside a test file use the global `ccunit`: ccunit.test(name, fn), ccunit.eq(actual, expected), ccunit.truthy(v), ccunit.raises(fn, pattern). Each file runs in its own fresh computer; peripherals can be attached with "monitors".',
+      'Run *.test.lua files. Inside a test file use the global `ccunit`: test(name, fn [, {timeout}]), eq, neq, near, contains, truthy, raises(fn, pattern), skip, and run(program, {seconds|script, args}) / screen(monitor?) / touch(monitor, x, y) to drive a program and read its screens (craftos_help {topic:"ccunit"}). Each file runs in its own fresh computer; peripherals can be attached with "monitors". timeoutMs is per file and covers copying the workspace; a file that hangs keeps the tests it finished and names the one it was in.' +
+      COPY_NOTE,
     inputSchema: {
       paths: z
         .array(z.string())
@@ -557,20 +840,35 @@ server.registerTool(
       monitors: z.array(monitorSchema).default([]),
       timeoutMs: z.number().int().min(100).default(30000),
       timeScale: timeScaleSchema,
-      world: worldSchema,
+      world: worldArg,
       worldFile: worldFileSchema,
     },
   },
-  async ({ paths, monitors, timeoutMs, timeScale, world, worldFile }) => {
+  async (
+    { paths, monitors, timeoutMs, timeScale, world, worldFile },
+    extra,
+  ) => {
     try {
+      const warnings: string[] = [];
+      const resolved = resolveWorld(world, worldFile, warnings);
+      const missing = checkTestPaths(config, paths);
+      if (missing.length) return failure(missing.join("\n"));
       const result = await runTests(config, {
         paths,
         monitors,
         timeoutMs,
         timeScale,
-        world: resolveWorld(world, worldFile),
+        world: resolved,
+        signal: extra.signal,
       });
-      return { isError: result.failed > 0, content: [text(result)] };
+      if (result.files.length === 0)
+        return failure(
+          `no *.test.lua files under ${paths.length ? paths.join(", ") : `the workspace ${config.workspaceDir}`}`,
+        );
+      return {
+        isError: result.failed > 0,
+        content: [text(warnings.length ? { ...result, warnings } : result)],
+      };
     } catch (error) {
       return failure(error);
     }
@@ -581,27 +879,38 @@ server.registerTool(
 
 const sessionId = z.string().describe("Id returned by craftos_session_create.");
 
-server.registerTool(
+tool(
   "craftos_session_create",
   {
     description:
-      'Start a persistent emulated computer you can type into, click on and watch. Monitors are attached before the shell starts. Workspace files are at the computer\'s root. Returns once the computer has booted, with front: "shell" (the prompt is up) or "program" (startup.lua started a program that is in front, so there is no prompt).',
+      'Start a persistent emulated computer you can type into, click on and watch. Monitors are attached before the shell starts. Workspace files are at the computer\'s root. Returns once the computer has booted, with front: "shell" (the prompt is up) or "program" (startup.lua started a program that is in front, so there is no prompt).' +
+      COPY_NOTE,
     inputSchema: {
       monitors: z.array(monitorSchema).default([]),
       timeScale: timeScaleSchema,
-      world: worldSchema,
+      world: worldArg,
       worldFile: worldFileSchema,
     },
   },
-  async ({ monitors, timeScale, world, worldFile }) => {
+  async ({ monitors, timeScale, world, worldFile }, extra) => {
     try {
-      const session = sessions.create(
+      const warnings: string[] = [];
+      const session = await sessions.createAsync(
         monitors,
         timeScale,
-        resolveWorld(world, worldFile),
+        resolveWorld(world, worldFile, warnings),
+        extra.signal,
       );
       const front = await waitForBoot(session.handle.session);
-      return { content: [text({ ...sessions.summarize(session), front })] };
+      return {
+        content: [
+          text({
+            ...sessions.summarize(session),
+            front,
+            ...(warnings.length ? { warnings } : {}),
+          }),
+        ],
+      };
     } catch (error) {
       return failure(error);
     }
@@ -617,7 +926,7 @@ const blockSchema = z.object({
 
 const networks = new Map<string, ComputerNetwork>();
 
-server.registerTool(
+tool(
   "craftos_network_create",
   {
     description:
@@ -631,7 +940,9 @@ server.registerTool(
               .optional()
               .describe("Name for this computer; default its id."),
             monitors: z.array(monitorSchema).default([]),
-            world: worldSchema,
+            world: worldArg.describe(
+              "This computer's world, as craftos_run's `world`.",
+            ),
             worldFile: worldFileSchema,
           }),
         )
@@ -657,17 +968,27 @@ server.registerTool(
       timeScale: timeScaleSchema,
     },
   },
-  async ({ computers, wired, timeScale }) => {
+  async ({ computers, wired, timeScale }, extra) => {
     try {
-      const linked = sessions.createNetwork({
-        computers: computers.map((c) => ({
-          ...(c.name === undefined ? {} : { name: c.name }),
-          monitors: c.monitors,
-          world: resolveWorld(c.world, c.worldFile) ?? {},
-        })),
-        ...(wired ? { wired: wired as WiredNetworkSpec[] } : {}),
-        timeScale,
-      });
+      const warnings: string[] = [];
+      const linked = await sessions.createNetworkAsync(
+        {
+          computers: computers.map((c, i) => ({
+            ...(c.name === undefined ? {} : { name: c.name }),
+            monitors: c.monitors,
+            world:
+              resolveWorld(
+                c.world,
+                c.worldFile,
+                warnings,
+                `computers[${i}].world`,
+              ) ?? {},
+          })),
+          ...(wired ? { wired: wired as WiredNetworkSpec[] } : {}),
+          timeScale,
+        },
+        extra.signal,
+      );
       const id = randomUUID().slice(0, 8);
       networks.set(id, linked.network);
       await Promise.all(
@@ -678,14 +999,22 @@ server.registerTool(
       const ids = Object.fromEntries(
         Object.entries(linked.computers).map(([name, c]) => [name, c.id]),
       );
-      return { content: [text({ network: id, sessions: ids })] };
+      return {
+        content: [
+          text({
+            network: id,
+            sessions: ids,
+            ...(warnings.length ? { warnings } : {}),
+          }),
+        ],
+      };
     } catch (error) {
       return failure(error);
     }
   },
 );
 
-server.registerTool(
+tool(
   "craftos_network_update",
   {
     description:
@@ -767,7 +1096,7 @@ const SIM_COMMANDS = [
   "resizeMonitor",
 ] as const;
 
-server.registerTool(
+tool(
   "craftos_sim_command",
   {
     description: `Change the simulated world while a session runs. Commands: addPlayer {name}, join/leave {player}, setPlayerPos {player, x, y, z, dimension?}, setComputerPos {x?, y?, z?, dimension?} (move this computer, modems included; on a network use craftos_network_update), unload / load (the computer's chunk unloads and it stops; load boots it afresh), chat {player, message} (fires a chat event), playerClick {player}, setItem {peripheral, slot, item|null}, setEnergy {peripheral, energy} (what a generic energy_storage holds), setFluid {peripheral, tank? (1-based, default 1), fluid {name, amount}|null} (what one tank holds), setEnergyTransferRate {peripheral, rate}, setRedstoneInput {peripheral, side, level}, completeCraft {peripheral, name?} (finish an ME/RS crafting job), setNetworkConnected {peripheral, connected}, setEnvironment {values:{time, raining, thunder, ...}}, addEntity {entity}, attachPeripheral / detachPeripheral / resizeMonitor, Mekanism QIO: qioSetPowered {block, powered}, qioSetDrive {block, slot, drive|null}, qioSetSecurity {block, mode}, qioSetUpgrades {block, speed}, qioInsert/qioExtract {frequency, item}, Quantum Entangloporter: qeInsert {frequency, item, public?, owner?}, qeExtract {frequency, count?}, qeSetLoaded {block, loaded} (see docs/mekanism-qio.md), seed {value} (pin math.random), advance {seconds} (jump the virtual clock and fire due timers). Returns the sim state, or with delta:true only what changed. Commands are applied when the program next waits for an event; this call returns once they are.`,
@@ -810,7 +1139,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_sim_state",
   {
     description:
@@ -828,13 +1157,13 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_session_list",
   { description: "List live sessions." },
   async () => ({ content: [text(sessions.list())] }),
 );
 
-server.registerTool(
+tool(
   "craftos_session_destroy",
   {
     description: "Stop a session and delete its scratch data.",
@@ -850,7 +1179,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_type",
   {
     description:
@@ -873,7 +1202,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_key",
   {
     description:
@@ -913,7 +1242,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_touch_monitor",
   {
     description:
@@ -936,7 +1265,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_ui",
   {
     description:
@@ -1043,7 +1372,7 @@ const expectationSchema = z
     "One check; give exactly one of rect, text, waiting, sim or changed.",
   );
 
-server.registerTool(
+tool(
   "craftos_expect",
   {
     description:
@@ -1143,7 +1472,7 @@ const stepSchema = z
     "One step: exactly one of touch, key, text, expect, advance, sim, seed or settle.",
   );
 
-server.registerTool(
+tool(
   "craftos_script",
   {
     description:
@@ -1175,7 +1504,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_labels",
   {
     description:
@@ -1225,7 +1554,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_trace",
   {
     description:
@@ -1252,7 +1581,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_seed",
   {
     description:
@@ -1280,7 +1609,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_advance",
   {
     description:
@@ -1316,7 +1645,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_settle",
   {
     description:
@@ -1340,7 +1669,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_act",
   {
     description:
@@ -1391,7 +1720,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_send_event",
   {
     description:
@@ -1414,7 +1743,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_wait_for_text",
   {
     description:
@@ -1444,22 +1773,26 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+tool(
   "craftos_read_terminal",
   {
     description: "Read the current text of the terminal and every monitor.",
-    inputSchema: { id: sessionId },
+    inputSchema: { id: sessionId, fullScreens: fullScreensSchema },
   },
-  async ({ id }) => {
+  async ({ id, fullScreens }) => {
     try {
-      return { content: [text(stripPng(sessions.screens(id)))] };
+      return {
+        content: [
+          text(trimScreens(stripPng(sessions.screens(id)), fullScreens)),
+        ],
+      };
     } catch (error) {
       return failure(error);
     }
   },
 );
 
-server.registerTool(
+tool(
   "craftos_screenshot",
   {
     description:
@@ -1473,13 +1806,273 @@ server.registerTool(
     try {
       const screens = sessions.screens(id, { png: true, scale });
       return {
-        content: [text(stripPng(screens)), ...screensToContent(screens)],
+        content: [
+          text(trimScreens(stripPng(screens))),
+          ...screensToContent(screens),
+        ],
       };
     } catch (error) {
       return failure(error);
     }
   },
 );
+
+// ---- help, resources and prompts ------------------------------------------
+
+/** Public docs that ship with the package (docs/*.md), by name without .md. */
+function docNames(): string[] {
+  try {
+    return readdirSync(join(REPO_ROOT, "docs"))
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => f.slice(0, -3))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+const EXAMPLES_DIR = join(REPO_ROOT, "workspace", "examples");
+/** Example programs that ship with the package, as paths under workspace/examples. */
+function exampleFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(lua|md|json)$/.test(name))
+        out.push(relative(EXAMPLES_DIR, full).split("\\").join("/"));
+    }
+  };
+  walk(EXAMPLES_DIR);
+  return out.sort();
+}
+
+const HELP_TOPICS = ["guide", "world", "ccunit", "worlds", "docs"] as const;
+
+function helpText(topic: (typeof HELP_TOPICS)[number]): string {
+  switch (topic) {
+    case "guide":
+      return GUIDE;
+    case "world":
+      return JSON.stringify(worldJsonSchema());
+    case "ccunit":
+      return CCUNIT_GUIDE;
+    case "worlds":
+      return `Saved worlds (worldFile: "<name>"): ${worldNames().join(", ") || "none"}. A workspace .json file works too (worldFile: "door.world.json").`;
+    case "docs":
+      return `Docs (resource craftos://docs/<name>): ${docNames().join(", ") || "none"}. Examples (craftos://examples/<path>): ${exampleFiles().slice(0, 80).join(", ") || "none"}.`;
+  }
+}
+
+tool(
+  "craftos_help",
+  {
+    description:
+      'How to use this server, on request: topic "guide" (the workflow and the facts that bite), "world" (the full JSON Schema of `world`, every field described), "ccunit" (the test API), "worlds" (saved worlds for worldFile), "docs" (docs and examples to read).',
+    inputSchema: { topic: z.enum(HELP_TOPICS).default("guide") },
+  },
+  async ({ topic }) => ({ content: [text(helpText(topic))] }),
+);
+
+server.registerResource(
+  "guide",
+  "craftos://guide",
+  {
+    title: "How to use craftos-mcp",
+    description: "The workflow, ccunit and the facts that bite.",
+    mimeType: "text/markdown",
+  },
+  async (uri) => ({ contents: [{ uri: uri.href, text: GUIDE }] }),
+);
+
+server.registerResource(
+  "world-schema",
+  "craftos://schema/world",
+  {
+    title: "World schema",
+    description:
+      "JSON Schema of the `world` argument of craftos_run, craftos_test, craftos_session_create and craftos_network_create.",
+    mimeType: "application/schema+json",
+  },
+  async (uri) => ({
+    contents: [{ uri: uri.href, text: JSON.stringify(worldJsonSchema()) }],
+  }),
+);
+
+server.registerResource(
+  "world",
+  new ResourceTemplate("craftos://worlds/{name}", {
+    list: async () => ({
+      resources: worldNames().map((name) => ({
+        uri: `craftos://worlds/${name}`,
+        name,
+        mimeType: "application/json",
+      })),
+    }),
+  }),
+  {
+    title: "Saved world",
+    description: "A world in the worlds folder, for worldFile.",
+  },
+  async (uri, { name }) => ({
+    contents: [
+      {
+        uri: uri.href,
+        mimeType: "application/json",
+        text: JSON.stringify(loadNamedWorld(config.worldsDir, String(name))),
+      },
+    ],
+  }),
+);
+
+server.registerResource(
+  "doc",
+  new ResourceTemplate("craftos://docs/{name}", {
+    list: async () => ({
+      resources: docNames().map((name) => ({
+        uri: `craftos://docs/${name}`,
+        name,
+        mimeType: "text/markdown",
+      })),
+    }),
+  }),
+  {
+    title: "Doc",
+    description: "A craftos-mcp doc (peripherals, turtles, addons).",
+  },
+  async (uri, { name }) => {
+    if (!docNames().includes(String(name)))
+      throw new Error(
+        `no doc ${String(name)}; there are: ${docNames().join(", ")}`,
+      );
+    return {
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "text/markdown",
+          text: readFileSync(
+            join(REPO_ROOT, "docs", `${String(name)}.md`),
+            "utf8",
+          ),
+        },
+      ],
+    };
+  },
+);
+
+server.registerResource(
+  "example",
+  new ResourceTemplate("craftos://examples/{+path}", {
+    list: async () => ({
+      resources: exampleFiles().map((path) => ({
+        uri: `craftos://examples/${path}`,
+        name: path,
+      })),
+    }),
+  }),
+  { title: "Example", description: "An example program or test." },
+  async (uri, { path }) => {
+    const rel = String(path);
+    if (!exampleFiles().includes(rel)) throw new Error(`no example ${rel}`);
+    return {
+      contents: [
+        { uri: uri.href, text: readFileSync(join(EXAMPLES_DIR, rel), "utf8") },
+      ],
+    };
+  },
+);
+
+server.registerPrompt(
+  "new-program",
+  {
+    title: "Write and test a CC program",
+    description:
+      "Write a CC:Tweaked program, run it in the emulator and lock it in with a test.",
+    argsSchema: {
+      what: z.string().describe("What the program should do."),
+      file: z.string().optional().describe('Its file, e.g. "door.lua".'),
+    },
+  },
+  ({ what, file }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text:
+            `Write a CC:Tweaked Lua program${file ? ` in ${file}` : ""} that does this: ${what}\n\n` +
+            "Then, with the craftos tools:\n" +
+            '1. Check craftos_info for the version and addons, and pick a world if it needs peripherals (craftos_help {topic:"world"}).\n' +
+            "2. craftos_run it and read the screens and any error {file, line}; fix and run again until it works.\n" +
+            `3. Write ${file ? file.replace(/\.lua$/, "") : "<name>"}.test.lua with ccunit (craftos_help {topic:"ccunit"}): pure logic with ccunit.eq, the screen with ccunit.run + ccunit.contains.\n` +
+            "4. craftos_test it until every test passes, and say what you checked.",
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "add-tests",
+  {
+    title: "Add tests to a CC program",
+    description: "Write ccunit tests for an existing program and run them.",
+    argsSchema: { file: z.string().describe("The program to test.") },
+  },
+  ({ file }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text:
+            `Add ccunit tests for ${file}. Read it first (craftos_read_file), then write ${file.replace(/\.lua$/, "")}.test.lua ` +
+            '(craftos_help {topic:"ccunit"}): cover its logic with ccunit.eq and its screens with ccunit.run and ccunit.screen. ' +
+            "Run them with craftos_test; a failing test is either a bug in the program (say so) or in the test (fix it).",
+        },
+      },
+    ],
+  }),
+);
+
+server.registerPrompt(
+  "debug-ui",
+  {
+    title: "Debug a CC program's screen",
+    description:
+      "Drive a program in a session and find out why its screen or touches misbehave.",
+    argsSchema: {
+      program: z.string().describe("The program, e.g. startup.lua."),
+      problem: z.string().optional().describe("What goes wrong."),
+    },
+  },
+  ({ program, problem }) => ({
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text:
+            `Debug ${program}${problem ? `: ${problem}` : ""}.\n` +
+            "Start it in craftos_session_create (with the monitors and world it needs) and run it. Read the screen as data with " +
+            "craftos_ui, drive it with craftos_act or craftos_script, check with craftos_expect, and use craftos_trace for events " +
+            "and errors. Only take a craftos_screenshot to see how something looks. Fix the cause, then add a test.",
+        },
+      },
+    ],
+  }),
+);
+
+// CRAFTOS_TOOLS=core: the lean set (CORE_TOOLS); everything else goes before a client ever lists the tools
+if (toolSet === "core")
+  for (const [name, made] of registered)
+    if (!CORE_TOOLS.has(name)) made.remove();
 
 const viewerPort = process.env["CRAFTOS_VIEWER_PORT"] ?? "7878";
 if (viewerPort !== "off") {

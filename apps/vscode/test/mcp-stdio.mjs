@@ -1,5 +1,6 @@
-// End to end: start the MCP server exactly as the extension hands it to VS Code (launchFor(baseCommand([]), ["serve"]),
-// spawned without a shell, as VS Code does), then initialize, list the tools and run a Lua program through it.
+// End to end: start the MCP server the way the extension hands it to VS Code (dist/supervisor.js on Node, running
+// baseCommand([]) serve, spawned without a shell, as VS Code does), then initialize, list the tools and run a Lua
+// program through it. Needs `npm run build` first.
 //
 //   node --experimental-strip-types test/mcp-stdio.mjs      (CRAFTOS_HOME may point at a scratch cache)
 //
@@ -8,21 +9,29 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { baseCommand, launchFor } from "../src/launcher.ts";
+import { fileURLToPath } from "node:url";
+import { baseCommand } from "../src/launcher.ts";
 
-const launch = launchFor(baseCommand([]), ["serve"]);
+const supervisor = fileURLToPath(
+  new URL("../dist/supervisor.js", import.meta.url),
+);
+const launch = { command: process.execPath, args: [supervisor] };
+const supervise = JSON.stringify({ base: baseCommand([]), sub: ["serve"] });
 const project = mkdtempSync(join(tmpdir(), "craftos-mcp-stdio-"));
 writeFileSync(
   join(project, "hello.lua"),
   'print("hello from " .. os.version())\n',
 );
-console.log(`command: ${launch.command} ${launch.args.join(" ")}`);
+console.log(
+  `command: ${launch.command} ${launch.args.join(" ")} -> ${supervise}`,
+);
 
 const child = spawn(launch.command, launch.args, {
   cwd: project,
   env: {
     ...process.env,
     CRAFTOS_WORKSPACE: project,
+    CRAFTOS_SUPERVISE: supervise,
     CRAFTOS_VIEWER_PORT: "off",
   },
   stdio: ["pipe", "pipe", "pipe"],

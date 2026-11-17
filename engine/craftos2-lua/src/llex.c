@@ -346,7 +346,7 @@ static int readdecesc (LexState *ls) {
     next(ls);
   }
   if (r > UCHAR_MAX)
-    escerror(ls, c, i, "decimal escape too large");
+    escerror(ls, c, i, "escape sequence too large");  /* craftos-agent: Cobalt's wording */
   return r;
 }
 
@@ -418,8 +418,13 @@ static void read_string (LexState *ls, int del, SemInfo *seminfo) {
             goto no_save;
           }
           default: {
-            if (!lisdigit(ls->current))
-              escerror(ls, &ls->current, 1, "invalid escape sequence");
+            /* craftos-agent: Cobalt (0.6.0 and 0.9.9, asked directly) takes an escape it does not know as the
+               character itself, as Lua 5.1 does: "\q" is "q", and a backslash before any byte of a packed
+               program is that byte. Lua 5.2's "invalid escape sequence" stopped such programs from loading. */
+            if (!lisdigit(ls->current)) {
+              c = ls->current;
+              goto read_save;
+            }
             /* digital escape \ddd */
             c = readdecesc(ls);
             goto only_save;

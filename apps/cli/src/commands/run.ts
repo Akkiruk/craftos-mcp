@@ -13,6 +13,9 @@ import {
 } from "../shared.js";
 import {
   type ScreenCapture,
+  WorkspaceError,
+  checkProgram,
+  versionChoices,
   resolveInWorkspace,
   runProgram,
 } from "@craftos-mcp/runner";
@@ -21,7 +24,7 @@ const USAGE = [
   "usage: craftos-mcp run <program.lua> [args...] [--world x.json] [--mc 1.20.1] [--addons a,b] [--monitor name:WxH]",
   "                      [--timeout seconds] [--timescale n] [--screenshot out.png] [--dir folder]",
   "",
-  "--mc picks the Minecraft version: 1.18.2 (CC:Tweaked 1.101.3, the default), 1.20.1 or 1.21.1 (CC:Tweaked 1.121.0).",
+  `--mc picks the Minecraft version: ${versionChoices()}.`,
   "Runs the program in a fresh computer and prints the terminal and every monitor as text. Put program arguments",
   "that start with - after --. --screenshot saves the terminal as out.png and each monitor as out-<name>.png.",
   "Exit code: 0 finished, 1 the program failed, 124 timed out, 2 engine or usage error.",
@@ -95,11 +98,14 @@ const run: Command = {
         throw new UsageError((error as Error).message);
       }
       const timeout = number("timeout", values.timeout);
+      const world = loadWorld(config, values.world, values.addons, values.mc);
+      const missing = checkProgram(config, program, world);
+      if (missing) throw new WorkspaceError(missing);
       const result = await runProgram(config, {
         program,
         args: programArgs,
         monitors: (values.monitor ?? []).map(parseMonitor),
-        world: loadWorld(config, values.world, values.addons, values.mc),
+        world,
         timeScale: number("timescale", values.timescale),
         screenshots: values.screenshot !== undefined,
         ...(timeout ? { timeoutMs: timeout * 1000 } : {}),
@@ -118,6 +124,14 @@ const run: Command = {
       }
       for (const m of result.messages)
         console.log(`\n[${m.title}] ${m.message}`);
+      if (result.error) {
+        const at = result.error.file
+          ? `${result.error.file}${result.error.line ? `:${result.error.line}` : ""}: `
+          : "";
+        console.log(
+          `\nerror (${result.error.kind}): ${at}${result.error.message}`,
+        );
+      }
       if (result.stderr) console.error(`\nengine stderr:\n${result.stderr}`);
       if (values.screenshot !== undefined) {
         for (const file of savePngs(result.screens, values.screenshot))

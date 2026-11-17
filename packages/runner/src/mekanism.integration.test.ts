@@ -957,7 +957,11 @@ ccunit.test("save", function()
   local a = peripheral.wrap("array")
   local d = a.getDrive(0)
   ccunit.eq(d.nbt, nil) -- an empty drive has no NBT at all
-  sleep(1.5) -- the importer stores 64; game time passes 6000: the autosave writes the drive
+  -- the importer stores 64; game time passes 6000: the autosave writes the drive. The clock jumps there (the sim
+  -- catches up tick by tick): it runs while the computer boots, and starting just short of 6000 let a busy host's
+  -- boot run past the autosave before the first look
+  os.queueEvent("ccsim_cmd", nil, textutils.serializeJSON({ cmd = "advance", seconds = 10.5 }))
+  sleep(0.5)
   d = a.getDrive(0)
   ccunit.eq(d.nbt.mekData.qioMetaCount, 64)
   ccunit.eq(d.nbt.mekData.qioItemMap[0].amount, 64)
@@ -970,7 +974,7 @@ end)
 `,
       {
         players: [{ name: "Alice" }],
-        mekanism: { gameTime: 5990 },
+        mekanism: { gameTime: 5800 },
         peripherals: [
           {
             name: "array",

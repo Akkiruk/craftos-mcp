@@ -1,0 +1,75 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["metaphysics"],
+  "position": { "x": 0, "y": 70, "z": 0 },
+  "metaphysics": {
+    "players": [
+      {
+        "name": "Alex",
+        "uuid": "6f1e2d3c-4b5a-4968-8776-655443322110",
+        "x": 2.5,
+        "y": 64,
+        "z": 2.5,
+        "health": 18,
+        "armor": 7,
+        "xRot": 0,
+        "yRot": 90
+      }
+    ],
+    "ships": [
+      {
+        "id": 7,
+        "slug": "skyskipper",
+        "min": { "x": 4, "y": 80, "z": 4 },
+        "max": { "x": 12, "y": 86, "z": 10 }
+      }
+    ],
+    "explosionResistance": {
+      "minecraft:stone": 6,
+      "minecraft:grass_block": 0.6
+    }
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "fills": [
+    { "from": [9, 70, -1], "to": [11, 70, 1], "name": "minecraft:stone" }
+  ],
+  "blocks": [
+    { "x": 1, "y": 64, "z": 0, "name": "minecraft:grass" },
+    { "x": -3, "y": 64, "z": 0, "name": "minecraft:water" }
+  ],
+  "entities": [
+    {
+      "type": "minecraft:zombie",
+      "x": 5.5,
+      "y": 64,
+      "z": 3.5,
+      "health": 20,
+      "armor": 2,
+      "yRot": 180
+    },
+    {
+      "type": "minecraft:skeleton",
+      "x": 10.5,
+      "y": 64,
+      "z": 0.5,
+      "health": 20
+    },
+    { "type": "minecraft:creeper", "x": 40.5, "y": 64, "z": 0.5, "health": 20 },
+    {
+      "type": "minecraft:cow",
+      "x": 3.5,
+      "y": 64,
+      "z": -2.5,
+      "health": 10,
+      "maxHealth": 10
+    }
+  ],
+  "items": [
+    { "x": -1.5, "y": 64, "z": 1.5, "name": "minecraft:diamond", "count": 1 }
+  ]
+}

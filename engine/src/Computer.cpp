@@ -521,7 +521,11 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         // TODO: Fix logErrors since error hooks are no longer enabled
         if (self->debugger != NULL && !self->isDebugger) lua_sethook(self->coro, termHook, LUA_MASKLINE | LUA_MASKRET | LUA_MASKCALL | LUA_MASKERROR | LUA_MASKRESUME | LUA_MASKYIELD, 0);
         // Coroutines inherit the hook from the thread that makes them, so this covers every coroutine of the computer
-        else if (cobaltSlowdown > 1.0) lua_sethook(self->coro, cobaltHook, LUA_MASKCOUNT, COBALT_HOOK_COUNT);
+        // lua_setbasehook: a program's own debug.sethook goes on top of it instead of being refused (ldblib.c)
+        else if (cobaltSlowdown > 1.0) {
+            lua_setbasehook(cobaltHook, COBALT_HOOK_COUNT);
+            lua_sethook(self->coro, cobaltHook, LUA_MASKCOUNT, COBALT_HOOK_COUNT);
+        }
         //else if (!self->isDebugger) lua_sethook(self->coro, termHook, LUA_MASKRET | LUA_MASKCALL | LUA_MASKERROR | LUA_MASKRESUME | LUA_MASKYIELD, 0);
         //else lua_sethook(self->coro, termHook, LUA_MASKERROR, 0);
         lua_atpanic(L, termPanic);
@@ -544,10 +548,16 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
             lua_setdisableflags(L, LUA_DISABLE_BYTECODE);
         }
 
-        // Replace `os` in `_LOADED` with CC's `os`
+        // craftos-agent: the registry's `_LOADED` holds Cobalt's own libraries and nothing else (bit32, coroutine,
+        // debug, math, string, table, utf8, and cc.internal.error_info from ErrorInfoLib; asked of Cobalt 0.9.9).
+        // CC:Tweaked's cc.require copies it into every program's package.loaded from 1.109 on, so what native Lua
+        // adds made `require "os"` and `require "package"` work here and fail on a server. CraftOS-PC put its `os`
+        // there; the CC:Tweaked ROM never asks for it.
         lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
-        lua_getglobal(L, "os");
-        lua_setfield(L, -2, "os");
+        for (const char * extra : {"", "_G", "os", "io", "package"}) {
+            lua_pushnil(L);
+            lua_setfield(L, -2, extra);
+        }
         lua_pop(L, 1);
 
         // Load any plugins available
@@ -787,6 +797,14 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
             self->rawFileStack = NULL;
         }
     }
+    // Headless (raw) runs report the last screen a program drew. Which one the harness got was a race: the render
+    // thread, on its own beat, could miss the last lines before the reset below, or send the reset's blank screen
+    // before the window closed. So send what is on screen now, and keep the blank to ourselves.
+    RawTerminal * rawTerm = self->term != NULL && !self->term->errorMode ? dynamic_cast<RawTerminal*>(self->term) : NULL;
+    if (rawTerm != NULL) {
+        std::lock_guard<std::mutex> rlock(renderTargetsLock);
+        if (!singleWindowMode || (renderTarget != renderTargets.end() && *renderTarget == self->term)) rawTerm->render();
+    }
     if (self->term != NULL && !self->term->errorMode) {
         // Reset terminal contents
         std::lock_guard<std::mutex> lock(self->term->locked);
@@ -801,7 +819,7 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         self->term->canBlink = false;
         self->term->frozen = false;
         if (dynamic_cast<SDLTerminal*>(self->term) != NULL) ((SDLTerminal*)self->term)->cursorColor = 0;
-        self->term->changed = true;
+        self->term->changed = rawTerm == NULL;
     }
 }
 

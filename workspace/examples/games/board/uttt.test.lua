@@ -90,7 +90,7 @@ local problem = kit.run(function()
   tapMove(5, 3)
   seen.forced = kit.S.match.state.forced
   tapMove(4, 1) -- not board 3
-  seen.refused = kit.S.toast and kit.S.toast.text
+  seen.refused = kit.toast()
   seen.afterRefused = #kit.S.match.actions
 
   local stuck = false

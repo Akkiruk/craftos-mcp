@@ -1,0 +1,4 @@
+.vscode-test/
+schemas/
+lua-addons/
+types/

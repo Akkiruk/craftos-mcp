@@ -1,0 +1,77 @@
+-- dashboard.lua on a 2x1 monitor (dashboard.world.json), then the DirectGPU drawing calls and their checks.
+local T, eq, ok = ccunit.test, ccunit.eq, ccunit.truthy
+local gpu = peripheral.wrap("directgpu_0")
+local function err(fn, ...)
+  local okc, e = pcall(fn, ...)
+  if okc then error("expected an error", 2) end
+  return (tostring(e):gsub("^pcall: ", ""):gsub("^[^:]*:%d+: ", ""))
+end
+local display, readings
+
+T("the dashboard draws", function()
+  display, readings = assert(loadfile("examples/directgpu/dashboard.lua", nil, _ENV))("3")
+  eq(display, 0)
+  eq(readings, { 57, 34, 71 })
+  local info = gpu.getDisplayInfo(display)
+  eq({ info.pixelWidth, info.pixelHeight, info.width, info.height, info.facing }, { 164, 82, 2, 1, "north" })
+  eq(info.resolutionScale, 0.5)
+  eq(gpu.getPixel(display, 0, 0), { 12, 14, 24 }) -- the background
+  eq(gpu.getPixel(display, 8, 77), { 60, 200, 120 }) -- the first bar
+  eq(gpu.getPixel(display, 136, 41), { 255, 90, 60 }) -- the gauge's hub
+  ok(fs.exists("/results/pixels/directgpu_0.0.ppm"), "the frame went out")
+end)
+
+T("the same monitor and resolution reuse the display", function()
+  eq(gpu.autoDetectAndCreateDisplay("monitor_0", 0.5), display)
+  eq(gpu.listDisplays(), { 0 })
+  eq(err(gpu.autoDetectAndCreateDisplay, "monitor_9"), "Monitor peripheral not found: monitor_9. Available monitors: monitor_0")
+  eq(err(gpu.autoDetectAndCreateDisplay, "monitor_0", 9), "resolution must be between 0.1 and 4.0 (1 = 164px per block, 0.5 = 82px per block, 2 = 328px per block)")
+end)
+
+T("a display anywhere, pixels, clipping and clamped colours", function()
+  local d = gpu.createDisplay(0, 70, 0, "east", 1, 1)
+  eq(d, 1)
+  eq(gpu.getDisplayInfo(d).pixelWidth, 164)
+  gpu.setPixel(d, 5, 5, 300, -4, 128)
+  eq(gpu.getPixel(d, 5, 5), { 255, 0, 128 })
+  eq(gpu.getPixel(d, 999, 5), { 0, 0, 0 })
+  gpu.clipRect(d, 10, 10, 5, 5)
+  gpu.fillRect(d, 0, 0, 164, 164, 1, 2, 3)
+  eq(gpu.getPixel(d, 9, 9), { 0, 0, 0 })
+  eq(gpu.getPixel(d, 10, 10), { 1, 2, 3 })
+  gpu.clear(d, 9, 9, 9) -- with a clip, only the clip area
+  eq(gpu.getPixel(d, 12, 12), { 9, 9, 9 })
+  eq(gpu.getPixel(d, 20, 20), { 0, 0, 0 })
+  gpu.clearClip(d)
+  gpu.drawPolygon(d, { { 30, 30 }, { 40, 30 }, { 35, 40 } }, 7, 7, 7)
+  eq(gpu.getPixel(d, 35, 30), { 7, 7, 7 })
+  gpu.drawEllipse(d, 80, 80, 10, 5, 1, 1, 1, false)
+  eq(gpu.getPixel(d, 90, 80), { 1, 1, 1 })
+  gpu.fillEllipse(d, 80, 120, 10, 5, 2, 2, 2)
+  eq(gpu.getPixel(d, 80, 120), { 2, 2, 2 })
+  gpu.drawPolylines(d, { { 0, 160 }, { 20, 160 } }, 3, 3, 3)
+  eq(gpu.getPixel(d, 10, 160), { 3, 3, 3 })
+  eq(err(gpu.drawPolylines, d, { { 1, 1 } }, 0, 0, 0), "drawPolylines requires at least 2 points")
+  eq(err(gpu.drawPolygon, d, "x", 0, 0, 0), "Points must be a table")
+  eq(err(gpu.createDisplay, 0, 0, 0, "sideways", 1, 1), "Invalid facing. Must be: north, south, east, west, up, down, or cc:<front>:<right>:<down>")
+  eq(err(gpu.createDisplay, 0, 0, 0, "north", 17, 1), "Width must be between 1 and 16")
+  eq(gpu.removeDisplay(d), true)
+  eq(err(gpu.removeDisplay, d), "Failed to remove display: Display 1 not found or not owned by this GPU block")
+  eq(err(gpu.setPixel, 7, 0, 0, 0, 0, 0), "Display 7 does not exist or is not owned by this GPU block")
+  eq(err(gpu.setPixel, display), "bad argument #2 (number expected, got nil)")
+end)
+
+T("mouse events", function()
+  gpu.enableMouseEvents(display, true)
+  eq(gpu.hasEvents(display), false)
+  eq(gpu.pollEvent(display), nil)
+  gpu.clearEvents(display)
+  eq(err(gpu.pollEvent, 5), "No display with ID 5 exists")
+end)
+
+T("the method list, and what is not emulated", function()
+  eq(#peripheral.getMethods("directgpu_0"), 149)
+  ok(tostring(select(2, pcall(gpu.drawText, display, "hi", 0, 0, 255, 255, 255, "Arial", 12, "plain"))):find("not emulated"), "drawText")
+  gpu.clearAllDisplays()
+  eq(gpu.listDisplays(), {})
+end)

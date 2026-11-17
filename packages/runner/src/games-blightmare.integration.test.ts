@@ -128,11 +128,18 @@ describe.skipIf(!ready).concurrent("BLIGHTMARE", () => {
       const failures = file.tests
         .filter((t) => !t.passed)
         .map((t) => `${t.name}: ${t.error}`);
+      // the screen it ended on, for a file that did not pass (a crash has no failures to show)
       expect({
         status: file.status,
         failures,
         ran: file.tests.length > 0,
-      }).toEqual({ status: "passed", failures: [], ran: true });
+        terminal: file.terminal,
+      }).toEqual({
+        status: "passed",
+        failures: [],
+        ran: true,
+        terminal: undefined,
+      });
     });
   }
 });

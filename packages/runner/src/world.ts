@@ -8,65 +8,144 @@ import {
   resolveVersion,
   versionForSim,
 } from "./versions.js";
-import { luaString } from "./lua.js";
+import { type MonitorSpec, luaString } from "./lua.js";
+import { mobComputer } from "./mobs.js";
 import { resolveWired, withResolvedModems } from "./wired.js";
+import type {
+  ApWorld,
+  BiggerReactorsWorld,
+  CreateAdditionsWorld,
+  CreateWorld,
+  ExtremeReactorsWorld,
+  MekanismConfig,
+  MekanismMultiblockSpec,
+  RelativeSide,
+  TomsPeripheralsWorld,
+  PlethoraWorld,
+  PlethoraPlayerFields,
+  CcLinkWorld,
+  FinerPeripheralsWorld,
+  DuckyPeripheralsWorld,
+  MorePeripheralsWorld,
+  ClassicPeripheralsWorld,
+  ScPeripheralsWorld,
+  CricketsPeripheralsWorld,
+  CcTechWorld,
+  EmbeddedComputerWorld,
+  LakesCcAdditionsWorld,
+  AndroidSpec,
+  AndroidConfig,
+  CcDroneSpec,
+  CcDronePlusSpec,
+  AcDroneSpec,
+  MobItemSpec,
+  UpwWorld,
+  MetaphysicsWorld,
+  SomePeripheralsWorld,
+  CloudSolutionsWorld,
+  CcVsWorld,
+  CcShopsWorld,
+  ShopBlockSpec,
+  CccBridgeWorld,
+  CreateLogisticsWorld,
+  LiftLinkWorld,
+} from "./world-peripherals.js";
 
 /** A simulated player on the fake server. */
-export interface PlayerSpec {
+export interface PlayerSpec extends PlethoraPlayerFields {
+  /** Player name. @example "Alice" */
   name: string;
+  /** Player UUID. Default 00000000-0000-4000-8000-<index as 12 hex digits>. */
   uuid?: string;
-  /** Default true. */
+  /** Online on this server. Default true. */
   online?: boolean;
+  /** Game mode; CC: Androids passes over a creative or spectator player. @default "survival" */
+  gamemode?: "survival" | "creative" | "adventure" | "spectator";
+  /** X coordinate. Default 0. */
   x?: number;
+  /** Y coordinate. Default 64. */
   y?: number;
+  /** Z coordinate. Default 0. */
   z?: number;
+  /** Yaw, degrees. Default 0. */
   yaw?: number;
+  /** Pitch, degrees. Default 0. */
   pitch?: number;
+  /** Dimension the player is in. Default "minecraft:overworld". */
   dimension?: string;
+  /** Health points. Default 20. */
   health?: number;
+  /** Most health points. Default 20. */
   maxHealth?: number;
 }
 
 /** Worn and held items. `curios` is slot type (as Curios names it, e.g. "ring") to index (from 1) to item. */
 export interface EquipmentSpec {
+  /** Helmet slot. */
   head?: ItemSpec;
+  /** Chestplate slot. */
   chest?: ItemSpec;
+  /** Leggings slot. */
   legs?: ItemSpec;
+  /** Boots slot. */
   feet?: ItemSpec;
+  /** Held in the main hand. */
   mainhand?: ItemSpec;
+  /** Held in the offhand. */
   offhand?: ItemSpec;
+  /** Curios slot type (e.g. "ring") to index (from 1) to item. */
   curios?: Record<string, Record<string, ItemSpec>>;
 }
 
 /** Item stack in a virtual inventory; extra fields (vaultData, nbt, ...) are passed to getItemDetail. */
 export interface ItemSpec {
+  /** Item id. @example "minecraft:iron_ingot" */
   name: string;
+  /** Stack size. @integer @minimum 1 */
   count: number;
+  /** The item's NBT: stacks merge only when name and nbt are equal; list() reports it. */
+  nbt?: unknown;
+  /** Stack limit in a slot. @default 64 */
+  maxCount?: number;
+  /** getItemDetail's display name. @default the registry name in title case */
+  displayName?: string;
+  /** Any other field reaches getItemDetail as it is. */
   [extra: string]: unknown;
 }
 
-/** A turtle (CC:Tweaked 1.101.3). Its position is `x/y/z/dimension` here or the world's `position`. */
 /** Chunk coordinates (block coordinate / 16, rounded down): one chunk, or the box between two corners. */
 export type ChunkRange =
   | [number, number]
-  | { from: [number, number]; to?: [number, number] };
+  | {
+      /** One corner, [cx, cz]. */
+      from: [number, number];
+      /** The other corner, [cx, cz]. Default: `from`. */
+      to?: [number, number];
+    };
 
+/** A turtle (CC:Tweaked 1.101.3). Its position is `x/y/z/dimension` here or the world's `position`. */
 export interface TurtleSpec {
+  /** X coordinate. Default: the world's position. */
   x?: number;
+  /** Y coordinate. Default: the world's position. */
   y?: number;
+  /** Z coordinate. Default: the world's position. */
   z?: number;
+  /** Dimension. Default: the world's position. */
   dimension?: string;
-  /** "north" (default), "south", "east" or "west". */
+  /** Which way it faces. @default "north" */
   facing?: "north" | "south" | "east" | "west";
   /** Advanced turtle: colour screen, 100000 fuel limit. */
   advanced?: boolean;
+  /** Fuel level at the start. @default 0 */
   fuel?: number;
-  /** Selected slot, 1-16 (default 1). */
+  /** Selected slot, 1-16. @default 1 @integer @minimum 1 @maximum 16 */
   selected?: number;
   /** Slot (1-16) to item. */
   inventory?: Record<string, ItemSpec>;
-  /** Upgrade item ids: "minecraft:diamond_pickaxe", "computercraft:wireless_modem_normal", "minecraft:crafting_table", ... */
+  /** Left upgrade item id: "minecraft:diamond_pickaxe", "computercraft:wireless_modem_normal", "minecraft:crafting_table", ... */
   left?: string;
+  /** Right upgrade item id, as `left`. */
   right?: string;
 }
 
@@ -76,20 +155,39 @@ export interface TurtleSpec {
  * without a name) that a turtle next to it sees on that side.
  */
 export interface BlockSpec {
+  /** X coordinate. */
   x: number;
+  /** Y coordinate. */
   y: number;
+  /** Z coordinate. */
   z: number;
-  /** Block id; omit or "minecraft:air" for air (to cut a hole in a fill). */
+  /** Block id; omit or "minecraft:air" for air (to cut a hole in a fill). @example "minecraft:stone" */
   name?: string;
+  /** Block state properties, as strings (as F3 shows them). @example {"facing":"north"} */
   state?: Record<string, string>;
+  /** Containers: slot (1-based) to item. */
   items?: Record<string, ItemSpec>;
+  /** Containers: number of slots. */
   size?: number;
+  /** A virtual peripheral (as in `peripherals`, without a name) that a turtle next to it sees on that side. */
   peripheral?: Omit<VirtualPeripheralSpec, "name">;
+  /** The block entity's NBT, as JSON. */
   blockEntity?: Record<string, unknown>;
+  /** Plethora: hardness for the scanner and laser (wins over gameData.hardness and vanilla's). */
+  hardness?: number;
+  /** CC: Link and Finer Peripherals scanners: the block's tags as reported ("minecraft:block/logs"). @default the game data's */
+  tags?: string[];
+  /** Metaphysics: explosion resistance (wins over metaphysics.explosionResistance). */
+  explosionResistance?: number;
+  /** Metaphysics: getBlockIsSolid's answer. @default the game data's collision rule */
+  solid?: boolean;
+  /** CC Shops: a simpleshops:simple_shop or simpleshops:creative_simple_shop block's contents (creative comes from the block name). */
+  shop?: ShopBlockSpec;
 }
 
 /** Peripherals implemented in Lua by the sim: inventories, playerDetector, chatBox. */
 export interface VirtualPeripheralSpec {
+  /** Peripheral name: a side of the computer or a network name. */
   name: string;
   /**
    * Inventories ("minecraft:chest", "minecraft:barrel", ...), "fluid_storage" tanks, "speaker"
@@ -99,15 +197,20 @@ export interface VirtualPeripheralSpec {
    * qioDashboard, qioImporter, qioExporter, qioRedstoneAdapter; or "quantumEntangloporter" (EntangloporterSpec).
    */
   type: string;
+  /** Inventories: number of slots. */
   size?: number;
   /**
    * Inventories: slot (1-based) -> item. Storage bridges: a list of stacks
    * `{ name, amount, displayName?, nbt?, tags?, craftable? }`.
    */
   items?: Record<string, ItemSpec> | Record<string, unknown>[];
+  /** X coordinate of the block. */
   x?: number;
+  /** Y coordinate of the block. */
   y?: number;
+  /** Z coordinate of the block. */
   z?: number;
+  /** Dimension of the block. */
   dimension?: string;
   /** Peripheral-specific fixture data (fluids, energy, cells, cpus, patterns, inputs, ...). */
   [extra: string]: unknown;
@@ -120,34 +223,47 @@ export interface VirtualPeripheralSpec {
  * item into chests. Vault gear: give each piece its own NBT and `maxCount: 1`.
  */
 export interface QioItemSpec {
+  /** Item id. */
   name: string;
+  /** How many. @default 1 */
   count?: number;
+  /** The item's full NBT: a JSON object or an SNBT string with types. */
   nbt?: Record<string, unknown> | string;
   /** The `nbt` hash a chest's list() shows for this item (default: a hash of the NBT, not the real one). */
   nbtHash?: string;
+  /** Stack limit. @default 64 */
   maxCount?: number;
   /** Item tags without "#", e.g. "forge:ingots/iron". */
   tags?: string[];
   /** Mod id for mod id filters (default: the name's namespace). */
   modId?: string;
+  /** Other fields (displayName, ...) travel with the item into chests. */
   [extra: string]: unknown;
 }
 
 /** A QIO drive: tier base (16,000 items, 128 types), hyper_dense, time_dilating or supermassive. */
 export interface QioDriveSpec {
-  /** 0-11; default the position in the list. */
+  /** 0-11; default the position in the list. @integer @minimum 0 @maximum 11 */
   slot?: number;
+  /** Drive tier. @default "base" */
   tier?: "base" | "hyper_dense" | "time_dilating" | "supermassive";
+  /** What the drive holds. */
   items?: QioItemSpec[];
 }
 
 /** A QIO filter, as the computer methods take and return it. */
 export interface QioFilterSpec {
+  /** Filter kind. */
   type: "QIO_ITEMSTACK_FILTER" | "QIO_TAG_FILTER" | "QIO_MODID_FILTER";
+  /** Item stack filters: the item id. */
   item?: string;
+  /** Item stack filters: the item's NBT (JSON or SNBT). */
   itemNBT?: Record<string, unknown> | string;
+  /** Item stack filters: ignore NBT. */
   fuzzy?: boolean;
+  /** Tag filters: the tag. */
   tag?: string;
+  /** Mod id filters: the mod id. */
   modId?: string;
 }
 
@@ -156,36 +272,57 @@ export interface QioFilterSpec {
  * qioRedstoneAdapter) the computer sees it; in `mekanism.qio.blocks` (with `id`) it only takes part.
  */
 export interface QioBlockSpec {
+  /** Peripheral name, for a `peripherals` entry. */
   name?: string;
+  /** Id of a block in `mekanism.qio.blocks`, which no computer sees. */
   id?: string;
+  /** qioDriveArray, qioDashboard, qioImporter, qioExporter or qioRedstoneAdapter. */
   type: string;
   /** Frequency name (public), or `{ name, public: false }`. A name nobody declared is created, public. */
-  frequency?: string | { name: string; public?: boolean };
+  frequency?:
+    | string
+    | {
+        /** Frequency name. */
+        name: string;
+        /** Public frequency. @default true */
+        public?: boolean;
+      };
   /** Player name or UUID. Without an owner, setFrequency and createFrequency do nothing. */
   owner?: string;
+  /** Security mode. @default "PUBLIC" */
   securityMode?: "PUBLIC" | "PRIVATE" | "TRUSTED";
+  /** Which way the block faces (NORTH, SOUTH, ...). */
   facing?: string;
-  /** Drive array. */
+  /** Drive array: its drives, as a list or slot ("0".."11") to drive. */
   drives?: QioDriveSpec[] | Record<string, QioDriveSpec>;
   /** Importer/exporter: the inventory behind it, by name (a peripheral or a `mekanism.qio.inventories` entry). */
   target?: string;
+  /** Importer/exporter filters. */
   filters?: QioFilterSpec[];
+  /** Importer: import items no filter matches. */
   importWithoutFilter?: boolean;
+  /** Exporter: export items without a filter. */
   exportWithoutFilter?: boolean;
+  /** Redstone control. @default "DISABLED" */
   redstoneMode?: "DISABLED" | "HIGH" | "LOW" | "PULSE";
+  /** Redstone signal at the start. @default false */
   powered?: boolean;
-  /** Speed upgrades, 0-8. */
+  /** Speed upgrades, 0-8. @integer @minimum 0 @maximum 8 */
   speedUpgrades?: number;
   /** Ticks until the machine next acts (default 0: on the first tick). */
   delay?: number;
   /** Dashboard: up to 3 crafting windows, `inputs` 9 slots (array or "0".."8"), `output`. */
   crafting?: {
+    /** The 9 grid slots, as a list or "0".."8" to item. */
     inputs?: QioItemSpec[] | Record<string, QioItemSpec>;
+    /** The output slot. */
     output?: QioItemSpec;
   }[];
-  /** Redstone adapter. */
+  /** Redstone adapter: the item it watches. */
   targetItem?: string | QioItemSpec;
+  /** Redstone adapter: the count that turns the signal on. */
   triggerAmount?: number;
+  /** Other block fields, passed to the sim as they are. */
   [extra: string]: unknown;
 }
 
@@ -197,43 +334,95 @@ export interface MekanismWorld {
   /** Item registry for setTargetItem and item filters. Default: every valid name except minecraft:air. */
   knownItems?: string[];
   /** Fission, turbine, boiler, matrix and fusion multiblocks by id (docs/mekanism-multiblocks.md). */
-  multiblocks?: Record<string, { kind: string; [field: string]: unknown }>;
+  multiblocks?: Record<string, MekanismMultiblockSpec>;
   /** Mekanism and Mekanism Generators config values the multiblocks use (docs/mekanism-multiblocks.md). */
-  config?: Record<string, number | boolean>;
+  config?: MekanismConfig;
+  /** Overworld day time for solar generators, 0 sunrise, 6000 noon. @default 6000 */
+  dayTime?: number;
+  /** Whether the day time moves on. @default true */
+  daylightCycle?: boolean;
+  /** Whether it rains (solar and wind generators). @default false */
+  raining?: boolean;
+  /** Whether it thunders (only while raining). @default false */
+  thundering?: boolean;
+  /** Public teleporter frequencies: a name, or `{ name, color }` (color default PURPLE). */
+  teleporterFrequencies?: (
+    | string
+    | {
+        /** Frequency name. */
+        name: string;
+        /** Frequency colour, e.g. "PURPLE". */
+        color?: string;
+      }
+  )[];
+  /** The QIO system: frequencies, blocks no computer sees, and the inventories they touch. */
   qio?: {
+    /** QIO frequencies. */
     frequencies?: {
+      /** Frequency name. */
       name: string;
+      /** Public frequency. @default true */
       public?: boolean;
+      /** Owner of a private frequency. */
       owner?: string;
+      /** Frequency colour. */
       color?: string;
     }[];
+    /** QIO blocks no computer sees (with `id`). */
     blocks?: QioBlockSpec[];
     /** Inventories only QIO blocks touch: `{ name, type, size, items }` like a chest peripheral. */
     inventories?: VirtualPeripheralSpec[];
   };
   /** Quantum Entangloporters. Buffers default to the server's general.toml. */
   entangloporter?: {
+    /** Energy buffer per frequency, J. */
     energyBuffer?: number;
+    /** Fluid buffer per frequency, mB. */
     fluidBuffer?: number;
+    /** Chemical buffer per frequency, mB. */
     chemicalBuffer?: number;
+    /** Inventory frequencies and what they hold. */
     frequencies?: EntangloporterFrequencySpec[];
     /** Entangloporters the computer cannot see (with `id`). */
     blocks?: EntangloporterSpec[];
   };
 }
 
+/** A fluid or chemical held by a frequency. */
+export interface EntangloporterStack {
+  /** Fluid or chemical id. */
+  name: string;
+  /** Millibuckets. */
+  amount: number;
+}
+
 /** An inventory frequency: the buffers every entangloporter on it shares. Private ones belong to `owner`. */
 export interface EntangloporterFrequencySpec {
+  /** Frequency name. */
   name: string;
+  /** Public frequency. @default true */
   public?: boolean;
+  /** Owner of a private frequency. */
   owner?: string;
   /** The one item slot (one stack, full NBT kept). */
   item?: QioItemSpec;
-  fluid?: { name: string; amount: number; nbt?: Record<string, unknown> };
-  gas?: { name: string; amount: number };
-  infuseType?: { name: string; amount: number };
-  pigment?: { name: string; amount: number };
-  slurry?: { name: string; amount: number };
+  /** Fluid buffer. */
+  fluid?: {
+    /** Fluid id. */
+    name: string;
+    /** Millibuckets. */
+    amount: number;
+    /** The fluid's NBT. */
+    nbt?: Record<string, unknown>;
+  };
+  /** Gas buffer. */
+  gas?: EntangloporterStack;
+  /** Infuse type buffer. */
+  infuseType?: EntangloporterStack;
+  /** Pigment buffer. */
+  pigment?: EntangloporterStack;
+  /** Slurry buffer. */
+  slurry?: EntangloporterStack;
   /** Joules. */
   energy?: number;
   /** Kelvin, default 300. */
@@ -242,54 +431,96 @@ export interface EntangloporterFrequencySpec {
 
 /** A Quantum Entangloporter: a `peripherals` entry of type "quantumEntangloporter", or in `entangloporter.blocks`. */
 export interface EntangloporterSpec {
+  /** Peripheral name, for a `peripherals` entry. */
   name?: string;
+  /** Id of an entangloporter no computer sees. */
   id?: string;
+  /** Peripheral type. */
   type?: "quantumEntangloporter";
+  /** Player name or UUID. */
   owner?: string;
+  /** Security mode. @default "PUBLIC" */
   securityMode?: "PUBLIC" | "PRIVATE" | "TRUSTED";
   /** NORTH (default), SOUTH, EAST, WEST, UP, DOWN. */
   facing?: string;
-  frequency?: string | { name: string; public?: boolean };
+  /** Frequency name (public), or `{ name, public: false }`. */
+  frequency?:
+    | string
+    | {
+        /** Frequency name. */
+        name: string;
+        /** Public frequency. @default true */
+        public?: boolean;
+      };
   /** Neighbouring inventories by direction (north, up, ...) or side (front, left, ...). */
   adjacent?: Record<string, string>;
   /** Side config per transmission type, e.g. `{ ITEM: { ejecting: true, sides: { FRONT: "OUTPUT" } } }`. */
   config?: Record<
     string,
-    { ejecting?: boolean; sides?: Record<string, string> }
+    {
+      /** Eject on output sides. */
+      ejecting?: boolean;
+      /** Side (FRONT, LEFT, ...) to mode (INPUT, OUTPUT, NONE, ...). */
+      sides?: Record<string, string>;
+    }
   >;
+  /** Auto-eject settings. */
   ejector?: {
+    /** Strict input. */
     strictInput?: boolean;
+    /** Output colour. */
     outputColor?: string;
+    /** Side to input colour. */
     inputColors?: Record<string, string>;
   };
   /** false: its chunk is not loaded, so it does not tick. Default true. */
   loaded?: boolean;
+  /** Has an anchor upgrade (keeps its chunk loaded). */
   anchorUpgrade?: boolean;
+  /** Ticks between transfers. */
   tickDelay?: number;
+  /** Share of each transfer lost. */
   transferLoss?: number;
+  /** Heat lost to the environment. */
   environmentalLoss?: number;
+  /** Other block fields, passed to the sim as they are. */
   [extra: string]: unknown;
 }
 
 /** Peripherals the engine itself emulates. Monitors use the `monitors` parameter. */
 export interface EnginePeripheralSpec {
+  /** Peripheral name. */
   name: string;
+  /** Engine peripheral type. */
   type: "drive";
+  /**
+   * A floppy disk in the drive from the start, by its id: the computer finds it mounted at /disk, as after a boot
+   * with a disk in. Its files are `disks[id]` (empty without one) and live in computer/disk/<id>.
+   */
+  disk?: number;
 }
 
 /** A block in the world. Without `dimension`: the overworld, or for a modem's block its computer's. */
 export interface BlockPos {
+  /** X coordinate. */
   x: number;
+  /** Y coordinate. */
   y: number;
+  /** Z coordinate. */
   z: number;
+  /** Dimension. */
   dimension?: string;
 }
 
 /** Where a computer stands. Its modems report this position, as real modems report the block they sit on. */
 export interface ComputerPosition {
+  /** X coordinate. @default 0 */
   x?: number;
+  /** Y coordinate. @default 64 */
   y?: number;
+  /** Z coordinate. @default 0 */
   z?: number;
+  /** Dimension. @default "minecraft:overworld" */
   dimension?: string;
 }
 
@@ -298,7 +529,9 @@ export interface ComputerPosition {
  * Wired modems link up through `network`, or through `block` and a network's cables (see `WiredNetworkSpec`).
  */
 export interface ModemSpec {
-  name: string;
+  /** The side the modem is on ("top", "back", ...). */
+  name: RelativeSide | (string & {});
+  /** Peripheral type. */
   type: "modem";
   /** "wireless" (default), "ender" (reaches every wireless modem, any distance, any dimension) or "wired". */
   kind?: "wireless" | "ender" | "wired";
@@ -334,20 +567,35 @@ export interface WorldConfig {
    * Alice`). Not CC:Tweaked's, so off unless a person drives the computer (`craftos-mcp window` and `app` turn it on).
    */
   simProgram?: boolean;
+  /**
+   * Show the ROM's message of the day (the random tip under "CraftOS 1.8") at boot. Default false here, so captured
+   * screens are the same every run; CC:Tweaked's own default is true (docs/conformance/emulator-vs-real-deviations.md).
+   */
+  motd?: boolean;
+  /** Players on the simulated server: who player detectors, chat boxes and inventory managers see. */
   players?: PlayerSpec[];
+  /** The computer's id (os.getComputerID). Give each computer on a network its own. @default 0 @integer @minimum 0 */
   computerId?: number;
   /** "pocket" computers get the pocket computer's 26x20 terminal unless `terminal` says otherwise. */
   kind?: "block" | "pocket";
   /** false: a normal computer or pocket computer, with no colour (default advanced). Turtles use `turtle.advanced`. */
   advanced?: boolean;
   /** Terminal size in characters (default 51x19, or 26x20 for pocket computers). */
-  terminal?: { width: number; height: number };
+  terminal?: {
+    /** Width in characters. @integer @minimum 1 @maximum 255 */
+    width: number;
+    /** Height in characters. @integer @minimum 1 @maximum 255 */
+    height: number;
+  };
   /** Overrides of the server config. */
   config?: {
-    /** computercraft-server.toml. Defaults are the server's: 64 and 384, storms the same. */
+    /** computercraft-server.toml modem_range: wireless range low down. @default 64 */
     modemRange?: number;
+    /** modem_high_altitude_range: wireless range at the top of the world. @default 384 */
     modemHighAltitudeRange?: number;
+    /** modem_range_during_storm. @default 64 */
     modemRangeDuringStorm?: number;
+    /** modem_high_altitude_range_during_storm. @default 384 */
     modemHighAltitudeRangeDuringStorm?: number;
     /** Height of the world for the high altitude range. Default 320 (256 in the nether and the end). */
     modemWorldTop?: number;
@@ -369,58 +617,223 @@ export interface WorldConfig {
    * workspace, like an installer does. Each entry copies `from` (workspace-relative)
    * into `to` (computer-relative, default the root). Later entries win.
    */
-  deploy?: { from: string; to?: string }[];
+  deploy?: {
+    /** Workspace-relative folder or file to copy. @example "Shared/lib" */
+    from: string;
+    /** Where on the computer it goes. @default "" (the root) */
+    to?: string;
+  }[];
+  /**
+   * Blocks next to the computer or on its wired network: inventories, tanks, speakers, modems, drives and the
+   * addons' blocks. Each type takes its own fields (see world-peripherals.ts, PeripheralTypeMap).
+   */
   peripherals?: (VirtualPeripheralSpec | EnginePeripheralSpec | ModemSpec)[];
   /** World facts read by environmentDetector peripherals. */
   environment?: {
-    /** Day time in ticks (0-24000). */
+    /** Day time in ticks (0-24000). @default 1000 */
     time?: number;
+    /** Whether it rains. @default false */
     raining?: boolean;
+    /** Whether it thunders. @default false */
     thunder?: boolean;
+    /** What getBiome() returns. @default "plains" */
     biome?: string;
+    /** Sky light, 0-15. @default 15 @minimum 0 @maximum 15 */
     skyLight?: number;
+    /** Block light, 0-15. @default 0 @minimum 0 @maximum 15 */
     blockLight?: number;
-    /** 0 full moon .. 7 waxing gibbous. */
+    /** 0 full moon .. 7 waxing gibbous. Not read: getMoonId always answers 0, as the real block does. */
     moonPhase?: number;
-    /** Result of listDimensions (default overworld, the_nether, the_end, vault). */
+    /** What listDimensions() returns. @default ["dimension"] */
     dimensions?: string[];
+    /** getRadiation().radiation. @default "99.9999" */
+    radiation?: string | number;
+    /** getRadiation().unit. @default "nSv" */
+    radiationUnit?: string;
+    /** What getRadiationRaw() returns. @default 1e-7 */
+    radiationRaw?: number;
     /** World seed for isSlimeChunk. A long past 2^53 goes as a decimal string. Default 0. */
     seed?: number | string;
   };
   /** Living entities that scanEntities can see (players are added automatically). */
   entities?: {
+    /** Entity type id, e.g. "minecraft:cow". */
     type?: string;
+    /** Name. @default the type in title case */
     name?: string;
+    /** X coordinate. */
     x: number;
+    /** Y coordinate. */
     y: number;
+    /** Z coordinate. */
     z: number;
+    /** Dimension. @default "minecraft:overworld" */
     dimension?: string;
+    /** An animal: scanEntities then reports baby, inLove and aggressive. */
     animal?: boolean;
+    /** A baby animal. @default false */
     baby?: boolean;
+    /** In love. @default false */
     inLove?: boolean;
+    /** Aggressive. @default false */
     aggressive?: boolean;
+    /** Entity tags. @default [] */
     tags?: string[];
+    /** scanEntities id. @default 1000 + its place in the list */
+    id?: number;
+    /** Entity UUID. @default 00000000-0000-4000-9000-<place as 12 hex digits> */
+    uuid?: string;
+    /** Display name (UPW, Metaphysics). @default customName, else the type in title case */
+    displayName?: string;
+    /** Custom name, when there is no displayName (UPW, Metaphysics). */
+    customName?: string;
+    /** Mob category, e.g. "MONSTER" (UPW reports it as it is, Metaphysics lower case). @default the vanilla mob's own, else "MISC" */
+    category?: string;
+    /** false: not a living entity (no health; the UPW scanner skips it). @default true */
+    living?: boolean;
+    /** Width of its box. @default 0.6 */
+    width?: number;
+    /** Height of its box, from the feet. @default 1.8 */
+    height?: number;
+    /** Eye height (Some Peripherals). @default 0.85 of height */
+    eyeHeight?: number;
+    /** Health points; 0 or less is dead (Metaphysics' getMonster and getMobs skip it). @default 20 */
+    health?: number;
+    /** Most health points. @default 20 */
+    maxHealth?: number;
+    /** Armor points. @default 0 */
+    armor?: number;
+    /** Share of armor slots filled, 0-1 (Some Peripherals). @default 0 */
+    armorCover?: number;
+    /** Absorption hearts (Some Peripherals). @default 0 */
+    absorption?: number;
+    /** Blocking with a shield (Some Peripherals). @default false */
+    blocking?: boolean;
+    /** Sleeping (Some Peripherals). @default false */
+    sleeping?: boolean;
+    /** Flying with an elytra (Some Peripherals). @default false */
+    fallFlying?: boolean;
+    /** Movement speed attribute; 0 for a mob that is not walking (Some Peripherals). @default 0 */
+    speed?: number;
+    /** Pitch, degrees. @default 0 */
+    xRot?: number;
+    /** Yaw, degrees. @default 0 */
+    yRot?: number;
+    /** Head yaw, degrees (a living entity looks this way). @default yRot */
+    yHeadRot?: number;
+    /** Body yaw, degrees (Some Peripherals). @default yRot */
+    yBodyRot?: number;
+    /** Motion per tick (Metaphysics' `vector`). @default {"x":0,"y":0,"z":0} */
+    motion?: {
+      /** X per tick. @default 0 */
+      x?: number;
+      /** Y per tick. @default 0 */
+      y?: number;
+      /** Z per tick. @default 0 */
+      z?: number;
+    };
+    /** Air left, ticks (Some Peripherals). @default 300 */
+    airSupply?: number;
+    /** Most air, ticks (Some Peripherals). @default 300 */
+    maxAirSupply?: number;
+    /** Counts as a Monster for Metaphysics' getMonster. @default true for vanilla monsters */
+    monster?: boolean;
+    /** Counts as a Mob for Metaphysics' getMobs. @default true, except armor stands */
+    mob?: boolean;
+    /** Items it leaves where it stood when it dies (CC: Androids). @default [] */
+    drops?: MobItemSpec[];
+    /** UUID of the android holding its lead (CC: Androids). */
+    leashedTo?: string;
+    /** Cannot be hurt: an android's attack passes it over (CC: Androids). @default false */
+    invulnerable?: boolean;
+    /** Air left, ticks (CC: Link). @default 300 */
+    air?: number;
+    /** Most air, ticks (CC: Link). @default 300 */
+    maxAir?: number;
+    /** In powder snow (CC: Link). @default false */
+    inPowderSnow?: boolean;
+    /** A ray can hit it (CC: Link raycastEntity). @default false for items, orbs, arrows, snowballs, eggs, else true */
+    pickable?: boolean;
   }[];
-  /** Overrides of the Advanced Peripherals server config (cooldowns, ranges, ...). */
-  ap?: {
-    config?: Record<string, unknown>;
-    /**
-     * What players carry, for the inventory manager: `inventory` (slot 0-35 to item), `armor` (feet, legs, chest,
-     * head to item), `offhand` (an item) and `selected` (the held hotbar slot, 0-8).
-     */
-    players?: Record<string, Record<string, unknown>>;
-  };
-  /** Mekanism 10.2.5: the QIO system. See docs/mekanism-qio.md. */
+  /** Advanced Peripherals: server config overrides and what players carry (docs/advanced-peripherals.md). */
+  ap?: ApWorld;
+  /** Mekanism: the QIO system, entangloporters, multiblocks and config. See docs/mekanism-qio.md, docs/mekanism-multiblocks.md. */
   mekanism?: MekanismWorld;
+  /** Create: kinetic networks, stations and trains (docs/create.md). */
+  create?: CreateWorld;
+  /** Create Crafts & Additions config (docs/create-additions.md). */
+  createAdditions?: CreateAdditionsWorld;
+  /** Tom's Peripherals settings (docs/toms-peripherals.md). */
+  tomsPeripherals?: TomsPeripheralsWorld;
+  /** Bigger Reactors settings (docs/bigger-reactors.md). */
+  biggerReactors?: BiggerReactorsWorld;
+  /** Extreme Reactors settings (docs/extreme-reactors.md). */
+  extremeReactors?: ExtremeReactorsWorld;
+  /** Plethora Peripherals: other entities, config, game time; `{}` lets a turtle know the module upgrades (docs/plethora.md). */
+  plethora?: PlethoraWorld;
+  /** CC: Link: the Link core, its upgrades, wearer and surroundings (docs/cc-link.md). */
+  ccLink?: CcLinkWorld;
+  /** Finer Peripherals: the ender chest owner, respawn points, extra items; `{}` lets a turtle know its upgrades (docs/finer-peripherals.md). */
+  finerPeripherals?: FinerPeripheralsWorld;
+  /** Ducky Peripherals: the weather (docs/ducky-peripherals.md). */
+  duckyPeripherals?: DuckyPeripheralsWorld;
+  /** More Peripherals: what players carry, known spawner mobs (docs/more-peripherals.md). */
+  morePeripherals?: MorePeripheralsWorld;
+  /** Classic Peripherals: seed, pocket, NFC cards, RFID entities, config (docs/classic-peripherals.md). */
+  classicPeripherals?: ClassicPeripheralsWorld;
+  /** SwitchCraft Peripherals: printer config (docs/sc-peripherals.md). */
+  scPeripherals?: ScPeripheralsWorld;
+  /** Cricket's Peripherals: the hard drive capacity (docs/crickets-peripherals.md). */
+  cricketsPeripherals?: CricketsPeripheralsWorld;
+  /** CCTech: tape speeds and default length (docs/cctech.md). */
+  cctech?: CcTechWorld;
+  /** Embedded Computer: make this computer an embedded or secure one; hard drive size (docs/embedded-computer.md). */
+  embeddedComputer?: EmbeddedComputerWorld;
+  /** Lake's CC Additions: scanner config (docs/lakes-cc-additions.md). */
+  lakesCcAdditions?: LakesCcAdditionsWorld;
+  /** UnlimitedPeripheralWorks: what the ultimate sensor reads, scanner players, config (docs/unlimited-peripheral-works.md). */
+  upw?: UpwWorld;
+  /** Metaphysics: switches its crypto and coord APIs on; players, ships, world facts (docs/metaphysics.md). */
+  metaphysics?: MetaphysicsWorld;
+  /** Some Peripherals: players, VS2 ships, digitized items, config (docs/some-peripherals.md). */
+  somePeripherals?: SomePeripheralsWorld;
+  /** SirEdvin's Cloud Solutions: owner, KV store and server config (docs/cloud-solutions.md). */
+  cloudSolutions?: CloudSolutionsWorld;
+  /** CC: VS: the ship the computer is on, config and aerodynamics (docs/cc-vs.md). */
+  ccvs?: CcVsWorld;
+  /** CC Shops: online players, entities and defaults (docs/cc-shops.md). */
+  ccShops?: CcShopsWorld;
+  /** CC:C Bridge: no settings yet; the key only loads the addon (docs/cccbridge.md). */
+  cccbridge?: CccBridgeWorld;
+  /** Create: CC Total Logistics: logistics networks and stock links (docs/create-cc-logistics.md). */
+  createLogistics?: CreateLogisticsWorld;
+  /** CC: LiftLink: elevator columns, contacts and pulleys (docs/cc-liftlink.md). */
+  liftlink?: LiftLinkWorld;
   /** Make this computer a turtle (docs/turtle.md). Its world is `blocks`, `fills` and `ground`. */
   turtle?: TurtleSpec;
+  /** CC: Androids: make this computer an android in the block world (docs/cc-androids.md). */
+  android?: AndroidSpec;
+  /** CC: Androids config values: health, damage and speed of each android type (docs/cc-androids.md). */
+  androidConfig?: AndroidConfig;
+  /** CC: Drones: make this computer a drone in the block world (docs/cc-drones.md). */
+  drone?: CcDroneSpec;
+  /** CC: Drones+: make this computer a drone in the block world (docs/cc-drones.md). */
+  dronePlus?: CcDronePlusSpec;
+  /** AC-Drones: make this computer a drone in the block world (docs/ac-drones.md). */
+  acDrone?: AcDroneSpec;
   /** Set by the runner on a computer block a turtle placed and something turned on: where it stands. */
   placed?: {
+    /** X coordinate. */
     x: number;
+    /** Y coordinate. */
     y: number;
+    /** Z coordinate. */
     z: number;
+    /** Which way it faces. */
     facing?: string;
+    /** The computer block's id. */
     block: string;
+    /** Dimension. */
     dimension?: string;
   };
   /** Floppy disk contents at the start: disk id to path to file text (computer/disk/<id>). */
@@ -429,34 +842,67 @@ export interface WorldConfig {
   blocks?: BlockSpec[];
   /** Boxes of one block (inclusive corners). Later fills cover earlier ones; `blocks` cover fills. */
   fills?: {
+    /** One corner, `{ x, y, z }` or [x, y, z]. */
     from: BlockPos | [number, number, number];
+    /** The other corner. */
     to: BlockPos | [number, number, number];
+    /** Block id; omit or "minecraft:air" for air. */
     name?: string;
+    /** Block state properties, as strings. */
     state?: Record<string, string>;
+    /** Metaphysics: explosion resistance (wins over metaphysics.explosionResistance). */
+    explosionResistance?: number;
+    /** Metaphysics: getBlockIsSolid's answer. @default the game data's collision rule */
+    solid?: boolean;
+    /** Plethora: hardness for the scanner and laser (wins over gameData.hardness and vanilla's). */
+    hardness?: number;
+    /** CC: Link and Finer Peripherals scanners: the blocks' tags as reported ("minecraft:block/logs"). @default the game data's */
+    tags?: string[];
   }[];
   /** Everything at or below `y` is `name` (default stone), its top layer `top` if given. */
-  ground?: { y?: number; name?: string; top?: string };
+  ground?: {
+    /** Top of the ground. */
+    y?: number;
+    /** Block id of the ground. @default "minecraft:stone" */
+    name?: string;
+    /** Block id of the top layer, e.g. "minecraft:grass_block". */
+    top?: string;
+  };
   /** Item stacks lying in the world, by the block they are in. */
   items?: {
+    /** X coordinate. */
     x: number;
+    /** Y coordinate. */
     y: number;
+    /** Z coordinate. */
     z: number;
+    /** Item id. */
     name: string;
+    /** Stack size. @default 1 */
     count?: number;
+    /** The stack's NBT, as SNBT. */
     nbt?: string;
   }[];
-  /** Game rules the living world reads (ccsim/turtle/living.lua): randomTickSpeed (default 3). */
-  gameRules?: { randomTickSpeed?: number };
+  /** Game rules the living world reads (ccsim/turtle/living.lua). */
+  gameRules?: {
+    /** Random ticks per chunk section per tick. @default 3 */
+    randomTickSpeed?: number;
+  };
   /** computercraft-server.toml [turtle]. Defaults are the pack's: fuel needed, 20000 / 100000, pushing on. */
   turtleConfig?: {
+    /** need_fuel. @default true */
     needFuel?: boolean;
+    /** turtle_fuel_limit. @default 20000 */
     normalFuelLimit?: number;
+    /** advanced_turtle_fuel_limit. @default 100000 */
     advancedFuelLimit?: number;
+    /** can_push: turtles push entities. @default true */
     canPush?: boolean;
     /** obey_block_protection (default true): spawn protection stops a turtle moving, digging and placing. */
     obeyBlockProtection?: boolean;
-    /** term_sizes.monitor in blocks: the largest monitor wall (default 8 x 6). */
+    /** term_sizes.monitor in blocks: the widest monitor wall. @default 8 */
     monitorWidth?: number;
+    /** term_sizes.monitor in blocks: the tallest monitor wall. @default 6 */
     monitorHeight?: number;
   };
   /**
@@ -465,13 +911,32 @@ export interface WorldConfig {
    * `ownerOp` is a turtle owned by an op, who is exempt.
    */
   spawnProtection?: {
+    /** Protected radius around the spawn, blocks (0 or less: off). @default 16 */
     radius?: number;
-    spawn?: { x?: number; z?: number };
+    /** The spawn point. @default {"x":0,"z":0} */
+    spawn?: {
+      /** Spawn X. @default 0 */
+      x?: number;
+      /** Spawn Z. @default 0 */
+      z?: number;
+    };
+    /** false: the server has no ops, so protection is off. @default true */
     ops?: boolean;
+    /** The turtle's owner is an op, who is exempt. @default false */
     ownerOp?: boolean;
   };
   /** The world border (WorldBorder): a square `size` wide around `center`. */
-  worldBorder?: { center?: { x?: number; z?: number }; size: number };
+  worldBorder?: {
+    /** Centre of the border. @default {"x":0,"z":0} */
+    center?: {
+      /** Centre X. @default 0 */
+      x?: number;
+      /** Centre Z. @default 0 */
+      z?: number;
+    };
+    /** Width of the square, blocks (vanilla 59999968). */
+    size: number;
+  };
   /** Only these chunks are loaded (chunk coordinates: `[cx, cz]` or `{ from, to }` corners). */
   loadedChunks?: ChunkRange[];
   /** These chunks are not loaded. */
@@ -492,7 +957,26 @@ export interface WorldConfig {
   seed?: number;
 }
 
+/**
+ * A world file: `<name>.world.json` next to a program, or `worlds/<name>.json`. The world itself, plus the monitor
+ * walls the window, the VS Code extension and the test runner attach from it. schemas/world.schema.json is generated
+ * from this type (world-schema.test.ts).
+ */
+export interface WorldFile extends WorldConfig {
+  /** The JSON Schema of this file, for editors. The runner ignores it. */
+  $schema?: string;
+  /** Monitor walls next to the computer (`craftos-mcp window`, the VS Code extension and `*.test.lua` runs). */
+  monitors?: MonitorSpec[];
+}
+
 const ENGINE_TYPES = new Set(["drive"]);
+
+/** A world parsed from a file, without the keys that only editors read (`$schema`). */
+export function withoutEditorKeys<T extends object>(world: T): T {
+  if (!("$schema" in world)) return world;
+  const { $schema: _schema, ...rest } = world as T & { $schema?: unknown };
+  return rest as T;
+}
 
 function isEngine(
   p: VirtualPeripheralSpec | EnginePeripheralSpec | ModemSpec,
@@ -508,7 +992,9 @@ export function loadNamedWorld(worldsDir: string, name: string): WorldConfig {
   const file = join(worldsDir, `${name}.json`);
   if (!existsSync(file))
     throw new Error(`no world named "${name}" in ${worldsDir}`);
-  return JSON.parse(readFileSync(file, "utf8")) as WorldConfig;
+  return withoutEditorKeys(
+    JSON.parse(readFileSync(file, "utf8")) as WorldConfig,
+  );
 }
 
 /** Terminal size for the computer, or undefined to keep the engine default. */
@@ -519,6 +1005,13 @@ export function terminalSize(
   if (world?.kind === "pocket") return { width: 26, height: 20 };
   // Normal and advanced turtles alike (TileTurtle)
   if (world?.turtle) return { width: 39, height: 13 };
+  // An android or a drone: the computer its mod builds into it (mobs.ts)
+  const mob = mobComputer(world as Record<string, unknown> | undefined);
+  if (mob) return { width: mob.width, height: mob.height };
+  // Embedded Computer's two computers (EmbeddedComputerBlockEntity / SecureComputerBlockEntity.createComputer)
+  const ec = world?.embeddedComputer;
+  if (ec?.kind === "embedded") return { width: 10, height: 3 };
+  if (ec?.kind === "secure") return { width: 49, height: 17 };
   return undefined;
 }
 
@@ -543,6 +1036,7 @@ export function worldJson(world: WorldConfig | undefined): string {
   checkWorldAddons(copy, addons, version.mc);
   copy["addons"] = addons;
   delete copy["deploy"];
+  delete copy["$schema"]; // an editor's key (world files point at schemas/world.schema.json)
   copy["peripherals"] = (resolved?.peripherals ?? []).filter(
     (p) => !isEngine(p),
   );
@@ -555,10 +1049,46 @@ export function enginePeripheralLua(world: WorldConfig | undefined): string {
     .filter(isEngine)
     .map(
       (p) =>
-        `periphemu.create(${luaString(p.name)}, ${luaString(p.type)})\n` +
+        `periphemu.create(${luaString(p.name)}, ${luaString(p.type)}${
+          Number.isInteger(p.disk) ? `, ${p.disk}` : ""
+        })\n` +
         `if peripheral.__ccsimNamed then peripheral.__ccsimNamed(${luaString(p.name)}) end`,
     )
     .join("\n");
+}
+
+/** What the sim keeps in state.json for itself (what a reboot reads back), never part of a result. */
+const INTERNAL_STATE = ["survives"];
+// the server-mod fields the sim still writes (always empty here) go too
+const HIDDEN_STATE = [
+  ...INTERNAL_STATE,
+  "balances",
+  "vaultLevels",
+  "equipment",
+  "ledger",
+  "rejections",
+  "host",
+  "interacting",
+  "authenticated",
+  "terminalLocked",
+  "pendingApprovals",
+];
+
+/**
+ * The sim state as results show it (craftos_sim_state, a run's `sim`): without the sim's own bookkeeping
+ * (INTERNAL_STATE) and, in the public build, without sections that are empty.
+ */
+export function shownState<T extends SimState | undefined>(state: T): T {
+  if (!state) return state;
+  const out: Record<string, unknown> = { ...state };
+  for (const key of HIDDEN_STATE) delete out[key];
+  for (const [key, value] of Object.entries(out))
+    if (
+      value === null ||
+      (typeof value === "object" && Object.keys(value as object).length === 0)
+    )
+      delete out[key];
+  return out as T;
 }
 
 export interface SimState {

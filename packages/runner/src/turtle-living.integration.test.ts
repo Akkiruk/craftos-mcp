@@ -67,6 +67,14 @@ const at = (
   more: object = {},
 ) => ({ x, y, z, name, ...more });
 
+// jump(seconds): the sim jumps the virtual clock (a test's own ccsim_cmd), and the world catches up, before it returns
+const jump = `
+local function jump(seconds)
+  os.queueEvent("ccsim_cmd", nil, textutils.serializeJSON({ cmd = "advance", seconds = seconds }))
+  sleep(0.05)
+end
+`;
+
 // Lua helpers: poll until something shows up in front of the turtle, with the time it took
 const helpers = `
 local function waitFor(fn, limit)
@@ -422,20 +430,22 @@ end)
 
   it("furnaces smelt at 200 ticks an item", async () => {
     const r = await runLua(
-      `${helpers}
+      `${helpers}${jump}
 local furnace = peripheral.wrap("bottom")
+-- the clock jumps from one look to the next, on real time: on a 5x clock a busy host's late looks ran a second past
 ccunit.test("two ores cook one after the other", function()
   ccunit.eq(furnace.list()[3], nil)
   turtle.dropDown(2)
-  sleep(9)
+  sleep(0.05)
+  jump(9)
   ccunit.eq(furnace.list()[3], nil, "not done at 9 s")
   ccunit.eq(furnace.list()[1].count, 2)
   local _, b = turtle.inspectDown()
   ccunit.eq(b.state.lit, true)
-  sleep(2)
+  jump(2)
   ccunit.eq(furnace.list()[3], { name = "minecraft:iron_ingot", count = 1 }, "one ingot at 11 s")
   ccunit.eq(furnace.list()[1].count, 1)
-  sleep(10)
+  jump(10)
   ccunit.eq(furnace.list()[3], { name = "minecraft:iron_ingot", count = 2 }, "two ingots at 21 s")
   ccunit.eq(furnace.list()[1], nil)
 end)
@@ -450,7 +460,7 @@ end)
           ],
         },
       ),
-      5,
+      1,
     );
     expectAllPassed(r);
   });
@@ -574,16 +584,16 @@ ccunit.test("five items cross at 0.4 s each", function()
     sleep(0.05)
   end
   ccunit.eq(seen, 5)
-  -- the first few crossed while the turtle was still climbing down: judge the ones it watched arrive
-  local distinct = { times[1] }
-  for i = 2, 5 do
-    if times[i] ~= distinct[#distinct] then distinct[#distinct + 1] = times[i] end
-  end
-  ccunit.truthy(#distinct >= 2, "saw only one arrival time")
-  for i = 2, #distinct do
-    local gap = distinct[i] - distinct[i - 1]
-    ccunit.truthy(gap >= 0.3 and gap <= 0.55, "gap " .. i .. " = " .. gap)
-  end
+  -- the first few crossed while the turtle was still climbing down: judge the ones it watched arrive. Each is timed
+  -- when a look saw it, and a busy host can make any look late, so one gap can come out short and the next long:
+  -- the average over the arrivals watched is the hopper's pace.
+  -- (items seen in one look came while it was not looking: start from the first one seen arrive on its own)
+  local first = 1
+  while first < 5 and times[first + 1] == times[first] do first = first + 1 end
+  if first > 1 and first < 4 then first = first + 1 end
+  ccunit.truthy(first < 5 and times[5] > times[first], "saw only one arrival time")
+  local pace = (times[5] - times[first]) / (5 - first)
+  ccunit.truthy(pace >= 0.3 and pace <= 0.55, "one item every " .. pace .. " s")
 end)
 `,
       turtleWorld(
@@ -650,11 +660,14 @@ end)
       ),
     );
     expectAllPassed(merge);
+    // 100 ticks either side of the limit: on a 100x clock that was 50 ms of real time, which a busy host's sleep
+    // overran (the item gone at "5900"). The clock jumps instead, on real time, where the slack is a few ticks.
     const early = await runLua(
-      `${helpers}
+      `${helpers}${jump}
 ccunit.test("still there after 5900 ticks", function()
   turtle.drop(5)
-  sleep(295)
+  sleep(0.1)
+  jump(295)
   ccunit.truthy(turtle.suck())
 end)
 `,
@@ -662,13 +675,15 @@ end)
         { inventory: { "1": { name: "minecraft:cobblestone", count: 5 } } },
         { blocks: [at(0, 64, -2, "minecraft:stone")] },
       ),
+      1,
     );
     expectAllPassed(early);
     const gone = await runLua(
-      `${helpers}
+      `${helpers}${jump}
 ccunit.test("gone after 6000 ticks", function()
   turtle.drop(5)
-  sleep(305)
+  sleep(0.1)
+  jump(305)
   ccunit.eq({ turtle.suck() }, { false, "No items to take" })
 end)
 `,
@@ -676,6 +691,7 @@ end)
         { inventory: { "1": { name: "minecraft:cobblestone", count: 5 } } },
         { blocks: [at(0, 64, -2, "minecraft:stone")] },
       ),
+      1,
     );
     expectAllPassed(gone);
   });

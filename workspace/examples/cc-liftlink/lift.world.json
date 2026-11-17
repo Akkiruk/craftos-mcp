@@ -1,0 +1,29 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["create", "cc-liftlink"],
+  "liftlink": {
+    "columns": {
+      "shaft": {
+        "x": 120,
+        "z": -40,
+        "facing": "north",
+        "contacts": [
+          { "y": 70, "shortName": "1", "longName": "Shops" },
+          { "y": 76, "shortName": "2", "longName": "Roof Garden" }
+        ],
+        "pulley": { "y": 80, "rpm": 64, "cabY": 64 }
+      }
+    }
+  },
+  "peripherals": [
+    {
+      "name": "create_elevator_0",
+      "type": "create_elevator",
+      "column": "shaft",
+      "y": 64,
+      "shortName": "G",
+      "longName": "Lobby"
+    }
+  ]
+}

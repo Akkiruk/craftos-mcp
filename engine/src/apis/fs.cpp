@@ -27,6 +27,7 @@
 #include <FileEntry.hpp>
 #include <sys/stat.h>
 #include "handles/fs_handle.hpp"
+#include "../peripheral/drive.hpp"
 #include "../platform.hpp"
 #include "../runtime.hpp"
 #ifdef WIN32
@@ -336,7 +337,17 @@ static int fs_getName(lua_State *L) {
 static int fs_getDrive(lua_State *L) {
     lastCFunction = __func__;
     std::string retval;
-    if (fixpath(get_comp(L), checkstring(L, 1), true, true, &retval).empty()) return 0;
+    Computer * comp = get_comp(L);
+    if (fixpath(comp, checkstring(L, 1), true, true, &retval).empty()) return 0;
+    // craftos-agent: a floppy's mount is labelled with its drive, not with where it is mounted: "left", not "disk"
+    // (ComputerAccess.mount: fileSystem.mount(driveName, location, mount), driveName the attachment name)
+    if (retval.compare(0, 4, "disk") == 0) {
+        std::lock_guard<std::mutex> lock(comp->peripherals_mutex);
+        for (const auto& p : comp->peripherals) {
+            const drive * d = dynamic_cast<const drive*>(p.second);
+            if (d != NULL && d->mountPath() == retval) { retval = p.first; break; }
+        }
+    }
     lua_pushstring(L, retval.c_str());
     return 1;
 }
@@ -451,6 +462,26 @@ static long long spaceUsed(lua_State *L) {
     return cache.total;
 }
 
+// craftos-agent: a floppy disk holds 125000 bytes (CC:Tweaked's floppySpaceLimit), counted like the computer's own
+// drive. The drive peripheral mounts <computers>/disk/<id> at "disk", "disk2", ...: such a mount is a floppy. The
+// engine answered with the host disk's free space and size instead, some terabytes.
+static const long long FLOPPY_SPACE_LIMIT = 125000;
+
+/** The bytes used on the floppy mounted at `mountPath`, or -1 when that mount is not a floppy disk. */
+static long long floppyUsed(Computer * comp, const std::string& mountPath) {
+    if (mountPath.compare(0, 4, "disk") != 0) return -1;
+    for (const auto& m : comp->mounts) {
+        const std::list<std::string>& parts = std::get<0>(m);
+        if (parts.size() != 1 || parts.front() != mountPath) continue;
+        const path_t& root = std::get<1>(m);
+        if (root.parent_path().filename() != path_t("disk")) continue;
+        SpaceCache walk;
+        spaceWalk(walk, root);
+        return walk.total;
+    }
+    return -1;
+}
+
 static int fs_getFreeSpace(lua_State *L) {
     lastCFunction = __func__;
     std::string mountPath;
@@ -459,7 +490,9 @@ static int fs_getFreeSpace(lua_State *L) {
     // An unknown path counts as part of the computer's own drive, like CC.
     std::error_code existsErr;
     if (path.empty() || !fs::exists(path, existsErr)) mountPath = "hdd";
+    const long long onFloppy = mountPath != "hdd" ? floppyUsed(get_comp(L), mountPath) : -1;
     if (!path.empty() && fs::exists(path, existsErr) && fixpath_ro(get_comp(L), str)) lua_pushinteger(L, 0);
+    else if (onFloppy >= 0) lua_pushinteger(L, std::max<long long>(0, FLOPPY_SPACE_LIMIT - onFloppy));
     else if (mountPath != "hdd") lua_pushinteger(L, getSpace(path).free);
     else lua_pushinteger(L, std::max<long long>(0, (long long)config.computerSpaceLimit - spaceUsed(L)));
     return 1;
@@ -1085,7 +1118,8 @@ static int fs_getCapacity(lua_State *L) {
         return 1;
     }
     if (path.empty()) luaL_error(L, "%s: Invalid path", str.c_str());
-    lua_pushinteger(L, getSpace(path).capacity);
+    if (floppyUsed(get_comp(L), mountPath) >= 0) lua_pushinteger(L, FLOPPY_SPACE_LIMIT);
+    else lua_pushinteger(L, getSpace(path).capacity);
     return 1;
 }
 

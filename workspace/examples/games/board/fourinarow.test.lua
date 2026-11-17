@@ -78,7 +78,7 @@ local problem = kit.run(function()
   for _ = 1, 6 do drop(1) end
   seen.afterSix = #kit.S.match.actions
   drop(1)
-  seen.refused = kit.S.toast and kit.S.toast.text
+  seen.refused = kit.toast()
   seen.afterRefused = #kit.S.match.actions
 
   -- Red builds a column in 2 while Blue builds one in 3, and Red's fourth wins

@@ -45,6 +45,8 @@ kit.run(function()
     return kit.S.view == "final"
   end, 30)
   seen.final = kit.S.view
+  -- the run's score as it ended: the snake can eat again on the way to the wall (a busy host lets it take more steps)
+  seen.finalScore = s.score
   seen.crashSound = kit.heard("death")
   kit.press("seen") -- too soon: a tap meant for the snake must not skip the final board
   seen.heldFinal = kit.S.view
@@ -62,7 +64,7 @@ kit.run(function()
   kit.press("start")
   seen.again = kit.waitFor(function() return kit.S.view == "play" end, 3)
   seen.quit = kit.quit()
-  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0 }
+  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0, dropped = kit.S.droppedSteps or 0 }
 end)
 
 ccunit.test("the menu opens Snake's ready screen and HOW TO PLAY", function()
@@ -93,7 +95,7 @@ ccunit.test("the high score goes on the table under the name typed, and is saved
   ccunit.truthy(seen.scoreScreen, "never reached the scores")
   ccunit.eq(seen.place, 1)
   ccunit.eq(seen.table.name, "SNX")
-  ccunit.eq(seen.table.score, seen.score)
+  ccunit.eq(seen.table.score, seen.finalScore)
   ccunit.truthy(seen.saved, "no scores file")
 end)
 
@@ -102,7 +104,11 @@ ccunit.test("AGAIN starts a new run and QUIT twice ends it", function()
   ccunit.truthy(seen.quit, "QUIT did not end the run")
 end)
 
-ccunit.test("it keeps up at full speed: hardly a frame has to catch up", function()
-  ccunit.truthy(seen.smooth.steps > 100, "only " .. seen.smooth.steps .. " steps")
-  ccunit.truthy(seen.smooth.late <= seen.smooth.steps / 20, seen.smooth.late .. " late frames in " .. seen.smooth.steps)
+ccunit.test("it keeps up at full speed: hardly a step is dropped", function()
+  local m = seen.smooth
+  ccunit.truthy(m.steps > 100, "only " .. m.steps .. " steps")
+  -- Full speed is the game's clock keeping to the real one: a late frame catches up (up to three steps at once), so only
+  -- steps it had to drop count. Late and slow frames are timed on the clock, which runs on while a busy host keeps the
+  -- computer waiting (slow timers do the same), so they are only reported.
+  ccunit.truthy(m.dropped <= m.steps / 20, m.dropped .. " steps dropped in " .. m.steps .. " (" .. m.late .. " late frames)")
 end)

@@ -66,9 +66,9 @@ local problem = kit.run(function()
   kit.start()
 
   tapPit(1, 3)
-  seen.again = { turn = kit.S.match.state.turn, store = kit.S.match.state.stores[1], toast = kit.S.toast and kit.S.toast.text }
+  seen.again = { turn = kit.S.match.state.turn, store = kit.S.match.state.stores[1], toast = kit.toast() }
   tapPit(1, 3)
-  seen.refused = kit.S.toast and kit.S.toast.text
+  seen.refused = kit.toast()
   seen.afterRefused = #kit.S.match.actions
 
   -- the rest of the game: each side sows its first pit with seeds

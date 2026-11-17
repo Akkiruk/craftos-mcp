@@ -401,15 +401,34 @@ function M.installRedstone()
   M.rawRedstone = orig
   local wrapped = {}
   for k, v in pairs(orig) do wrapped[k] = v end
+  -- A wrapper in Lua adds a stack frame: the engine's argument errors then named this file's line
+  -- ("/rom/ccsim/core.lua:446: bad argument #1 (string expected, got number)") where a Java function's name its
+  -- caller, or nothing under a bare pcall (CC's redstone_spec checks the bare text). So the wrapper is made a native
+  -- function, which positions a plain message at its caller, and the engine's own position is taken off first: the
+  -- same pair scripts/rom-patches/startup-emulator.lua uses for fs.
+  local toNative = M.native or os.__ccsimNative
+  local getinfo = debug.getinfo
+  local function plain(fn, ...)
+    local r, here = table.pack(pcall(fn, ...)) if not r[1] then here = getinfo(1, "Sl") end -- one line: the pcall's
+    if r[1] then return r end
+    local err = r[2]
+    if type(err) == "string" and here then
+      local at = here.short_src .. ":" .. here.currentline .. ": "
+      if err:sub(1, 7) == "pcall: " then err = err:sub(8)
+      elseif err:sub(1, #at) == at then err = err:sub(#at + 1) end
+    end
+    error(err, 0)
+  end
   local function watch(name, reader)
     local fn = orig[name]
     if type(fn) ~= "function" then return end
-    wrapped[name] = function(side, ...)
+    local function inner(side, ...)
       local before = type(side) == "string" and select(2, pcall(orig[reader], side)) or nil
-      local r = table.pack(fn(side, ...))
+      local r = plain(fn, side, ...)
       if select(2, pcall(orig[reader], side)) ~= before then M.touch() end
-      return table.unpack(r, 1, r.n)
+      return table.unpack(r, 2, r.n)
     end
+    wrapped[name] = toNative and toNative(inner) or inner
   end
   watch("setOutput", "getAnalogOutput")
   watch("setAnalogOutput", "getAnalogOutput")

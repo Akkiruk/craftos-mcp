@@ -9,7 +9,10 @@ return function(core)
   -- A turtle, or a computer block standing in the world (`placed`: { x, y, z, facing, block })
   local isTurtle = type(core.world.turtle) == "table"
   local placed = core.world.placed
-  local spec = core.world.turtle or placed or {}
+  -- A mob with a computer in it (core.mob, set by its addon: ccsim/mob.lua). It stands in the world without being a
+  -- block of it, and its addon says which side reaches which block.
+  local mob = core.mob
+  local spec = core.world.turtle or placed or (mob and mob.spec) or {}
   M.isTurtle = isTurtle
   local floor, min, max = math.floor, math.min, math.max
 
@@ -106,7 +109,7 @@ return function(core)
 
   -- ===== helpers =====
 
-  local function isTurtleAt(x, y, z) return x == pos.x and y == pos.y and z == pos.z end
+  local function isTurtleAt(x, y, z) return not mob and x == pos.x and y == pos.y and z == pos.z end
   local turtleBlock = { name = TURTLE_BLOCK, state = {} }
   local function blockAt(x, y, z)
     if isTurtleAt(x, y, z) then
@@ -186,7 +189,7 @@ return function(core)
 
   local function maxOf(item) return min(item.maxCount or items.maxCount(item.name), 64) end
   local function same(a, b) return a.name == b.name and a.nbt == b.nbt and a.displayName == b.displayName and a.damage == b.damage end
-  M.same = same
+  M.same, M.maxOf = same, maxOf
 
   local function copy(item, count)
     local c = {}
@@ -280,6 +283,7 @@ return function(core)
     world.dropItem(floor(px), floor(py), floor(pz), stack)
   end
 
+  M.throw = throw
   local function jitter() return (math.random() * 0.2 - 0.1) end
 
   --- WorldUtil.dropItemStack(stack, world, turtle pos, direction): from turtle centre + 0.4 x dir, velocity dir x 0.7
@@ -325,6 +329,7 @@ return function(core)
     return block.inventory
   end
   M.inventoryOf = inventoryOf
+  M.containerSize = containerSize
 
   -- WorldlyContainer faces of a furnace: top reaches the input, sides the fuel, the bottom the output
   local function sidedSlots(block, face)
@@ -391,6 +396,8 @@ return function(core)
     return taken
   end
 
+  M.worldInventory, M.invInsert, M.invTake = worldInventory, invInsert, invTake
+
   -- ===== peripherals on the turtle's sides (spec 9.2) =====
 
   local UPGRADES = {
@@ -406,6 +413,7 @@ return function(core)
 
   local LOCAL_SIDES = { "front", "back", "left", "right", "top", "bottom" }
   local function sideDir(side)
+    if mob then return mob.sideDir(side) end
     if side == "front" then return t.facing
     elseif side == "back" then return OPP[t.facing]
     -- a computer's front faces the player, a turtle's faces away, so computers swap left and right (TileComputer)
@@ -871,11 +879,16 @@ return function(core)
     for _, side in ipairs(LOCAL_SIDES) do
       local up = (side == "left" and t.left) or (side == "right" and t.right) or nil
       local def, inv, key
-      if up and UPGRADES[up] and not UPGRADES[up].tool then
+      local dir = sideDir(side)
+      local held = mob and mob.sideUpgrade and mob.sideUpgrade(side) or nil
+      if held then
+        -- what a mob holds on that side (an android's hands are pocket upgrades)
+        key = "upgrade:" .. held
+        def = upgradePeripheral(side, held)
+      elseif up and UPGRADES[up] and not UPGRADES[up].tool then
         key = "upgrade:" .. up
         def = upgradePeripheral(side, up)
-      else
-        local dir = sideDir(side)
+      elseif dir then
         local x, y, z = world.offset(pos.x, pos.y, pos.z, dir)
         local block = blockAt(x, y, z)
         local extra
@@ -1539,9 +1552,10 @@ return function(core)
     end
   end
 
-  local function breakBlock(x, y, z, block, tool)
+  --- `always`: the drops come whatever the tool (Level.destroyBlock, which asks the loot table and no player)
+  local function breakBlock(x, y, z, block, tool, always)
     local out = {}
-    local canHarvest = not rules.requiresCorrectTool(block) or rules.isCorrectTool(tool, block)
+    local canHarvest = always or not rules.requiresCorrectTool(block) or rules.isCorrectTool(tool, block)
     if canHarvest then
       local drops = loot.drops(block, { name = tool }, function(ox, oy, oz) return blockAt(x + ox, y + oy, z + oz) end)
       if drops == nil then
@@ -1577,6 +1591,8 @@ return function(core)
     popNeighbours(x, y, z, out)
     return out
   end
+
+  M.breakBlock = breakBlock
 
   local function useTool(side, tool, interact, verb)
     local dir = dirOf(interact)
@@ -2234,6 +2250,7 @@ return function(core)
   M.api = api
   M.state = t
   M.fuelLimit = fuelLimit
+  M.pos, M.loot, M.NBT = pos, loot, NBT
 
   -- This computer's own block, as the computers next to it see it (ComputerPeripheral: id, label, on)
   turtleBlock.blockEntity = { ComputerId = core.computerId, label = os.getComputerLabel(), on = true }

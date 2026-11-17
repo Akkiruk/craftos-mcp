@@ -1,0 +1,16 @@
+{
+  "version": "1.20.1",
+  "addons": ["cc-drones"],
+  "players": [{ "name": "Steve", "x": 30.5, "y": 64, "z": 30.5 }],
+  "drone": { "x": 0, "y": 66.25, "z": 0, "hover": true },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "fills": [
+    { "from": [-2, 64, 3], "to": [2, 68, 3], "name": "minecraft:oak_planks" },
+    { "from": [-2, 64, 7], "to": [2, 68, 8], "name": "minecraft:cobblestone" },
+    { "from": [-2, 64, 12], "to": [2, 68, 12], "name": "minecraft:glass" }
+  ]
+}

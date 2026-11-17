@@ -31,9 +31,32 @@ function kit.waitFor(condition, limit)
   return value
 end
 
-function kit.tap(px, py, pause)
+--- Let the shell take every event queued so far: it handles a touch (and redraws) the moment it gets one, so an event
+--- queued behind the touch comes back only when that's done. Twice round: with some mods on, the emulator queues a
+--- touch again behind its own touch event, which puts it behind the first marker.
+function kit.settle()
+  for _ = 1, 2 do
+    os.queueEvent("testkit_settle")
+    os.pullEvent("testkit_settle")
+  end
+end
+
+--- In play a tap is only noted: the game's next step acts on it. So a touch is done once the shell has taken it and,
+--- in play, the game has stepped since.
+local function touchNow(px, py)
+  local steps = kit.S.steps or 0
   os.queueEvent("monitor_touch", monitorName, px + 1, py + 1)
-  sleep(pause or 0.15)
+  kit.settle()
+  if kit.S.view == "play" then
+    kit.waitFor(function() return kit.S.view ~= "play" or (kit.S.steps or 0) > steps end, 10)
+  end
+end
+
+--- Touch the wall at surface cell (px, py), 0-based, and wait until the game has acted on it: what the test reads
+--- next is what the touch did (a fixed sleep raced a busy machine's next step). pause, if given, is a further wait.
+function kit.tap(px, py, pause)
+  touchNow(px, py)
+  if pause then sleep(pause) end
 end
 
 function kit.button(id, data)
@@ -44,9 +67,11 @@ function kit.button(id, data)
 end
 
 function kit.press(id, data, pause)
-  local b = kit.button(id, data)
+  -- the screen before may still be on its way out: wait for the button, then touch the one found
+  local b = kit.waitFor(function() return kit.button(id, data) end, 10)
   if not b then return false end
-  kit.tap(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2), pause)
+  touchNow(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2))
+  if pause then sleep(pause) end
   return true
 end
 
@@ -90,12 +115,17 @@ function kit.quit()
   return kit.waitFor(function() return kit.S.view == "final" end, 5)
 end
 
-function kit.heard(name)
+--- Has the speaker been asked for this sound (a name from lib/sound.lua)? A sound that comes right after another waits
+--- its turn in the shell's queue, which plays it on a later tick: a busy host can make that later than the moment the
+--- test asks, so wait up to `limit` seconds (default 5) for it.
+function kit.heard(name, limit)
   local id = require("lib.sound").SOUNDS[name][1]
-  for _, played in ipairs(kit.sounds) do
-    if played == id then return true end
-  end
-  return false
+  return kit.waitFor(function()
+    for _, played in ipairs(kit.sounds) do
+      if played == id then return true end
+    end
+    return false
+  end, limit or 5)
 end
 
 --- Collect the peer's reports. They arrive as rednet messages the cabinet itself ignores.

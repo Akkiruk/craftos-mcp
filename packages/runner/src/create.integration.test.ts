@@ -8,7 +8,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type SimCommand,
   type SimState,
@@ -21,6 +21,16 @@ import {
   sendAndWait,
   SessionManager,
 } from "./index.js";
+
+// Every surface here was read off the 1.18.2 jars (Create 0.5.1, Crafts & Additions 1.0.0), and on 1.20.1 and 1.21.1
+// CC's own redstone_relay takes the type name Crafts & Additions' relay has here: this file runs on 1.18.2 whatever the
+// default version is.
+beforeAll(() => {
+  vi.stubEnv("CRAFTOS_VERSION", "1.18.2");
+});
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 /**
  * Create 0.5.1.i and Create Crafts & Additions 1.0.0, checked against the behaviour read from their source at the
@@ -893,6 +903,8 @@ end)
 ccunit.test("route", function()
   local s = peripheral.wrap("station")
   ccunit.eq(s.getSchedule(), { cyclic = true, entries = {
+    { instruction = { id = "create:destination", data = { text = "Central" } },
+      conditions = { { { id = "create:delay", data = { value = 600, time_unit = 1 } } } } },
     { instruction = { id = "create:destination", data = { text = "Mine" } },
       conditions = { { { id = "create:delay", data = { value = 4, time_unit = 1 } } } } },
   } })
@@ -905,7 +917,12 @@ end)
             {
               name: "Shuttle",
               at: "Central",
-              route: [{ station: "Mine", wait: 4 }],
+              // its first stop is where it stands, for ten minutes: the clock runs while the computer boots, and a
+              // train that set off for Mine at once was gone from the station before a busy host got to look
+              route: [
+                { station: "Central", wait: 600 },
+                { station: "Mine", wait: 4 },
+              ],
             },
           ],
         },

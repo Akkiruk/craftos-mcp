@@ -53,11 +53,11 @@ kit.run(function()
   seen.signed = playUntil(function(s) return s.flags.signed end, 300)
   seen.stepSound = kit.heard("step")
   seen.fought = playUntil(function(s) return s.mode == "battle" end, 300)
-  seen.fightSound = playUntil(function() return kit.heard("battle") end, 10)
+  seen.fightSound = playUntil(function() return kit.heard("battle", 0) end, 10)
   seen.won = playUntil(function(s) return s.mode ~= "battle" end, 300)
   seen.hitSound = kit.heard("sword_hit")
   playUntil(function(s) return s.mode == "walk" and not s.run end, 300)
-  sleep(1.5) -- the last taps queued are walked
+  kit.drained() -- the last taps queued are walked
   local s = kit.state()
 
   -- SAVE & QUIT, then back in by CONTINUE

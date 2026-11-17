@@ -1,0 +1,30 @@
+{
+  "version": "1.20.1",
+  "addons": ["cc-androids"],
+  "players": [{ "name": "Steve", "x": 30.5, "y": 64, "z": 30.5 }],
+  "android": {
+    "x": 0,
+    "y": 64,
+    "z": 0,
+    "fuel": 0,
+    "hands": { "main": { "name": "minecraft:redstone", "count": 8 } }
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    {
+      "x": 4,
+      "y": 64,
+      "z": 0,
+      "name": "minecraft:chest",
+      "items": {
+        "1": { "name": "minecraft:coal", "count": 16 },
+        "3": { "name": "minecraft:iron_ingot", "count": 5 }
+      }
+    },
+    { "x": -4, "y": 64, "z": 0, "name": "minecraft:chest" }
+  ]
+}

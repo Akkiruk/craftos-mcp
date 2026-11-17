@@ -1,0 +1,91 @@
+{
+  "simProgram": true,
+  "version": "1.20.1",
+  "addons": ["cc-link"],
+  "players": [
+    { "name": "Alex", "x": 0.5, "y": 64, "z": 0.5 },
+    { "name": "Steve", "x": 3.5, "y": 64, "z": 0.5 }
+  ],
+  "ccLink": {
+    "core": "link",
+    "upgrades": [
+      "cclink:scanner_upgrade",
+      "cclink:sensor_upgrade",
+      "cclink:introspection_upgrade",
+      "cclink:world_upgrade",
+      "cclink:overlay_upgrade",
+      "cclink:kinetic_upgrade",
+      "cclink:chatty_upgrade"
+    ],
+    "player": {
+      "name": "Alex",
+      "x": 0.5,
+      "y": 64,
+      "z": 0.5,
+      "yaw": 0,
+      "pitch": 0,
+      "health": 14,
+      "food": 15,
+      "saturation": 0,
+      "inventory": {
+        "0": { "name": "minecraft:bread", "count": 3 },
+        "1": { "name": "minecraft:diamond_pickaxe" },
+        "2": { "name": "minecraft:torch", "count": 40 },
+        "36": {
+          "name": "cclink:link_boots",
+          "modules": ["cclink:battery_upgrade_tier1"],
+          "energy": 6000
+        },
+        "37": {
+          "name": "cclink:link_leggings",
+          "modules": ["cclink:kinetic_upgrade"],
+          "energy": 9000
+        },
+        "38": {
+          "name": "cclink:link_chestplate",
+          "modules": ["cclink:sensor_upgrade"]
+        },
+        "39": {
+          "name": "cclink:link_helmet",
+          "modules": ["cclink:overlay_upgrade"]
+        }
+      },
+      "ender": { "0": { "name": "minecraft:diamond", "count": 5 } }
+    },
+    "world": { "raining": true, "canSeeSky": true, "biome": "minecraft:plains" }
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    {
+      "x": 0,
+      "y": 64,
+      "z": 3,
+      "name": "minecraft:oak_log",
+      "state": { "axis": "x" }
+    },
+    {
+      "x": 2,
+      "y": 64,
+      "z": 0,
+      "name": "minecraft:furnace",
+      "state": { "facing": "east", "lit": "true" }
+    }
+  ],
+  "entities": [
+    {
+      "type": "minecraft:cow",
+      "name": "Daisy",
+      "x": 1.5,
+      "y": 64,
+      "z": 2.5,
+      "baby": true
+    },
+    { "type": "minecraft:zombie", "x": -2.5, "y": 64, "z": -1.5, "health": 12 },
+    { "type": "minecraft:creeper", "x": 40, "y": 64, "z": 40 }
+  ],
+  "peripherals": [{ "name": "back", "type": "link_armor" }]
+}

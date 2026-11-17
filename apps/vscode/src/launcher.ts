@@ -7,7 +7,27 @@ import { type ChildProcess, spawn, spawnSync } from "node:child_process";
  * uses its cache instead of asking the registry for the latest each time) and so the engine zip it downloads matches.
  * A new craftos-mcp release means a new extension release with this bumped.
  */
-export const NPM_PACKAGE = "craftos-mcp@0.2.0";
+export const NPM_PACKAGE = "craftos-mcp@0.3.0";
+
+/**
+ * The release before NPM_PACKAGE. When npm says the pinned version does not exist (the extension went out before
+ * the npm release, or a mirror lags), the default command falls back to this one instead of failing.
+ */
+export const FALLBACK_PACKAGE = "craftos-mcp@0.2.0";
+
+/** Whether npx failed because the pinned version is not on the registry (ETARGET), not for any other reason. */
+export function missingVersion(output: string): boolean {
+  return /ETARGET|No matching version found for craftos-mcp@/i.test(output);
+}
+
+/** The same command on FALLBACK_PACKAGE, if it is the default pinned one; undefined for anything else. */
+export function fallbackFor(base: readonly string[]): string[] | undefined {
+  const at = base.indexOf(NPM_PACKAGE);
+  if (at < 0 || base[0] !== "npx") return undefined;
+  const out = [...base];
+  out[at] = FALLBACK_PACKAGE;
+  return out;
+}
 
 /** The command for configs other clients keep (Claude Code, Cursor...): unpinned, so it never goes stale there. */
 export const EXTERNAL_BASE = ["npx", "-y", "craftos-mcp"];
@@ -116,6 +136,33 @@ export function killTree(child: ChildProcess): void {
   } catch {
     child.kill("SIGTERM");
   }
+}
+
+export type SetupLine =
+  | { kind: "setting-up"; detail: string }
+  | { kind: "ready" }
+  | { kind: "failed"; why: string };
+
+/**
+ * One line of craftos-mcp's first-run setup on stderr (scripts/npm/first-run.mjs): `craftos-mcp: setting up ...`,
+ * `craftos-mcp:   engine: 50% of 9 MB`, `craftos-mcp: ready (40 s)`, `craftos-mcp: setup failed: ...`.
+ */
+export function readSetupLine(line: string): SetupLine | undefined {
+  const m = /^craftos-mcp: (.*)$/.exec(line.trim());
+  if (!m) return undefined;
+  const text = m[1]!.trim();
+  if (/^ready \(\d+ s\)$/.test(text)) return { kind: "ready" };
+  const failed = /^setup failed: (.*)$/.exec(text);
+  if (failed) return { kind: "failed", why: failed[1]! };
+  if (/^setting up /.test(text))
+    return { kind: "setting-up", detail: "starting" };
+  const pct = /^(engine|ROM[^:]*|[\w .-]+): (\d+)% of (.+)$/.exec(text);
+  if (pct) return { kind: "setting-up", detail: `${pct[1]} ${pct[2]}%` };
+  if (/^(engine|ROM)\b/.test(text))
+    return { kind: "setting-up", detail: text.split(" (")[0]! };
+  if (/another craftos-mcp is setting up/.test(text))
+    return { kind: "setting-up", detail: "waiting for another setup" };
+  return undefined;
 }
 
 /** Whether a failed start means the command itself is missing (`'claude' is not recognized`, ENOENT, 127). */

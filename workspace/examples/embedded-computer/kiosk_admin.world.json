@@ -1,0 +1,19 @@
+{
+  "version": "1.20.1",
+  "addons": ["embedded-computer"],
+  "embeddedComputer": { "kind": "secure" },
+  "peripherals": [
+    {
+      "name": "left",
+      "type": "embeddedcomputer",
+      "id": 12,
+      "files": { "startup.lua": "print('kiosk')", ".LOCKED": "open sesame" }
+    },
+    {
+      "name": "right",
+      "type": "harddrive",
+      "uuid": "5d2f0c1e-0000-4000-a000-000000000001",
+      "files": { "notes.txt": "backup drive" }
+    }
+  ]
+}

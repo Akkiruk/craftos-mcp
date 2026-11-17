@@ -1,0 +1,150 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["more-peripherals"],
+  "players": [
+    { "name": "Steve", "x": 2.5, "y": 64, "z": 0.5 },
+    { "name": "Alex", "dimension": "minecraft:the_nether" }
+  ],
+  "morePeripherals": {
+    "players": {
+      "Steve": {
+        "selected": 0,
+        "food": 14,
+        "saturation": 0,
+        "effects": { "minecraft:speed": { "duration": 600, "amplifier": 1 } },
+        "inventory": {
+          "1": { "name": "minecraft:diamond_sword", "count": 1 },
+          "2": {
+            "name": "minecraft:bread",
+            "count": 3,
+            "food": { "nutrition": 5, "saturation": 0.6 }
+          },
+          "39": { "name": "minecraft:iron_chestplate", "count": 1 }
+        },
+        "enderChest": {
+          "1": { "name": "minecraft:diamond", "count": 5 }
+        }
+      }
+    }
+  },
+  "peripherals": [
+    { "name": "xp_collector_0", "type": "xp_collector", "xp": 20 },
+    { "name": "xp_bottler_0", "type": "xp_bottler" },
+    {
+      "name": "minecraft:chest_0",
+      "type": "minecraft:chest",
+      "items": { "1": { "name": "minecraft:glass_bottle", "count": 16 } }
+    },
+    { "name": "minecraft:chest_1", "type": "minecraft:chest" },
+    {
+      "name": "magnetic_card_manipulator_0",
+      "type": "magnetic_card_manipulator",
+      "card": { "data": "staff", "label": "Staff Card" }
+    },
+    {
+      "name": "minecraft:chest_2",
+      "type": "minecraft:chest",
+      "items": {
+        "1": { "name": "minecraft:oak_planks", "count": 4 },
+        "2": { "name": "minecraft:white_banner", "count": 1 },
+        "3": { "name": "minecraft:red_dye", "count": 2 },
+        "4": { "name": "minecraft:emerald", "count": 10 },
+        "5": {
+          "name": "peripherals:spawner_card",
+          "count": 1,
+          "tag": { "mob": "minecraft:zombie" }
+        },
+        "6": { "name": "minecraft:iron_sword", "count": 1 },
+        "7": { "name": "minecraft:glass_bottle", "count": 2 },
+        "8": { "name": "minecraft:shears", "count": 1 },
+        "9": { "name": "minecraft:dirt", "count": 10 },
+        "10": {
+          "name": "peripherals:spawner_card",
+          "count": 1,
+          "tag": { "note": "no mob" }
+        }
+      }
+    },
+    { "name": "minecraft:chest_3", "type": "minecraft:chest" },
+    { "name": "crafter_0", "type": "crafter" },
+    { "name": "loom_interface_0", "type": "loom_interface" },
+    {
+      "name": "beehive_interface_0",
+      "type": "beehive_interface",
+      "beehive": {
+        "honeyLevel": 5,
+        "fireNearby": false,
+        "bees": [
+          {
+            "ticksInHive": 40,
+            "minOccupationTicks": 2400,
+            "health": 10,
+            "hasNectar": true,
+            "age": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "trading_interface_0",
+      "type": "trading_interface",
+      "villager": {
+        "profession": "librarian",
+        "offers": [
+          {
+            "costA": { "name": "minecraft:emerald", "count": 5 },
+            "costB": { "name": "minecraft:book", "count": 1 },
+            "result": {
+              "name": "minecraft:enchanted_book",
+              "count": 1,
+              "enchantments": [{ "name": "minecraft:mending", "level": 1 }]
+            }
+          },
+          {
+            "costA": { "name": "minecraft:emerald", "count": 1 },
+            "result": { "name": "minecraft:bookshelf", "count": 1 }
+          }
+        ],
+        "rerolls": [
+          [
+            {
+              "costA": { "name": "minecraft:paper", "count": 24 },
+              "result": { "name": "minecraft:emerald", "count": 1 }
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "name": "spawner_interface_0",
+      "type": "spawner_interface",
+      "spawner": { "mob": "minecraft:pig" }
+    },
+    {
+      "name": "player_interface_0",
+      "type": "player_interface",
+      "card": "Steve"
+    },
+    {
+      "name": "ender_chest_interface_0",
+      "type": "ender_chest_interface",
+      "card": "Steve"
+    },
+    {
+      "name": "scanner_0",
+      "type": "moreperipherals:scanner",
+      "item": {
+        "name": "minecraft:written_book",
+        "count": 1,
+        "book": {
+          "title": "Rules",
+          "author": "Steve",
+          "generation": 1,
+          "pages": ["{\"text\":\"No griefing\"}", "Be nice"]
+        }
+      }
+    },
+    { "name": "grinder_0", "type": "grinder" }
+  ]
+}

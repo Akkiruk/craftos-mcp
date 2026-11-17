@@ -1,0 +1,34 @@
+{
+  "version": "1.21.1",
+  "simProgram": true,
+  "addons": ["classic-peripherals"],
+  "classicPeripherals": { "seed": 1471 },
+  "peripherals": [
+    { "name": "left", "type": "cryptographic_accelerator" },
+    {
+      "name": "front",
+      "type": "rfid_scanner",
+      "x": 10,
+      "y": 64,
+      "z": 10,
+      "facing": "north"
+    },
+    {
+      "name": "top",
+      "type": "radio_tower",
+      "height": 6,
+      "x": 10,
+      "y": 70,
+      "z": 12
+    },
+    {
+      "name": "guardpost",
+      "type": "radio_tower",
+      "kind": "antenna",
+      "x": 200,
+      "y": 64,
+      "z": 12,
+      "frequency": 1471
+    }
+  ]
+}

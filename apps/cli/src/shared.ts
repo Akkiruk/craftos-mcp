@@ -1,14 +1,18 @@
 // Helpers the command-line commands share: the workspace folder, worlds, monitors and number options.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
   type MonitorSpec,
   type RunnerConfig,
   type WorldConfig,
+  WorkspaceError,
+  checkWorld,
   loadConfig,
   loadNamedWorld,
+  packageVersion,
   resolveVersion,
+  withoutEditorKeys,
 } from "@craftos-mcp/runner";
 
 type OptionSet = NonNullable<Parameters<typeof parseArgs>[0]>["options"];
@@ -55,8 +59,23 @@ export function parse(args: string[], options: OptionSet): Parsed {
   }
 }
 
-/** The runner's config with the workspace set to --dir (default: the current folder). */
+/**
+ * The runner's config with the workspace set to --dir (default: the current folder). In a clone, run from the clone's
+ * own root, the default is its workspace/ folder (as the MCP server): the root is the whole repo, runtime folder too.
+ */
 export function configFor(dir: string | undefined): RunnerConfig {
+  if (dir === undefined && packageVersion() === undefined) {
+    const { CRAFTOS_WORKSPACE: _, ...env } = process.env;
+    const clone = loadConfig(env);
+    const same = (a: string, b: string): boolean =>
+      process.platform === "win32"
+        ? a.toLowerCase() === b.toLowerCase()
+        : a === b;
+    if (same(resolve(clone.workspaceDir, ".."), resolve(process.cwd()))) {
+      process.env["CRAFTOS_WORKSPACE"] = clone.workspaceDir;
+      return loadConfig();
+    }
+  }
   const workspace = resolve(dir ?? process.cwd());
   if (!existsSync(workspace))
     throw new UsageError(`no such folder: ${workspace}`);
@@ -67,7 +86,16 @@ export function configFor(dir: string | undefined): RunnerConfig {
 /** A path typed on the command line, as the workspace-relative path the runner wants. */
 export function workspacePath(config: RunnerConfig, typed: string): string {
   const abs = resolve(process.cwd(), typed);
-  const rel = relative(config.workspaceDir, abs);
+  // The current folder is always the real path, so compare with the workspace's real path too: on macOS /tmp and
+  // /var are links into /private, and a workspace under one would otherwise never contain the current folder.
+  const real = (path: string): string => {
+    try {
+      return realpathSync(path);
+    } catch {
+      return path;
+    }
+  };
+  const rel = relative(real(config.workspaceDir), abs);
   if (!rel.startsWith("..") && !isAbsolute(rel))
     return rel.split("\\").join("/") || ".";
   return typed;
@@ -84,15 +112,24 @@ export function loadWorld(
   mc?: string,
 ): WorldConfig | undefined {
   const loaded = loadWorldAddons(config, world, addons);
-  if (mc === undefined) return loaded;
-  try {
-    resolveVersion(mc);
-  } catch (error) {
-    throw new UsageError(
-      `--mc: ${(error as Error).message.replace(/^world\.version: /, "")}`,
-    );
+  if (mc !== undefined) {
+    try {
+      resolveVersion(mc);
+    } catch (error) {
+      throw new UsageError(
+        `--mc: ${(error as Error).message.replace(/^world\.version: /, "")}`,
+      );
+    }
   }
-  return { ...loaded, version: mc };
+  const merged = mc === undefined ? loaded : { ...loaded, version: mc };
+  // checked before a computer boots: a typo in a key or a peripheral type is a message, not a confusing run
+  const { errors, warnings } = checkWorld(merged);
+  if (errors.length)
+    throw new WorkspaceError(
+      `${world ? `--world ${world}` : "the world"}: ${errors.length === 1 ? errors[0] : `\n- ${errors.join("\n- ")}`}`,
+    );
+  for (const w of warnings) console.error(`warning: ${w}`);
+  return merged;
 }
 
 function loadWorldAddons(
@@ -109,7 +146,9 @@ function loadWorldAddons(
     const file = candidates.find((c) => /\.json$/i.test(c) && existsSync(c));
     if (file) {
       try {
-        loaded = JSON.parse(readFileSync(file, "utf8")) as WorldConfig;
+        loaded = withoutEditorKeys(
+          JSON.parse(readFileSync(file, "utf8")) as WorldConfig,
+        );
       } catch (error) {
         throw new UsageError(`${file}: ${(error as Error).message}`);
       }
@@ -162,6 +201,11 @@ export function number(
   return n;
 }
 
+/** A missing engine or ROM (checkConfig, missingRomProblem): the message says what to do, a stack adds nothing. */
+const isSetupProblem = (error: unknown): error is Error =>
+  error instanceof Error &&
+  /^(engine not found|ROM (for Minecraft \S+ )?not found)/.test(error.message);
+
 /** Run a command body: usage mistakes print the message and exit 2; anything else is a crash worth a stack. */
 export async function guarded(
   usage: string,
@@ -173,6 +217,10 @@ export async function guarded(
     if (error instanceof UsageError) {
       console.error(error.message);
       console.error(usage);
+      return 2;
+    }
+    if (error instanceof WorkspaceError || isSetupProblem(error)) {
+      console.error(error.message);
       return 2;
     }
     console.error(

@@ -1,0 +1,28 @@
+{
+  "version": "1.20.1",
+  "addons": ["ac-drones"],
+  "acDrone": {
+    "x": 0,
+    "y": 64,
+    "z": 0,
+    "accessory": "claw",
+    "attachments": ["modem"]
+  },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    {
+      "x": 3,
+      "y": 64,
+      "z": 0,
+      "name": "minecraft:chest",
+      "items": {
+        "1": { "name": "minecraft:iron_ingot", "count": 12 },
+        "2": { "name": "minecraft:bread", "count": 5 }
+      }
+    }
+  ]
+}

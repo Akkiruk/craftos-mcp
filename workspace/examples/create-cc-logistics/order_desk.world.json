@@ -1,0 +1,71 @@
+{
+  "version": "1.20.1",
+  "simProgram": true,
+  "addons": ["create", "create-cc-logistics"],
+  "createLogistics": {
+    "travelTicks": 20,
+    "networks": {
+      "main": {
+        "links": [
+          { "name": "vault", "inventory": "minecraft:chest_0" },
+          {
+            "name": "farm",
+            "block": "minecraft:barrel",
+            "size": 27,
+            "frogportAddress": "Farm",
+            "items": [
+              { "name": "minecraft:wheat", "count": 64 },
+              { "name": "minecraft:wheat", "count": 20 },
+              { "name": "minecraft:carrot", "count": 33 }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "peripherals": [
+    {
+      "name": "stockticker_0",
+      "type": "stockcheckingblock",
+      "network": "main"
+    },
+    {
+      "name": "redstonerequester_0",
+      "type": "redstonerequester",
+      "network": "main"
+    },
+    {
+      "name": "frogport_0",
+      "type": "packageport",
+      "addressFilter": "Workshop"
+    },
+    {
+      "name": "clipboard_0",
+      "type": "clipboard",
+      "pages": [
+        [
+          { "text": "Shopping list" },
+          { "text": "12 iron ingot" },
+          { "text": "100 wheat" },
+          { "text": "5 diamond" },
+          { "text": "2 carrot", "checked": true }
+        ]
+      ]
+    },
+    {
+      "name": "minecraft:chest_0",
+      "type": "minecraft:chest",
+      "size": 27,
+      "items": [
+        { "name": "minecraft:iron_ingot", "count": 40 },
+        { "name": "minecraft:cobblestone", "count": 64 },
+        {
+          "name": "create:andesite_alloy",
+          "count": 16,
+          "displayName": "Andesite Alloy"
+        }
+      ]
+    },
+    { "name": "minecraft:barrel_0", "type": "minecraft:barrel", "size": 27 }
+  ]
+}

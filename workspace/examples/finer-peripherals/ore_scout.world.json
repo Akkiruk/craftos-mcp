@@ -1,0 +1,51 @@
+{
+  "simProgram": true,
+  "version": "1.20.1",
+  "addons": ["finer-peripherals"],
+  "players": [
+    { "name": "Alex", "x": 2.5, "y": 64, "z": -3.5 },
+    {
+      "name": "Steve",
+      "x": -10.25,
+      "y": 70,
+      "z": 4.75,
+      "dimension": "minecraft:the_nether"
+    }
+  ],
+  "finerPeripherals": { "respawn": { "Alex": { "x": 0, "y": 65, "z": 0 } } },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    { "x": 1, "y": 62, "z": 0, "name": "minecraft:iron_ore" },
+    { "x": 2, "y": 61, "z": 0, "name": "minecraft:iron_ore" },
+    { "x": -2, "y": 60, "z": 1, "name": "minecraft:diamond_ore" },
+    {
+      "x": 0,
+      "y": 64,
+      "z": 1,
+      "name": "minecraft:wall_torch",
+      "state": { "facing": "south" }
+    },
+    { "x": 9, "y": 62, "z": 0, "name": "minecraft:gold_ore" }
+  ],
+  "peripherals": [
+    { "name": "chatBox_0", "type": "finerperipherals:chatbox" },
+    {
+      "name": "geoExplorer_0",
+      "type": "finerperipherals:geoexplorer",
+      "x": 0,
+      "y": 64,
+      "z": 0
+    },
+    { "name": "playerFinder_0", "type": "finerperipherals:player_finder" },
+    { "name": "eventRelayer_0", "type": "finerperipherals:eventrelayer" },
+    {
+      "name": "holo_0",
+      "type": "finerperipherals:holoitemdisplay",
+      "item": "minecraft:apple"
+    }
+  ]
+}

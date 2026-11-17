@@ -736,7 +736,13 @@ local function tick()
       m.nextAt = m.nextAt + S.game.tickMs
       hostStep(m)
     end
-    if t >= m.nextAt then m.nextAt = t + S.game.tickMs end
+    if t >= m.nextAt then
+      -- too far behind to catch up: the steps it would have taken are lost, and the game runs on from now
+      if S.view == "play" then
+        S.droppedSteps = (S.droppedSteps or 0) + math.floor((t - m.nextAt) / S.game.tickMs) + 1
+      end
+      m.nextAt = t + S.game.tickMs
+    end
     S.steps = (S.steps or 0) + steps
     if steps > 1 then S.lateFrames = (S.lateFrames or 0) + 1 end
     if steps > 0 then dirty() end

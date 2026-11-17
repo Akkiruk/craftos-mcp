@@ -1,0 +1,13 @@
+{
+  "version": "1.21.1",
+  "addons": ["crickets-peripherals"],
+  "peripherals": [
+    {
+      "name": "left",
+      "type": "hard_drive",
+      "mountId": 0,
+      "files": { "readme.txt": "vault drive" }
+    },
+    { "name": "right", "type": "data_coprocessor" }
+  ]
+}

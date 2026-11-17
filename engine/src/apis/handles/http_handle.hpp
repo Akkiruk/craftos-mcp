@@ -19,8 +19,13 @@ struct http_handle_t {
     Poco::Net::HTTPClientSession * session;
     Poco::Net::HTTPResponse * handle;
     std::istream * stream;
+    // craftos-agent: the request asked for a binary handle (read() without a count is then a number)
+    bool binary = false;
+    // craftos-agent: `stream` is a std::stringstream of the whole body that this handle deletes
+    bool owned = false;
     http_handle_t(std::istream * s) : stream(s) {}
 };
+extern int http_handle_read(lua_State *L);
 extern int http_handle_free(lua_State *L);
 extern int http_handle_close(lua_State *L);
 extern int http_handle_readAll(lua_State *L);

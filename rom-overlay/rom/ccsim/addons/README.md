@@ -6,11 +6,36 @@ MCP server; see `packages/runner/src/addons.ts`). A module is a folder here, lis
 - `types.lua` returns `{ addon = "<addon id>", types = { "<peripheral type>", ... }, worldKeys = { "<key>" }? }`.
   It is read at every boot, so keep it to that table. An addon may have several modules (Mekanism's QIO lives in
   `../mek/`, its other machines in `mekanism-machines/`).
+- Optional in `types.lua`: `rom = true` (or a folder name) when the mod's jar puts files into CC's ROM
+  (`data/computercraft/lua/rom/...`). Keep them, as the jar has them, in `<module>/rom/`; with the addon on they show
+  at `/rom/...` from boot (APIs loaded, autorun run, programs on the shell path), with it off they do not exist
+  (`../romfiles.lua`). `boot = true` loads `init.lua` at every boot, for a mod that adds an API to every computer.
 - `init.lua` returns `function(core, host) return module end`. It is loaded the first time the world builds one of
   its types, or at boot when the world has one of its `worldKeys`. Never when the addon is off.
 
 The same types must be listed in `ADDONS` in `packages/runner/src/addons.ts`, which refuses a world that uses a
 type of an addon that is off before the computer boots.
+
+## A mod whose computer is a mob
+
+An android or a drone is not a peripheral: the computer itself is the mob, the way a world's `turtle` makes it a
+turtle. Such a module has a world key (`android`, `drone`, `dronePlus`, `acDrone`) and no types of its own. Its
+`init.lua`, loaded at boot because the world has the key, makes the mob with `../mob.lua`:
+
+```lua
+local mob = dofile("/rom/ccsim/mob.lua")(core, { x = spec.x, y = spec.y, z = spec.z })
+mob.onInstall = function(brain) _G.android = api end -- the block world is there: put the API in place
+mob.onTick = function(age) end                       -- one game tick, 20 a second on the computer's clock
+mob.busy = function() return false end               -- false: at rest, ticks are run a second at a time
+mob.sideDir = function(side) return nil end          -- which way a side's block is ("down", "north", ...), or nil
+```
+
+`../init.lua` then loads the block world a turtle uses (`../turtle/brain.lua`) around it and calls `mob.install`.
+`mob` has what such mods share: a position with fractions, CC's argument checks (`mob.args`), `mob.onMainThread`
+for `mainThread = true` methods, entities, a ray cast, walking paths, and the sim commands `mobSpawn`, `mobMove`,
+`mobRemove`, `mobDropItem` and `mobSetBlock` (`mob.handlers`; add them to the module's own). An API function calls
+`mob.sync()` first (`mob.synced(api)` wraps a whole table), so the ticks a resting mob slept through are run before
+anything changes. The screen of the mob's computer is in `packages/runner/src/mobs.ts`.
 
 ## The module
 
@@ -20,8 +45,12 @@ type of an addon that is off before the computer boots.
   handlers = { cmdName = function(cmd) return ok, err end }, -- craftos_sim_command commands
   catchUp = function() end,  -- machines on the virtual clock: bring them up to os.epoch("utc") before anything looks
   state = function() return {} end, -- addon-wide state, in sim state under addons.<module>
+  globals = { name = api }, -- Lua APIs the mod adds to every computer (ILuaAPI); set in _G when the module loads
 }
 ```
+
+A mod whose API is a global (`globals`) and not a block has no type to load it by, so it needs a `worldKey`: the
+world switches it on with that key (`{}` is enough), and the module loads at boot, before the program runs.
 
 `p`, one peripheral:
 

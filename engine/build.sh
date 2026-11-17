@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Configure (first run) and build the engine on Linux with GCC/Clang + Ninja + vcpkg (x64-linux).
+# Configure (first run) and build the engine with GCC/Clang + Ninja + vcpkg: on Linux (x64-linux) and on macOS
+# (arm64-osx on Apple silicon, x64-osx on Intel).
 # Needs cmake (3.21+), ninja, a C++17 compiler and a vcpkg checkout: set CRAFTOS_VCPKG or VCPKG_ROOT to it.
 # vcpkg builds SDL2 and friends from source, which needs some system packages first. On Debian/Ubuntu:
 #   sudo apt install build-essential cmake ninja-build pkg-config curl zip unzip tar git \
 #     autoconf autoconf-archive automake libtool bison python3-venv python3-jinja2 linux-libc-dev \
 #     libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev libxcursor-dev libxss-dev libxtst-dev \
 #     libwayland-dev libxkbcommon-dev libegl1-mesa-dev libibus-1.0-dev libltdl-dev
+# On macOS: the Xcode command line tools (xcode-select --install), and with Homebrew:
+#   brew install cmake ninja pkg-config autoconf autoconf-archive automake libtool
+# The macOS build runs on macOS 11 and newer (set in engine/triplets and below).
 # Extra arguments go to "cmake --build". CRAFTOS_BUILD_DIR overrides the build directory (default engine/build).
 set -euo pipefail
 E="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,13 +23,21 @@ if [ ! -f "$BUILD_DIR/build.ninja" ]; then
     echo "  then set CRAFTOS_VCPKG or VCPKG_ROOT to that folder and run build.sh again." >&2
     exit 1
   fi
+  TRIPLET=x64-linux
+  EXTRA=()
+  if [ "$(uname -s)" = Darwin ]; then
+    if [ "$(uname -m)" = arm64 ]; then TRIPLET=arm64-osx; else TRIPLET=x64-osx; fi
+    # engine/triplets holds this project's osx triplets; keep the engine itself on the same oldest macOS.
+    EXTRA=("-DVCPKG_OVERLAY_TRIPLETS=$E/triplets" "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0")
+  fi
   # The first configure installs the packages from vcpkg.json into engine/vcpkg_installed; later ones reuse them.
   MANIFEST_INSTALL=ON
-  [ -d "$E/vcpkg_installed/x64-linux/share" ] && MANIFEST_INSTALL=OFF
+  [ -d "$E/vcpkg_installed/$TRIPLET/share" ] && MANIFEST_INSTALL=OFF
   cmake -S "$E" -B "$BUILD_DIR" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     "-DCMAKE_TOOLCHAIN_FILE=$VCPKG/scripts/buildsystems/vcpkg.cmake" \
     "-DVCPKG_MANIFEST_INSTALL=$MANIFEST_INSTALL" \
     "-DVCPKG_INSTALLED_DIR=$E/vcpkg_installed" \
-    -DVCPKG_TARGET_TRIPLET=x64-linux
+    "-DVCPKG_TARGET_TRIPLET=$TRIPLET" \
+    ${EXTRA[@]+"${EXTRA[@]}"}
 fi
 cmake --build "$BUILD_DIR" "$@"

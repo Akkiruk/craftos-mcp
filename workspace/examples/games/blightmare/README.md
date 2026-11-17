@@ -27,7 +27,17 @@ The whole showcase is in [`docs/media/showcase/blightmare.mp4`](../../../../docs
 
 ## Installing it
 
-The game is about 2 MB of Lua, and a computer holds 1,000,000 bytes by default, so it goes onto the computer packed.
+The quick way, on an advanced computer with the wall attached (needs the http API, on by default):
+
+```
+pastebin run 9KAz8A8k
+```
+
+That runs `get.lua`, which downloads the packed game from the `blightmare-v1` GitHub release, leaves `saves/` alone and
+asks before replacing a `startup.lua` that isn't the game's. `wget run
+https://github.com/Akkiruk/craftos-mcp/releases/download/blightmare-v1/get.lua` does the same without Pastebin.
+
+To build it yourself: the game is about 2 MB of Lua, and a computer holds 1,000,000 bytes by default, so it goes onto the computer packed.
 `build.mjs` makes the packed copy. It takes out comments and indents and squeezes the modules with DEFLATE into one file.
 `pack.lua` unpacks them on the computer. Every string in the game is kept byte for byte, and every line keeps its line
 number, so an error on the computer points at the same line as the source.

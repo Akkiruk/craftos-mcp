@@ -459,6 +459,8 @@ LUA_API void  (lua_upvaluejoin) (lua_State *L, int fidx1, int n1,
                                                int fidx2, int n2);
 
 LUA_API int (lua_sethook) (lua_State *L, lua_Hook func, int mask, int count);
+/* craftos-agent: a count hook of the host's that debug.sethook keeps running under a program's own (ldblib.c) */
+LUA_API void (lua_setbasehook) (lua_Hook func, int count);
 LUA_API lua_Hook (lua_gethook) (lua_State *L);
 LUA_API int (lua_gethookmask) (lua_State *L);
 LUA_API int (lua_gethookcount) (lua_State *L);

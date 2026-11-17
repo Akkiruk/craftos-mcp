@@ -20,6 +20,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 }
 
 const [command, ...rest] = process.argv.slice(2);
+/** Commands that start a computer: after a failed setup they stop with the reason instead of a spawn error. */
+const NEEDS_ENGINE = new Set(["run", "test", "window", "app"]);
 
 if (command === "--version" || command === "-v") {
   const { packageVersion } = await import(
@@ -43,6 +45,14 @@ if (command === "--version" || command === "-v") {
   const { isSetUp, setUp } = await import("./first-run.mjs");
   if (!isSetUp()) {
     const result = await setUp();
+    // without the engine and ROM a computer cannot start: one line and out, not a spawn error's stack
+    if (!result.ok && NEEDS_ENGINE.has(command)) {
+      console.error(
+        `craftos-mcp: cannot ${command} without the engine and ROM (setup failed: ${result.error}). ` +
+          "craftos-mcp setup tries again; craftos-mcp info shows what is missing.",
+      );
+      process.exit(2);
+    }
     if (!result.ok)
       console.error(
         "craftos-mcp: carrying on; craftos-mcp info shows what is missing",
@@ -54,15 +64,10 @@ if (command === "--version" || command === "-v") {
 async function serve() {
   // stdout is the MCP channel: anything printed with console.log goes to stderr instead
   console.log = console.info = console.debug = console.error;
-  const { isSetUp, setUp } = await import("./first-run.mjs");
+  const { isSetUp, setupGate } = await import("./first-run.mjs");
   if (!isSetUp()) {
-    const setup = setUp();
-    let done = false;
-    let failed;
-    void setup.then((r) => {
-      done = true;
-      failed = r.ok ? undefined : r.error;
-    });
+    // set up in the background; a failed setup is tried again on a later call, so a fixed network needs no restart
+    const gate = setupGate();
     // Tools that need no engine answer at once; the rest wait for the setup. Hooked on the SDK the server itself
     // imports (the same module instance), before the server registers its tools.
     const NO_WAIT = new Set([
@@ -71,6 +76,7 @@ async function serve() {
       "craftos_read_file",
       "craftos_list_files",
       "craftos_session_list",
+      "craftos_help",
     ]);
     const { McpServer } = await import(
       "@modelcontextprotocol/sdk/server/mcp.js"
@@ -79,17 +85,12 @@ async function serve() {
     McpServer.prototype.registerTool = function (name, config, handler) {
       if (typeof handler !== "function")
         return register.call(this, name, config, handler);
-      const note = () => ({
-        type: "text",
-        text: done
-          ? `first-run setup failed: ${failed}; run  npx craftos-mcp setup  in a terminal to see why`
-          : "first-run setup is still downloading the engine and building the ROM (about a minute); tools that run computers wait for it",
-      });
+      const note = () => ({ type: "text", text: gate.note() });
       const wrapped =
         name === "craftos_info"
           ? async (...args) => {
               const result = await handler(...args);
-              if (done && !failed) return result;
+              if (gate.ready) return result;
               return {
                 ...result,
                 content: [...(result.content ?? []), note()],
@@ -98,8 +99,8 @@ async function serve() {
           : NO_WAIT.has(name)
             ? handler
             : async (...args) => {
-                await setup;
-                if (failed) return { isError: true, content: [note()] };
+                const setup = await gate.wait();
+                if (!setup.ok) return { isError: true, content: [note()] };
                 return handler(...args);
               };
       return register.call(this, name, config, wrapped);

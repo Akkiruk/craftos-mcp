@@ -286,9 +286,59 @@ static int gethooktable(lua_State *L) {
 static int hook_continue(lua_State *L) { return 0; } // placeholder
 
 
+/*
+** craftos-agent: a hook of the host's own that stays under whatever debug.sethook installs (the engine's
+** --cobalt-speed throttle, a count hook). A VM has one C hook, so debug.sethook used to refuse with "Cannot set hooks
+** while debugger is attached" whenever the throttle was on, where CC:Tweaked sets the hook. Now hookf passes every
+** count event on to the base hook, a program's hook without a count gets the base's count added to its mask (and is
+** not called for those events), and taking the program's hook off puts the base hook back.
+*/
+static lua_Hook basehook = NULL;
+static int basehookcount = 0;
+static const char KEY_HOOKCOUNT = 'n';  /* registry: thread -> true when its Lua hook asked for count events */
+
+LUA_API void lua_setbasehook (lua_Hook func, int count) {
+  basehook = func;
+  basehookcount = count;
+}
+
+/* pushes the table of threads whose hook wants count events (weak keys) */
+static void gethookcounttable (lua_State *L) {
+  lua_pushlightuserdata(L, (void *)&KEY_HOOKCOUNT);
+  lua_gettable(L, LUA_REGISTRYINDEX);
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    lua_newtable(L);
+    lua_pushstring(L, "k");
+    lua_setfield(L, -2, "__mode");
+    lua_pushvalue(L, -1);
+    lua_setmetatable(L, -2);
+    lua_pushlightuserdata(L, (void *)&KEY_HOOKCOUNT);
+    lua_pushvalue(L, -2);
+    lua_settable(L, LUA_REGISTRYINDEX);
+  }
+}
+
+/* whether thread L1's Lua hook asked for count events (L: where the lookup is done) */
+static int wantscount (lua_State *L, lua_State *L1) {
+  int wants;
+  gethookcounttable(L);
+  if (L == L1) lua_pushthread(L);
+  else { lua_pushthread(L1); lua_xmove(L1, L, 1); }
+  lua_rawget(L, -2);
+  wants = lua_toboolean(L, -1);
+  lua_pop(L, 2);
+  return wants;
+}
+
+
 static void hookf (lua_State *L, lua_Debug *ar) {
   static const char *const hooknames[] =
     {"call", "return", "line", "count", "tail call", "error"};
+  if (ar->event == LUA_HOOKCOUNT && basehook != NULL) {
+    basehook(L, ar);
+    if (!wantscount(L, L)) return;  /* the count was the host's alone */
+  }
   gethooktable(L);
   lua_pushthread(L);
   lua_rawget(L, -2);
@@ -327,9 +377,11 @@ static char *unmakemask (int mask, char *smask) {
 
 static int db_sethook (lua_State *L) {
   int arg, mask, count;
+  int usercount = 0;
   lua_Hook func;
   lua_State *L1 = getthread(L, &arg);
-  if (lua_gethook(L1) != NULL && lua_gethook(L1) != hookf) luaL_error(L, "Cannot set hooks while debugger is attached");
+  if (lua_gethook(L1) != NULL && lua_gethook(L1) != hookf && lua_gethook(L1) != basehook)
+    luaL_error(L, "Cannot set hooks while debugger is attached");
   if (lua_isnoneornil(L, arg+1)) {
     lua_settop(L, arg+1);
     func = NULL; mask = 0; count = 0;  /* turn off hooks */
@@ -339,7 +391,19 @@ static int db_sethook (lua_State *L) {
     luaL_checktype(L, arg+1, LUA_TFUNCTION);
     count = luaL_optint(L, arg+3, 0);
     func = hookf; mask = makemask(smask, count);
+    usercount = count > 0;
   }
+  if (basehook != NULL) {  /* the host's hook stays under the program's */
+    if (func == NULL) { func = basehook; mask = LUA_MASKCOUNT; count = basehookcount; }
+    else if (!usercount) { mask |= LUA_MASKCOUNT; count = basehookcount; }
+  }
+  gethookcounttable(L);
+  checkstack(L, L1, 1);
+  lua_pushthread(L1); lua_xmove(L1, L, 1);
+  if (usercount) lua_pushboolean(L, 1);
+  else lua_pushnil(L);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
   if (gethooktable(L) == 0) {  /* creating hook table? */
     lua_pushstring(L, "k");
     lua_setfield(L, -2, "__mode");  /** hooktable.__mode = "k" */
@@ -360,8 +424,9 @@ static int db_gethook (lua_State *L) {
   lua_State *L1 = getthread(L, &arg);
   char buff[5];
   int mask = lua_gethookmask(L1);
+  int count = lua_gethookcount(L1);
   lua_Hook hook = lua_gethook(L1);
-  if (hook != NULL && hook != hookf)  /* external hook? */
+  if (hook != NULL && hook != hookf && hook != basehook)  /* external hook? */
     lua_pushliteral(L, "external hook");
   else {
     gethooktable(L);
@@ -369,9 +434,12 @@ static int db_gethook (lua_State *L) {
     lua_pushthread(L1); lua_xmove(L1, L, 1);
     lua_rawget(L, -2);   /* get hook */
     lua_remove(L, -2);  /* remove hook table */
+    /* the host's base hook is not the program's: neither is its count */
+    if (hook == basehook) { mask = 0; count = 0; }
+    else if (basehook != NULL && !wantscount(L, L1)) count = 0;
   }
   lua_pushstring(L, unmakemask(mask, buff));
-  lua_pushinteger(L, lua_gethookcount(L1));
+  lua_pushinteger(L, count);
   return 3;
 }
 

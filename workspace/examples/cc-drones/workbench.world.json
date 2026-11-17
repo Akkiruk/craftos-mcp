@@ -1,0 +1,20 @@
+{
+  "version": "1.20.1",
+  "addons": ["cc-drones"],
+  "peripherals": [
+    {
+      "name": "left",
+      "type": "droneworkbench",
+      "below": { "name": "minecraft:stone" },
+      "around": [
+        { "dx": 1, "dy": 0, "dz": 0, "name": "minecraft:oak_log" },
+        { "dx": 0, "dy": -1, "dz": 0, "name": "minecraft:stone" },
+        { "dx": -5, "dy": -1, "dz": 4, "name": "minecraft:grass_block" },
+        { "dx": 2, "dy": 1, "dz": -2, "name": "minecraft:oak_stairs" },
+        { "dx": 5, "dy": 0, "dz": 0, "name": "minecraft:oak_log" }
+      ],
+      "drones": [{ "id": 7 }]
+    },
+    { "name": "right", "type": "droneworkbench" }
+  ]
+}

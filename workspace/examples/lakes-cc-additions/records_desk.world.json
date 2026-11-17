@@ -1,0 +1,15 @@
+{
+  "version": "1.20.1",
+  "addons": ["lakes-cc-additions"],
+  "peripherals": [
+    {
+      "name": "top",
+      "type": "scanner",
+      "item": {
+        "name": "lakescanner:folder",
+        "displayName": "Case 42",
+        "nbt": "{Items:[{Slot:0b,id:\"computercraft:printed_page\",Count:1b,tag:{Title:\"Witness\",Pages:1,Text0:\"Saw a creeper at dusk\",Text1:\"near the east wall\"}},{Slot:1b,id:\"minecraft:paper\",Count:5b}]}"
+      }
+    }
+  ]
+}

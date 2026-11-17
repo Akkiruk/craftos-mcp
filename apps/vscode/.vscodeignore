@@ -1,7 +1,11 @@
 **
 !dist/extension.js
+!dist/supervisor.js
 !media/icon.png
 !snippets/*.json
+!schemas/world.schema.json
+!lua-addons/**
+!media/walkthrough/*.md
 !package.json
 !README.md
 !CHANGELOG.md

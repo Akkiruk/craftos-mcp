@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { basename, relative } from "node:path";
 import * as vscode from "vscode";
 import { killTree, spawnCommand } from "./launcher";
-import { base, projectFolder, settingsEnv } from "./settings";
+import { base, noteMissingVersion, runFolder, settingsEnv } from "./settings";
 import { worldFor } from "./tests";
 
 /** First runs download the engine and build the ROMs before the app listens. */
@@ -70,10 +70,17 @@ function startApp(
     });
     child.on("error", (error) => fail(error.message));
     child.on("exit", (code) => {
-      if (!/craftos-mcp app: http/.test(out))
-        fail(
-          `craftos-mcp app stopped (code ${code}): ${err.trim().split("\n").slice(-3).join(" ") || "no output"}`,
-        );
+      if (/craftos-mcp app: http/.test(out)) return;
+      // the pinned craftos-mcp is not on npm yet: start the release before it instead
+      if (noteMissingVersion(err)) {
+        clearTimeout(timer);
+        cancel.dispose();
+        startApp(folder, output, token).then(resolve, reject);
+        return;
+      }
+      fail(
+        `craftos-mcp app stopped (code ${code}): ${err.trim().split("\n").slice(-3).join(" ") || "no output"}`,
+      );
     });
   });
 }
@@ -144,7 +151,7 @@ export async function runInCraftOS(
   );
   if (doc?.isDirty) await doc.save();
   const file = target.fsPath;
-  const folder = projectFolder(target);
+  const folder = runFolder(target);
   const program = relative(folder, file).split("\\").join("/");
 
   const started = await vscode.window

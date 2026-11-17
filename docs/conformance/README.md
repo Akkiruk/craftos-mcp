@@ -27,8 +27,12 @@ The 1.20.1 and 1.21.1 suites are identical, so one run covers both. The logs sta
 
 | Group                                  | Passed      |
 | -------------------------------------- | ----------- |
-| apis + modules + programs (whole spec) | 1190 / 1191 |
+| apis + modules + programs (whole spec) | 1189 / 1190 |
 | `spec/lua` without `timeout_spec.lua`  | 27 / 27     |
+
+Run again on 2026-11-17, after the fixes of `docs/compatibility.md`. The suite is one test shorter than the 1191 it
+was: "cc.internal.syntax can parse all of CC's Lua files" walks the computer's whole disk, and used to find the
+harness's own `/ccunit/ccunit.lua` there, which a program no longer sees. The one failure is `os.date` (below).
 
 The same on three runs in a row. The script hides the emulator's extras before the specs run (`emulator.hide()`, as the
 runner does for every program) and gives the computer CC's 10 MB test disk; programs run by the runner get the real
@@ -44,7 +48,7 @@ pathological pattern inside `string.find` is not interruptible (see below).
 
 | Group                                  | Before the switch (1.121.0 ROM, 1.101.3 engine) | Now         |
 | -------------------------------------- | ----------------------------------------------- | ----------- |
-| apis + modules + programs (whole spec) | 1333 / 1363                                     | 1362 / 1363 |
+| apis + modules + programs (whole spec) | 1333 / 1363                                     | 1361 / 1362 |
 | `spec/lua` without `timeout_spec.lua`  | 27 / 27                                         | 27 / 27     |
 
 The 29 cleared: file handles (raw bytes in every mode, `r+`/`w+`, seek on every handle but append, `readAll` returns
@@ -89,7 +93,7 @@ Later work had brought the run to 7 failures:
 - `fs.delete` collects garbage and retries when a dropped, unclosed handle
   blocks deletion on Windows.
 - Windows device names (`CON`, `NUL`, `COM1`, ...) are refused as file names.
-- `os.shutdown(code)` sets the exit status.
+- `os.shutdown(code)` sets the exit status (an emulator-only extra for the headless runner; real CC:Tweaked takes no argument).
 
 ## Key order
 

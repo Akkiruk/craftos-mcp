@@ -56,6 +56,8 @@ public:
     library_t getMethods() const override { return methods; }
     drive(lua_State *L, const char * side);
     ~drive();
+    // craftos-agent: where this drive's disk is mounted ("disk", "disk2", ...; empty without one), for fs.getDrive
+    const std::string& mountPath() const { return mount_path; }
     int call(lua_State *L, const char * method) override;
 };
 

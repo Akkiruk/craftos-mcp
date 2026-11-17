@@ -53,19 +53,41 @@ local function waitFor(condition, limit)
   return condition()
 end
 
-local function tap(px, py)
+-- the same touches as testkit.lua (which isn't on this computer): a player's pace before the touch, and the shell has
+-- taken it on return (two markers round, as with some mods on the emulator queues a touch a second time)
+local function touchNow(px, py)
   os.queueEvent("monitor_touch", monitorName, px + 1, py + 1)
-  sleep(0.15)
+  for _ = 1, 2 do
+    os.queueEvent("install_test_settle")
+    os.pullEvent("install_test_settle")
+  end
+end
+
+local function tap(px, py)
+  sleep(0.1)
+  touchNow(px, py)
+end
+
+local function button(id)
+  for _, b in ipairs(ui.buttons()) do
+    if b.id == id then return b end
+  end
 end
 
 local function press(id)
-  for _, b in ipairs(ui.buttons()) do
-    if b.id == id then
-      tap(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2))
-      return true
-    end
-  end
-  return false
+  sleep(0.1)
+  local b = waitFor(function() return button(id) end, 10)
+  if not b then return false end
+  touchNow(b.x + math.floor(b.w / 2), b.y + math.floor(b.h / 2))
+  return true
+end
+
+-- in play a tap only queues its action, taken one a tick: wait until they are all taken
+local function drained()
+  return waitFor(function()
+    local s = S.run and S.run.state
+    return not s or s.mode == "battle" or #s.queue == 0
+  end, 20)
 end
 
 local function act(action)
@@ -76,7 +98,8 @@ local function act(action)
       local got = view.actionAt(L, s, px, py)
       if type(got) == "table" and got.kind == action.kind and got.i == action.i and got.dir == action.dir
         and got.x == action.x and got.y == action.y then
-        tap(px, py)
+        touchNow(px, py)
+        drained()
         return true
       end
     end
@@ -101,7 +124,8 @@ if monitor then
     seen.hero = S.run.state.heroName
     local rng = require("lib.rng").rng(5)
     local t0 = os.clock()
-    while os.clock() - t0 < 60 and not S.run.state.flags.signed do
+    -- the limit only matters when it never signs: a busy host gets through fewer taps a second (play.test.lua: 300)
+    while os.clock() - t0 < 300 and not S.run.state.flags.signed do
       local action = rules.bot(S.run.state, rng)
       if action then act(action) end
       sleep(0.05)

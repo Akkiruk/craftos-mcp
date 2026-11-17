@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RunnerConfig } from "./config.js";
-import { type EngineHandle, startEngine } from "./engine.js";
+import { type EngineHandle, makeRuntimeDir, startEngine } from "./engine.js";
 import { monitorSetupLua } from "./lua.js";
+import { mobComputer } from "./mobs.js";
 import { ComputerNetwork, linkedWorlds } from "./network.js";
 import { type RemotePeripheral, remoteOrder } from "./wired.js";
 import type { WorldConfig } from "./world.js";
@@ -46,6 +47,7 @@ export function isBlockWorld(world: WorldConfig | undefined): boolean {
   return !!(
     world?.turtle ||
     world?.placed ||
+    mobComputer(world as Record<string, unknown> | undefined) ||
     world?.blocks ||
     world?.fills ||
     world?.ground
@@ -176,7 +178,7 @@ export class BlockWorldHost {
     private readonly network: ComputerNetwork,
     private readonly timeScale = 1,
   ) {
-    this.sharedDir = mkdtempSync(join(config.runtimeDir, "blockworld-"));
+    this.sharedDir = makeRuntimeDir(config, "blockworld");
     this.diskDir = join(this.sharedDir, "disk");
     mkdirSync(this.diskDir, { recursive: true });
     for (const [id, files] of Object.entries(base.disks ?? {})) {

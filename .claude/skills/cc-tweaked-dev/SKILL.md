@@ -1,12 +1,14 @@
 ---
 name: cc-tweaked-dev
-description: Design, run and test ComputerCraft (CC:Tweaked 1.101.3) Lua programs, including monitors, touch input, modems, peripherals and turtles, in the local headless emulator through the craftos_* MCP tools. Use when writing or debugging computer/monitor/turtle scripts, verifying UI layouts, or adding regression tests for them.
+description: Design, run and test ComputerCraft (CC:Tweaked 1.121.0 and 1.101.3) Lua programs, including monitors, touch input, modems, peripherals and turtles, in the local headless emulator through the craftos_* MCP tools. Use when writing or debugging computer/monitor/turtle scripts, verifying UI layouts, or adding regression tests for them.
 ---
 
 # CC:Tweaked development loop
 
-The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no GUI) with the CC:Tweaked
-**1.101.3** ROM (Minecraft 1.18.2). Call `craftos_info` first; it lists anything missing.
+The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no GUI) with the real CC:Tweaked ROM:
+Minecraft **1.21.1** (CC:Tweaked 1.121.0) by default, or 1.20.1 / 1.18.2 per world (`world.version`). Call
+`craftos_info` first; it lists anything missing. `craftos_help` gives the full world schema, the ccunit API and the
+saved worlds on request.
 
 ## Workflow
 
@@ -44,7 +46,10 @@ The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no G
      `math.randomseed`; `craftos_advance {seconds}` jumps the virtual clock and fires due timers, so
      timeouts and countdowns pass instantly. Only timers due inside the jump fire early.
 4. Lock behaviour in with tests: put `*.test.lua` files in the workspace and call `craftos_test`.
-   Inside, use the global `ccunit` (`test`, `eq`, `truthy`, `raises`). For screen layout use
+   Inside, use the global `ccunit`: `test(name, fn [, {timeout}])`, `eq`, `neq`, `near`, `contains`, `truthy`,
+   `raises`, `skip`, and `run(program, {seconds | script, args})` with `screen(monitor?)` and `touch(monitor, x, y)`
+   to run a program and read its screens. A hanging file keeps its finished tests and names the one it was in. A
+   failed `craftos_run` comes back with `error {kind, message, file, line}`. For screen layout use
    `craftos_run` with `snapshot: {name}` (golden files in `__snapshots__/`; `update:true` to accept).
 
 ## Facts that bite
@@ -61,11 +66,19 @@ The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no G
   `createNetwork` refuses a shared one.
 - Several computers talking: `craftos_network_create` (or `SessionManager.createNetwork`), one session each, with
   real rednet.
-- Lua 5.1 semantics. No `goto`: the emulator's Lua (a 5.2 fork) has `goto` and `::labels::` switched off, so they are
-  syntax errors with 5.1's own messages, and `_VERSION` is `Lua 5.1`. It still has some 5.2 leftovers (`\x`/`\z`
-  string escapes, `utf8`, `string.pack`, `__pairs`) that a real server may not have.
+- The Lua VM follows the CC:Tweaked version the world runs (`world.version`, `--mc`, `CRAFTOS_VERSION`), matched
+  against the real Cobalt jars. Minecraft 1.18.2 (CC:Tweaked 1.101.3, Cobalt 0.6): Lua 5.1 semantics,
+  no `goto`/`::labels::` (5.1 syntax errors), `_VERSION` is `Lua 5.1`, no 5.2 library extras. Minecraft 1.20.1 and
+  1.21.1 (CC:Tweaked 1.121.0, Cobalt 0.9.9, the default): Lua 5.2, with `goto`, `_VERSION` `Lua 5.2`, hex floats, `__name`, 5.2
+  error positions. Pick the version your server runs.
+- Mods on 1.20.1 and 1.21.1: a mod that also came out for 1.18.2 still behaves as its 1.18.2 version there (the
+  versions named below), mods only out for newer Minecraft follow their own version, and
+  a mod with no release for the version (Bigger Reactors on 1.21.1) is refused with the versions it does have. Use
+  `world.version: "1.18.2"` for the most complete simulation.
 - Key codes are GLFW (`keys.enter` = 257), not the old LWJGL values.
-- `os.shutdown(code)` sets the exit status; `0` = completed, `1` = program error (`shell.run` false).
+- Emulator only, not CC:Tweaked: in the headless runner `os.shutdown(code)` ends the run with that exit status (`0`
+  completed, `1` program error, like `shell.run` returning false). Real CC:Tweaked's `os.shutdown()` takes no argument
+  and ignores one, so never rely on it in code meant for a server.
 - Engine peripherals are vanilla only (monitor, drive, printer). Pass a `world` to `craftos_run` / `craftos_test` /
   `craftos_session_create` for everything else: virtual inventories (chests, barrels) with pushItems/pullItems,
   every Advanced Peripherals 0.7.31r block (player, energy and environment detectors, chat box, redstone
@@ -94,4 +107,4 @@ The `craftos-mcp` MCP server runs a forked CraftOS-PC engine (no Minecraft, no G
 - Engine fork: `engine/` (CMake; `engine/build.cmd` or `engine/build.sh`). ROM: `node scripts/build-rom.mjs --download`.
 - Client/protocol: `packages/rawterm`. Orchestration: `packages/runner`. Tools: `apps/mcp-server`.
 - The simulation (peripherals, modems, turtles): `rom-overlay/rom/ccsim`. After changing it, copy it into
-  `rom/cc-1.101.3/` (`cp -r rom-overlay/. rom/cc-1.101.3/`) or rebuild the ROM.
+  each ROM (`cp -r rom-overlay/. rom/cc-1.121.0/`, and `rom/cc-1.101.3/` for 1.18.2) or rebuild the ROMs.

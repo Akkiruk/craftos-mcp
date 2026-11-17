@@ -1,0 +1,76 @@
+{
+  "simProgram": true,
+  "version": "1.20.1",
+  "addons": ["plethora"],
+  "players": [
+    {
+      "name": "Alex",
+      "uuid": "12345678-aaaa-4bbb-8ccc-1234567890ab",
+      "x": 10.5,
+      "y": 64,
+      "z": 0.5,
+      "inventory": {
+        "1": { "name": "minecraft:cobblestone", "count": 20 },
+        "5": {
+          "name": "minecraft:apple",
+          "count": 3,
+          "hunger": 4,
+          "saturation": 0.3
+        }
+      }
+    }
+  ],
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "blocks": [
+    { "x": 0, "y": 64, "z": 0, "name": "plethora:manipulator_mark_2" }
+  ],
+  "plethora": {
+    "entities": [
+      {
+        "uuid": "0c0c0c0c-0000-4000-9000-000000000001",
+        "type": "minecraft:cow",
+        "x": 3.5,
+        "y": 64,
+        "z": 0.5,
+        "health": 10,
+        "maxHealth": 10
+      }
+    ]
+  },
+  "peripherals": [
+    {
+      "name": "manipulator_0",
+      "type": "manipulator",
+      "mark": 2,
+      "x": 0,
+      "y": 64,
+      "z": 0,
+      "modules": [
+        { "id": "plethora:scanner", "level": 2 },
+        "plethora:sensor",
+        { "id": "plethora:introspection", "bound": "Alex" },
+        "plethora:laser"
+      ]
+    },
+    {
+      "name": "manipulator_1",
+      "type": "manipulator",
+      "mark": 1,
+      "x": 5,
+      "y": 64,
+      "z": 5,
+      "modules": ["plethora:sensor", "plethora:scanner"]
+    },
+    { "name": "redstone_integrator_0", "type": "redstone_integrator" },
+    {
+      "name": "minecraft:chest_0",
+      "type": "minecraft:chest",
+      "size": 27,
+      "items": {}
+    }
+  ]
+}

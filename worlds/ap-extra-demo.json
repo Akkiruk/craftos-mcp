@@ -1,4 +1,5 @@
 {
+  "$schema": "../schemas/world.schema.json",
   "players": [{ "name": "Alice", "x": 2, "y": 64, "z": 0 }],
   "ap": {
     "players": {

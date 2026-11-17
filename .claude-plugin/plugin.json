@@ -29,7 +29,7 @@
     "addons": {
       "type": "string",
       "title": "Mods to simulate",
-      "description": "Which mods besides CC:Tweaked your modpack has: \"all\", \"none\", or ids separated by commas (advanced-peripherals, mekanism, mekanism-generators, create, create-additions, toms-peripherals, bigger-reactors, extreme-reactors).",
+      "description": "Which mods besides CC:Tweaked your modpack has: \"all\", \"none\", or ids separated by commas (advanced-peripherals, mekanism, mekanism-generators, create, create-additions, toms-peripherals, bigger-reactors, extreme-reactors, unlimited-peripheral-works, metaphysics, some-peripherals, cloud-solutions, cccbridge, create-cc-logistics, cc-liftlink, cc-vs, cc-shops, cc-androids, cc-drones, cc-drones-plus, ac-drones, advanced-math, lectern-hub, crickets-peripherals, cctech, embedded-computer, lakes-cc-additions, sc-peripherals, ccsecureboot, ccx, directgpu, cide, plethora, cc-link, finer-peripherals, ducky-peripherals, more-peripherals, classic-peripherals). Each runs only on the Minecraft versions its mod came out for.",
       "default": "all"
     }
   }

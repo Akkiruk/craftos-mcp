@@ -1,0 +1,34 @@
+{
+  "version": "1.20.1",
+  "addons": ["cc-drones"],
+  "simProgram": true,
+  "players": [{ "name": "Steve", "x": 40.5, "y": 64, "z": 40.5 }],
+  "drone": { "x": 0, "y": 66, "z": 0, "hover": true },
+  "ground": {
+    "y": 63,
+    "name": "minecraft:stone",
+    "top": "minecraft:grass_block"
+  },
+  "fills": [
+    { "from": [-1, 64, 3], "to": [1, 67, 3], "name": "minecraft:oak_log" }
+  ],
+  "blocks": [
+    { "x": -2, "y": 65, "z": 2, "name": "minecraft:stone" },
+    {
+      "x": 2,
+      "y": 65,
+      "z": 2,
+      "name": "minecraft:chest",
+      "items": { "1": { "name": "minecraft:coal", "count": 4 } }
+    }
+  ],
+  "entities": [
+    {
+      "type": "minecraft:pig",
+      "uuid": "11111111-2222-3333-4444-555555555555",
+      "x": 0.5,
+      "y": 64,
+      "z": 1.5
+    }
+  ]
+}

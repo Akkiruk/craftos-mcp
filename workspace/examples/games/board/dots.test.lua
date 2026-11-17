@@ -66,7 +66,7 @@ local problem = kit.run(function()
   kit.start()
   tapLine({ dir = "h", x = 1, y = 1 })
   tapLine({ dir = "h", x = 1, y = 1 })
-  seen.refused = kit.S.toast and kit.S.toast.text
+  seen.refused = kit.toast()
   seen.afterRefused = #kit.S.match.actions
 
   -- the rest: each side draws its first free line

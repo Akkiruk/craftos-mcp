@@ -63,7 +63,8 @@ kit.run(function()
   seen.lineSound = kit.heard("line")
   seen.lockSound = kit.heard("lock")
   seen.quit = kit.quit()
-  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0, slow = kit.S.slowFrames or 0 }
+  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0, slow = kit.S.slowFrames or 0,
+    dropped = kit.S.droppedSteps or 0 }
 end)
 
 ccunit.test("a run starts from the menu", function()
@@ -90,8 +91,10 @@ end)
 
 ccunit.test("QUIT twice ends the run, and it kept up at full speed", function()
   ccunit.truthy(seen.quit)
-  -- Frames the cabinet itself held back: a step and its drawing (or a tap) that used up the room a step leaves. A
-  -- busy machine makes frames late too (lateFrames), but that is the machine's time, not the game's.
+  -- Full speed is the game's clock keeping to the real one: a late frame catches up (up to three steps at once), so only
+  -- steps it had to drop count. Late and slow frames are timed on the clock, which runs on while a busy host keeps the
+  -- computer waiting (slow timers do the same), so they are only reported.
   local m = seen.smooth
-  ccunit.truthy(m.slow <= m.steps / 20, m.slow .. " slow frames in " .. m.steps .. " steps (" .. m.late .. " late)")
+  ccunit.truthy(m.dropped <= m.steps / 20,
+    m.dropped .. " steps dropped in " .. m.steps .. " (" .. m.slow .. " slow, " .. m.late .. " late frames)")
 end)

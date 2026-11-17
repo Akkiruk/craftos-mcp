@@ -3,7 +3,7 @@
 //                                             [timeoutSec] [skip]
 // specPath is a path inside the computer, e.g. /test-rom/spec/apis/fs_spec.lua
 // skip is a comma list of spec subdirectories to remove first (e.g. "lua,programs").
-// --mc is the Minecraft version the computer runs as (packages/runner/src/versions.ts; default 1.18.2, or
+// --mc is the Minecraft version the computer runs as (packages/runner/src/versions.ts; default its DEFAULT_MC, or
 // CRAFTOS_VERSION): it picks the ROM and the engine's CC:Tweaked behaviour. The checkout must be the matching tag:
 // v1.18.2-1.101.3 for 1.18.2, v1.20.1-1.121.0 for 1.20.1. Both suite layouts work: src/test/resources/test-rom
 // (1.101.x) and projects/core/src/test/resources/test-rom (newer). On Windows a full checkout of the newer tags fails
@@ -99,8 +99,9 @@ console.log(
 const handle = startEngine(config, boot, {
   label: "cct",
   computerSpaceLimit: 10_000_000,
-  // only a version: the computer is otherwise the plain one CC's harness has
-  ...(mc !== undefined && { world: { version: mc } }),
+  // the plain computer CC's harness has: no mods (an addon's ROM files, such as CCSecureBoot's /rom/pxboot, would
+  // show in the fs and completion specs), and the version if one was asked for
+  world: { addons: "none", ...(mc !== undefined && { version: mc }) },
 });
 const started = Date.now();
 const exit = await handle.session

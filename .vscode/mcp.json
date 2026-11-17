@@ -9,7 +9,8 @@
       ],
       "env": {
         "CRAFTOS_WORKSPACE": "${workspaceFolder}/workspace",
-        "CRAFTOS_ADDONS": "advanced-peripherals,mekanism,mekanism-generators,create,create-additions,toms-peripherals,bigger-reactors,extreme-reactors"
+        "CRAFTOS_VERSION": "1.18.2",
+        "CRAFTOS_ADDONS": "advanced-peripherals,mekanism,mekanism-generators,create,create-additions,toms-peripherals,bigger-reactors,extreme-reactors,some-peripherals,cccbridge,cc-vs,cc-shops,advanced-math,cctech,ducky-peripherals"
       }
     }
   }

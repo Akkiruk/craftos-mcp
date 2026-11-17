@@ -60,12 +60,13 @@ local function scenario()
   waitFor(function() return #heardBy("Bob") >= 1 end, 20)
   seen.bobWelcome = heardBy("Bob")
 
-  -- Chat commands
+  -- Chat commands. Each answer waits a server tick for the detector, and the chat box's 100 ms between messages: on a
+  -- 20x clock a busy host can spend ten seconds of it on that, so the limits are wide (they only cost time on a failure)
   say("Alice", "!players")
-  waitFor(function() return #heardBy("Alice") >= 2 end, 10)
+  waitFor(function() return #heardBy("Alice") >= 2 end, 60)
   seen.players = heardBy("Alice")[2]
   say("Bob", "!where")
-  waitFor(function() return #heardBy("Bob") >= 2 end, 10)
+  waitFor(function() return #heardBy("Bob") >= 2 end, 60)
   seen.where = heardBy("Bob")[2]
 
   -- Bob leaves and comes back: greeted again

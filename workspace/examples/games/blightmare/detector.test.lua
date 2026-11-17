@@ -17,6 +17,13 @@ local function sim(command)
   sleep(0.2)
 end
 
+--- Wait until the detector's last look round found this player closest to the wall. It looks once a second, with
+--- calls that each wait for a server tick, so on a busy machine a fixed wait could be over before it had looked.
+local function closest(name)
+  local detector = require("lib.detector")
+  return kit.waitFor(function() return detector.closest() == name end, 20)
+end
+
 local function toReady()
   kit.waitFor(function() return kit.S.view == "idle" and kit.S.demo.run ~= nil end, 10)
   kit.tap(60, 40)
@@ -32,7 +39,7 @@ local function quit()
 end
 
 kit.run(function()
-  sleep(1.5) -- the detector's first look round
+  seen.alexFound = closest("Alex") -- the detector's first look round
   toReady()
   seen.firstOwner = kit.S.ready.owner
   kit.press("start")
@@ -46,7 +53,7 @@ kit.run(function()
   -- Alex goes, Steve comes up to the wall: a game of his own
   sim({ cmd = "setPlayerPos", player = "Alex", x = 60, y = 64, z = 0 })
   sim({ cmd = "setPlayerPos", player = "Steve", x = 1, y = 64, z = 1 })
-  sleep(1.5)
+  seen.steveFound = closest("Steve")
   toReady()
   seen.secondOwner = kit.S.ready.owner
   seen.secondFresh = kit.button("start") ~= nil
@@ -62,7 +69,7 @@ kit.run(function()
 
   -- Alex comes back: his own save, and PLAYERS lists both
   sim({ cmd = "setPlayerPos", player = "Alex", x = 2, y = 64, z = 0 })
-  sleep(1.5)
+  seen.alexBack = closest("Alex")
   toReady()
   seen.backOwner = kit.S.ready.owner
   seen.backLine = kit.S.ready.saved and kit.S.ready.saved.line
@@ -76,6 +83,7 @@ kit.run(function()
 end)
 
 ccunit.test("the hero takes the name of the player at the wall, with no name screen", function()
+  ccunit.truthy(seen.alexFound, "the detector never found Alex at the wall")
   ccunit.eq(seen.firstOwner, "Alex")
   ccunit.eq(seen.alexHero, "Alex")
   ccunit.truthy(seen.alexMode ~= "name", "asked for a name anyway")
@@ -84,6 +92,7 @@ ccunit.test("the hero takes the name of the player at the wall, with no name scr
 end)
 
 ccunit.test("another player at the wall gets a game of their own", function()
+  ccunit.truthy(seen.steveFound, "the detector never found Steve at the wall")
   ccunit.eq(seen.secondOwner, "Steve")
   ccunit.truthy(seen.secondFresh, "Steve was offered Alex's game")
   ccunit.eq(seen.steveHero, "Steve")
@@ -95,6 +104,7 @@ ccunit.test("a player who walks away has their game saved and the wall freed", f
 end)
 
 ccunit.test("back at the wall, a player finds their own save, and PLAYERS lists everyone's", function()
+  ccunit.truthy(seen.alexBack, "the detector never found Alex back at the wall")
   ccunit.eq(seen.backOwner, "Alex")
   ccunit.truthy(seen.backLine and seen.backLine:find("^Alex: Level"), tostring(seen.backLine))
   ccunit.eq(seen.players, 2)

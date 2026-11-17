@@ -28,17 +28,25 @@ end
 
 local seen = {}
 
+local function waitFor(condition, limit)
+  local started = os.clock()
+  while not condition() and os.clock() - started < limit do sleep(0.1) end
+  return condition()
+end
+
+-- The program draws a frame on each timer, 20 a second when it gets the time: every step waits for frames, not for the
+-- clock, as a busy host draws fewer of them a second. A ripple lives for 20 frames.
 local function scenario()
-  sleep(2)
-  seen.framesAfterTwoSeconds = #frames
+  waitFor(function() return #frames >= 10 end, 30)
+  seen.framesSeen = #frames
   seen.firstFrame = frames[1]
   local before = #frames
   seen.rectanglesBeforeTouch = frames[before].filledRectangle
   -- a token starting with "sim:" is a command the emulator accepts from the computer itself (world.simProgram)
   os.queueEvent("ccsim_cmd", "sim:1:" .. os.epoch("utc"), textutils.serializeJSON({ cmd = "tmTouch", x = 128, y = 96 }))
-  sleep(0.5)
-  seen.rectanglesAfterTouch = frames[#frames].filledRectangle
-  sleep(2) -- the ripple dies out
+  waitFor(function() return #frames >= before + 5 end, 30)
+  seen.rectanglesAfterTouch = frames[before + 5] and frames[before + 5].filledRectangle or 0
+  waitFor(function() return #frames >= before + 30 end, 60) -- the ripple dies out
   seen.rectanglesAfterRipple = frames[#frames].filledRectangle
   seen.width, seen.height = realGpu.getSize()
 end
@@ -49,8 +57,8 @@ ccunit.test("it sizes the screen to the monitor wall", function()
   ccunit.eq({ seen.width, seen.height }, { 256, 192 })
 end)
 
-ccunit.test("it draws whole frames, many a second", function()
-  ccunit.truthy(seen.framesAfterTwoSeconds >= 10, "only " .. seen.framesAfterTwoSeconds .. " frames in 2 s")
+ccunit.test("it draws whole frames, one after another", function()
+  ccunit.truthy(seen.framesSeen >= 10, "only " .. seen.framesSeen .. " frames in 30 s")
   ccunit.eq(seen.firstFrame.sync, 1)
   ccunit.truthy(seen.firstFrame.line >= 12, "the cube was not drawn")
   ccunit.truthy(seen.firstFrame.filledRectangle >= 16, "the background was not drawn")

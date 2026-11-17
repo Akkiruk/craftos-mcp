@@ -1678,7 +1678,10 @@ ccunit.test("boiling", function()
   ccunit.truthy(b.getBoilRate() > 0)
   ccunit.truthy(b.getSteam().amount > 0)
   ccunit.truthy(b.getTemperature() > 373.15)
-  ccunit.truthy(b.getMaxBoilRate() >= b.getBoilRate())
+  -- each call is a server tick of its own, and a busy host can let several pass between two of them: the boil rate
+  -- read between two readings of the most it could boil is under the larger (the heat moves one way meanwhile)
+  local max1, rate, max2 = b.getMaxBoilRate(), b.getBoilRate(), b.getMaxBoilRate()
+  ccunit.truthy(rate <= math.max(max1, max2), rate .. " over " .. max1 .. " and " .. max2)
   ccunit.truthy(b.getEnvironmentalLoss() > 0)
 end)
 ccunit.test("modes", function()
@@ -1693,6 +1696,15 @@ end)
       {
         peripherals: [
           { name: "boiler", type: "boilerValve", multiblock: "boiler" },
+          // steam goes out through a second valve, slower than it boils: with nowhere to go it filled the boiler in
+          // under a second of ticks and the boiling stopped before a busy host got to look. Now the boiler fills and
+          // then boils as fast as the steam leaves, for as long as the test takes
+          {
+            name: "steamValve",
+            type: "boilerValve",
+            multiblock: "boiler",
+            mode: "OUTPUT_STEAM",
+          },
         ],
         mekanism: {
           multiblocks: {
@@ -1705,7 +1717,7 @@ end)
               steamVolume: 9,
               heatInput: 1_000_000,
               waterInput: 50_000,
-              steamOutput: 100_000,
+              steamOutput: 10_000,
             },
           },
         },

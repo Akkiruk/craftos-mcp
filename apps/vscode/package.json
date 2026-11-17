@@ -2,7 +2,7 @@
   "name": "craftos-mcp",
   "displayName": "craftos-mcp: CC:Tweaked emulator",
   "description": "Run and test ComputerCraft (CC:Tweaked) Lua without Minecraft, and give your AI agent the emulator as an MCP server.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "Rogiedoji",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -34,6 +34,7 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "workspaceContains:**/*.test.lua",
+    "workspaceContains:**/*.world.json",
     "onLanguage:lua"
   ],
   "contributes": {
@@ -64,6 +65,140 @@
         "command": "craftos-mcp.refreshTests",
         "title": "Refresh Tests",
         "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.restartServer",
+        "title": "Restart MCP Server",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.addToEditor",
+        "title": "Add to Cursor / Windsurf MCP Config",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.newTest",
+        "title": "New Test for This File",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.newWorld",
+        "title": "New World for This File",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.showLog",
+        "title": "Show Log",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.openSettings",
+        "title": "Settings",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.walkthrough",
+        "title": "Get Started",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.setUpLuaTypes",
+        "title": "Set Up Lua Types",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.removeLuaTypes",
+        "title": "Remove Lua Types",
+        "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.menu",
+        "title": "Menu",
+        "category": "craftos-mcp"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "craftos-mcp.start",
+        "title": "Get started with craftos-mcp",
+        "description": "Run ComputerCraft Lua without Minecraft, test it, and hand the emulator to your AI agent.",
+        "steps": [
+          {
+            "id": "run",
+            "title": "Run a program",
+            "description": "Open any `.lua` file and run it in the emulator. The first run downloads the engine and builds the CC:Tweaked ROM (about a minute, once).\n[Run in CraftOS](command:craftos-mcp.runInCraftOS)",
+            "media": {
+              "markdown": "media/walkthrough/run.md"
+            },
+            "completionEvents": [
+              "onCommand:craftos-mcp.runInCraftOS"
+            ]
+          },
+          {
+            "id": "world",
+            "title": "Give it a world",
+            "description": "`name.world.json` next to `name.lua` adds monitors, players, chests and modded blocks around the computer.\n[New World for This File](command:craftos-mcp.newWorld)",
+            "media": {
+              "markdown": "media/walkthrough/world.md"
+            },
+            "completionEvents": [
+              "onCommand:craftos-mcp.newWorld"
+            ]
+          },
+          {
+            "id": "test",
+            "title": "Write a test",
+            "description": "`name.test.lua` files show in the Testing view; a failure points at the line Lua named.\n[New Test for This File](command:craftos-mcp.newTest)",
+            "media": {
+              "markdown": "media/walkthrough/test.md"
+            },
+            "completionEvents": [
+              "onCommand:craftos-mcp.newTest"
+            ]
+          },
+          {
+            "id": "types",
+            "title": "Get autocomplete",
+            "description": "With the Lua extension (sumneko.lua), `fs`, `term`, `peripheral` and the mod peripherals complete and show their docs, and typos get underlined.\n[Set Up Lua Types](command:craftos-mcp.setUpLuaTypes)",
+            "media": {
+              "markdown": "media/walkthrough/types.md"
+            },
+            "completionEvents": [
+              "onCommand:craftos-mcp.setUpLuaTypes"
+            ]
+          },
+          {
+            "id": "agent",
+            "title": "Let your agent use it",
+            "description": "In VS Code the agent already has the craftos tools. For Claude Code, Cursor or Windsurf, add the server to their config.\n[Add to Claude Code](command:craftos-mcp.addToClaudeCode)\n[Add to Cursor / Windsurf](command:craftos-mcp.addToEditor)",
+            "media": {
+              "markdown": "media/walkthrough/agent.md"
+            },
+            "completionEvents": [
+              "onCommand:craftos-mcp.addToClaudeCode",
+              "onCommand:craftos-mcp.addToEditor"
+            ]
+          },
+          {
+            "id": "settings",
+            "title": "Match your pack",
+            "description": "Pick your mods, Minecraft version and, in a big repo, the folder the computers see.\n[Open Settings](command:craftos-mcp.openSettings)",
+            "media": {
+              "markdown": "media/walkthrough/settings.md"
+            },
+            "completionEvents": [
+              "onSettingChanged:craftos-mcp"
+            ]
+          }
+        ]
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "*.world.json"
+        ],
+        "url": "./schemas/world.schema.json"
       }
     ],
     "menus": {
@@ -71,6 +206,22 @@
         {
           "command": "craftos-mcp.runInCraftOS",
           "when": "resourceExtname == .lua"
+        },
+        {
+          "command": "craftos-mcp.newTest",
+          "when": "resourceExtname == .lua"
+        },
+        {
+          "command": "craftos-mcp.newWorld",
+          "when": "resourceExtname == .lua"
+        },
+        {
+          "command": "craftos-mcp.setUpLuaTypes",
+          "when": "craftos-mcp.hasLuaTypes"
+        },
+        {
+          "command": "craftos-mcp.removeLuaTypes",
+          "when": "craftos-mcp.hasLuaTypes"
         }
       ],
       "editor/context": [
@@ -129,15 +280,15 @@
           "default": "",
           "enum": [
             "",
-            "1.18.2",
+            "1.21.1",
             "1.20.1",
-            "1.21.1"
+            "1.18.2"
           ],
           "enumDescriptions": [
-            "The emulator's default (1.18.2)",
-            "CC:Tweaked 1.101.3",
+            "The emulator's default: the newest, 1.21.1 (CC:Tweaked 1.121.0)",
+            "CC:Tweaked 1.121.0",
             "CC:Tweaked 1.121.0 with 1.20.1 turtle data",
-            "CC:Tweaked 1.121.0"
+            "CC:Tweaked 1.101.3, the most complete simulation of the mods"
           ],
           "markdownDescription": "The Minecraft version computers start on (`CRAFTOS_VERSION`). A world file's own `version` still wins."
         },
@@ -146,6 +297,42 @@
           "default": 60,
           "minimum": 1,
           "markdownDescription": "Seconds a `*.test.lua` file may run before it counts as timed out."
+        },
+        "craftos-mcp.workspace": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "The folder the computers see as their files, relative to the workspace folder, such as `workspace` or `src/lua` (`CRAFTOS_WORKSPACE`). Empty means the workspace folder itself for the MCP server and the tests, and the program's own folder for Run in CraftOS. Set it in a big repo: the emulator copies this folder into every computer it starts."
+        },
+        "craftos-mcp.registerServer": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Register it unless the workspace's .vscode/mcp.json already has a server with craftos in its name, command or args",
+            "Always register it, even next to a craftos server in .vscode/mcp.json (the agent sees both tool sets)",
+            "Never register it (Run in CraftOS and the Testing view still work)"
+          ],
+          "markdownDescription": "Whether the extension gives VS Code its own craftos-mcp MCP server."
+        },
+        "craftos-mcp.luaTypes": {
+          "type": "string",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "auto",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Ask once in each ComputerCraft workspace before adding the types",
+            "Add them to every ComputerCraft workspace without asking",
+            "Leave workspaces alone (Set Up Lua Types still works)"
+          ],
+          "markdownDescription": "CC:Tweaked types for the Lua extension (`sumneko.lua`): autocomplete and hover docs for `fs`, `term`, `peripheral`, the mod peripherals and `ccunit`. They go into the workspace's `Lua.workspace.library`, added to what's there; `Lua.runtime.version` and `Lua.runtime.builtin` are only set where you haven't set them. **craftos-mcp: Remove Lua Types** takes them out again."
         }
       }
     }
@@ -167,5 +354,9 @@
     "@vscode/vsce": "4.1.1",
     "esbuild": "0.28.2",
     "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "@vscode/vsce-sign@2.1.1": true
   }
 }

@@ -134,9 +134,19 @@ if(WIN32)
   )
 else()
   target_link_libraries(lua52 PRIVATE m)
+  # string.format("%a"): luaconf.h only turns it on for Windows or when Lua's own makefile names the platform
+  target_compile_definitions(lua52 PRIVATE LUA_USE_AFORMAT)
   target_link_libraries(craftos PRIVATE lua52 pthread dl)
-  # Find liblua52.so next to the binary, so the build folder can be zipped and moved.
-  set_target_properties(craftos PROPERTIES BUILD_RPATH "\$ORIGIN")
+  # Find liblua52.so (liblua52.dylib on macOS) next to the binary, so the build folder can be zipped and moved.
+  if(APPLE)
+    set_target_properties(lua52 PROPERTIES MACOSX_RPATH ON)
+    # as the install rpath, so it is the only one: a build rpath also gets the build machine's library folders
+    set_target_properties(craftos PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "@loader_path")
+    # src/platform/darwin.cpp copies screenshots to the clipboard through the Pasteboard API
+    target_link_libraries(craftos PRIVATE "-framework ApplicationServices")
+  else()
+    set_target_properties(craftos PROPERTIES BUILD_RPATH "\$ORIGIN")
+  endif()
 endif()
 
 target_link_libraries(craftos PRIVATE

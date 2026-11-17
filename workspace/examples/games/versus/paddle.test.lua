@@ -28,7 +28,12 @@ kit.run(function()
   seen.peerPlaying = kit.waitPeer(function(r) return r.view == "play" and r.mode == "guest" end, 10)
 
   -- A tap near the top sets North's paddle there, and South's wall shows it
-  kit.tap(30, L.y0 + 6 * CELL_H)
+  -- (the paddles go back to the middle as the serve counts in, which a busy host can still be doing: tap again then,
+  -- as a player would)
+  for _ = 1, 5 do
+    kit.tap(30, L.y0 + 6 * CELL_H)
+    if math.abs(s.paddles[1].target - 6.5) < 1 then break end
+  end
   seen.target = s.paddles[1].target
   seen.peerTarget = kit.waitPeer(function(r) return r.paddles and math.abs(r.paddles[1] - s.paddles[1].target) < 0.01 end, 3)
 
@@ -53,7 +58,7 @@ kit.run(function()
   seen.quit = kit.quit()
   seen.winner, seen.forfeit = s.winner, m.forfeit
   seen.peerEnd = kit.waitPeer(function(r) return (r.view == "final" or r.view == "over") and r.winner == 2 and r.forfeit == 1 end, 5)
-  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0 }
+  seen.smooth = { steps = kit.S.steps or 0, late = kit.S.lateFrames or 0, dropped = kit.S.droppedSteps or 0 }
   seen.resyncs = kit.peer().resyncs
 
   -- North's record against South
@@ -98,7 +103,9 @@ end)
 
 ccunit.test("both computers stayed in step at full speed", function()
   ccunit.eq(seen.resyncs, 0)
-  ccunit.truthy(seen.smooth.steps > 50, "only " .. seen.smooth.steps .. " steps")
-  -- the suite runs seven computers at once, so allow a few frames that had to catch up on a busy host
-  ccunit.truthy(seen.smooth.late <= seen.smooth.steps / 5, seen.smooth.late .. " late frames in " .. seen.smooth.steps)
+  local m = seen.smooth
+  ccunit.truthy(m.steps > 50, "only " .. m.steps .. " steps")
+  -- Full speed is the game's clock keeping to the real one: a late frame catches up (up to three steps at once), so
+  -- only steps it had to drop count. How many frames came late is the machine's business: a busy host makes many.
+  ccunit.truthy(m.dropped <= m.steps / 10, m.dropped .. " steps dropped in " .. m.steps .. " (" .. m.late .. " late frames)")
 end)

@@ -143,7 +143,7 @@ ccunit.test("a function expression makes a new function each time", function()
 end)
 ccunit.finish()
 `,
-      undefined,
+      { version: "1.18.2" },
       "vm101.test.lua",
     );
     expect(failures(result)).toEqual([]);

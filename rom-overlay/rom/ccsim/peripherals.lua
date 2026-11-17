@@ -713,6 +713,11 @@ return function(core)
     if core.addonOn(info.addon) then
       addonModules[module] = info
       for _, t in ipairs(info.types or {}) do addonTypes[t] = module end
+      -- ROM files the mod ships (ccsim/romfiles.lua): there from boot, like the jar's own data/computercraft/lua/rom
+      if info.rom then
+        core.romfiles = core.romfiles or dofile("/rom/ccsim/romfiles.lua")
+        core.romfiles.mount(fs, module, info.rom == true and "rom" or info.rom)
+      end
     end
   end
   local function loadAddon(module)
@@ -723,6 +728,8 @@ return function(core)
     if loaded.catchUp then catchUps[#catchUps + 1] = loaded.catchUp end
     core.extraHandlers = core.extraHandlers or {}
     for cmdName, handler in pairs(loaded.handlers or {}) do core.extraHandlers[cmdName] = handler end
+    -- a mod that adds Lua APIs to every computer (ILuaAPI, not a peripheral): its globals, set before the program runs
+    for apiName, apiTable in pairs(loaded.globals or {}) do _G[apiName] = apiTable end
     return loaded
   end
   core.loadAddon = loadAddon
@@ -875,7 +882,9 @@ return function(core)
 
   for _, def in ipairs(core.world.peripherals or {}) do register(def) end
   -- An addon configured by a world key (world.create, ...) loads at boot even before any of its blocks is used
+  -- (and one with `boot = true` in types.lua always: a mod that adds an API to every computer)
   for module, info in pairs(addonModules) do
+    if info.boot then loadAddon(module) end
     for _, key in ipairs(info.worldKeys or {}) do
       if core.world[key] ~= nil then loadAddon(module) end
     end
@@ -1171,35 +1180,47 @@ return function(core)
 
   --- Wait for the next server tick and run `task` there (nothing: the task is only the wait). Returns
   --- table.pack(pcall(task)). `trim`: drop trailing nils from the answer, as a Java method never returns them.
-  local function waitForServerTick(task, trim)
-    local timer = os.startTimer(0.05)
+  --- `opts` (optional), for a mod with its own task queue (ccsim/addons/plethora): `event` and `id` name the event
+  --- queued when the task is done instead of task_complete (it carries only the id), and a task that returns
+  --- `opts.again` is run again on the next tick.
+  local function waitForServerTick(task, trim, opts)
     local keep = {}
-    while true do
-      if core.flushHost then core.flushHost() end -- block changes held back (ccsim/modem.lua)
-      local ev = table.pack(coroutine.yield())
-      if ev[1] == "terminate" then
-        error("Terminated", 0)
-      elseif ev[1] == "timer" and ev[2] == timer then
-        break
-      else
-        simEvent(ev, keep)
+    local results
+    repeat
+      local timer = os.startTimer(0.05)
+      while true do
+        if core.flushHost then core.flushHost() end -- block changes held back (ccsim/modem.lua)
+        local ev = table.pack(coroutine.yield())
+        if ev[1] == "terminate" then
+          error("Terminated", 0)
+        elseif ev[1] == "timer" and ev[2] == timer then
+          break
+        else
+          simEvent(ev, keep)
+        end
       end
-    end
-    local results = task and table.pack(pcall(task)) or { true, n = 1 }
+      results = task and table.pack(pcall(task)) or { true, n = 1 }
+    until not (opts and opts.again ~= nil and results[1] and results[2] == opts.again)
     if trim and results[1] then
       while results.n > 1 and results[results.n] == nil do results.n = results.n - 1 end
     end
-    lastTask = lastTask + 1
-    local id = lastTask
-    if results[1] then
-      os.queueEvent("task_complete", id, true, table.unpack(results, 2, results.n))
+    local event, id = "task_complete", nil
+    if opts and opts.event then
+      event, id = opts.event, opts.id
+      os.queueEvent(event, id)
     else
-      os.queueEvent("task_complete", id, false, tostring(results[2]))
+      lastTask = lastTask + 1
+      id = lastTask
+      if results[1] then
+        os.queueEvent("task_complete", id, true, table.unpack(results, 2, results.n))
+      else
+        os.queueEvent("task_complete", id, false, tostring(results[2]))
+      end
     end
     while true do
       if core.flushHost then core.flushHost() end
       local ev = table.pack(coroutine.yield())
-      if ev[1] == "task_complete" and ev[2] == id then
+      if ev[1] == event and ev[2] == id then
         break
       elseif ev[1] == "terminate" then
         error("Terminated", 0)
@@ -1323,6 +1344,18 @@ return function(core)
       os.queueEvent("peripheral", def.name)
     end
     exportsCache = nil
+    return true
+  end
+
+  --- A floppy goes into an engine drive (a player's hand, a hopper): insertDisk {peripheral, disk}, the disk's id.
+  function core.extraHandlers.insertDisk(cmd)
+    local name, id = cmd.peripheral, tonumber(cmd.disk)
+    if type(name) ~= "string" or not id then return false, "insertDisk needs peripheral and disk (a number)" end
+    if not realPeripheral.isPresent(name) or realPeripheral.getType(name) ~= "drive" then
+      return false, "no disk drive named " .. name
+    end
+    local ok, err = pcall(realPeripheral.call, name, "insertDisk", id)
+    if not ok then return false, tostring(err) end
     return true
   end
 

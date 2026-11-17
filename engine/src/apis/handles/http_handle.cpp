@@ -10,6 +10,8 @@
 
 #ifndef __EMSCRIPTEN__
 #include <cstdlib>
+#include <algorithm>
+#include <sstream>
 #include <Poco/Net/HTTPResponse.h>
 #include <Poco/Net/HTTPClientSession.h>
 #include <Poco/Net/HTTPServerResponse.h>
@@ -28,7 +30,7 @@ int http_handle_free(lua_State *L) {
     lastCFunction = __func__;
     http_handle_t** handle = (http_handle_t**)lua_touserdata(L, 1);
     if (*handle != NULL) {
-        if (config.standardsMode) delete (std::stringstream*)(*handle)->stream;
+        if ((*handle)->owned) delete (std::stringstream*)(*handle)->stream;
         delete (*handle)->handle;
         delete (*handle)->session;
         delete *handle;
@@ -41,7 +43,7 @@ int http_handle_close(lua_State *L) {
     lastCFunction = __func__;
     http_handle_t** handle = (http_handle_t**)lua_touserdata(L, lua_upvalueindex(1));
     if (*handle == NULL) return 0;
-    if (config.standardsMode) delete (std::stringstream*)(*handle)->stream;
+    if ((*handle)->owned) delete (std::stringstream*)(*handle)->stream;
     delete (*handle)->handle;
     delete (*handle)->session;
     delete *handle;
@@ -121,6 +123,51 @@ int http_handle_readChar(lua_State *L) {
         }
     }
     lua_pushlstring(L, retval.c_str(), retval.length());
+    return 1;
+}
+
+/*
+ * craftos-agent: read([count]) of a response, as CC:Tweaked's handles do it (AbstractHandle.read in 1.121.0,
+ * BinaryReadableHandle and EncodedReadableHandle in 1.101.3). Without a count a binary handle gives the next byte as
+ * a number and a text handle one character; with one, that many unless the body ends first, never fewer because the
+ * network was slow; nil at the end. The body is whole in memory by now (http.cpp), as it is in CC:Tweaked, and a
+ * 1.101.3 text handle's was decoded there, so bytes are characters here.
+ * The function this replaces answered with whatever std::istream::readsome had ready, often nothing: `h.read(6000)`
+ * on a song gave "" and players stopped at "Cannot play empty audio".
+ */
+int http_handle_read(lua_State *L) {
+    lastCFunction = __func__;
+    http_handle_t * handle = *(http_handle_t**)lua_touserdata(L, lua_upvalueindex(1));
+    if (handle == NULL) return luaL_error(L, "attempt to use a closed file");
+    std::istream * in = handle->stream;
+    in->clear();
+    if (handle->binary && lua_isnoneornil(L, 1)) {
+        const int c = in->get();
+        if (c == EOF) return 0;
+        lua_pushinteger(L, (unsigned char)c);
+        return 1;
+    }
+    const bool bytes = handle->binary || ccAtLeast(get_comp(L), 1, 109, 0);
+    const lua_Integer count = lua_isnoneornil(L, 1) ? 1 : luaL_checkinteger(L, 1);
+    if (count < 0) return luaL_error(L, "Cannot read a negative number of %s", bytes ? "bytes" : "characters");
+    if (count == 0) {
+        // a 1.101.3 text handle reads into an empty array, which works at the end of the body too
+        if (bytes && in->peek() == EOF) return 0;
+        lua_pushliteral(L, "");
+        return 1;
+    }
+    std::string out;
+    char chunk[8192];
+    while ((lua_Integer)out.size() < count) {
+        const std::streamsize want = (std::streamsize)std::min<lua_Integer>((lua_Integer)sizeof chunk, count - (lua_Integer)out.size());
+        in->read(chunk, want);
+        const std::streamsize got = in->gcount();
+        if (got <= 0) break;
+        out.append(chunk, (size_t)got);
+        if (got < want) break;
+    }
+    if (out.empty()) return 0;
+    lua_pushlstring(L, out.c_str(), out.size());
     return 1;
 }
 

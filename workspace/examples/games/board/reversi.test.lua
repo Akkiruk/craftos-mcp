@@ -54,7 +54,7 @@ local problem = kit.run(function()
 
   -- a corner flips nothing at the start
   kit.tapCell(1, 1)
-  seen.refused = kit.S.toast and kit.S.toast.text
+  seen.refused = kit.toast()
   seen.afterRefused = #kit.S.match.actions
 
   -- then a whole game: each side plays its first legal square, by touch, until neither can move

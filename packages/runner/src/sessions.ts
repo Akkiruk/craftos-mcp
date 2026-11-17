@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import {
   type BlockWorldHost,
   isBlockWorld,
@@ -10,7 +9,11 @@ import type { RunnerConfig } from "./config.js";
 import {
   type EngineHandle,
   type ScreenCapture,
+  type StagedRun,
   captureScreens,
+  discardStaged,
+  makeRuntimeDir,
+  stageEngine,
   startEngine,
 } from "./engine.js";
 import { type MonitorSpec, monitorSetupLua } from "./lua.js";
@@ -106,10 +109,12 @@ export class SessionManager {
 
   constructor(private readonly config: RunnerConfig) {}
 
+  /** A new session; `staged` is a folder stageEngine already copied its files into (createAsync). */
   create(
     monitors: readonly MonitorSpec[] = [],
     timeScale = 1,
     world?: WorldConfig,
+    staged?: StagedRun,
   ): Session {
     const boot = monitorSetupLua(monitors);
     // a world with blocks gets its host, as craftos_run does: what the turtle places can boot
@@ -127,6 +132,7 @@ export class SessionManager {
         label: "session",
         timeScale,
         world,
+        ...(staged && { staged }),
       });
     const session: Session = {
       id: randomUUID().slice(0, 8),
@@ -140,15 +146,66 @@ export class SessionManager {
     return session;
   }
 
+  /** create, with the workspace copied without blocking (the MCP server stays free for other clients). */
+  async createAsync(
+    monitors: readonly MonitorSpec[] = [],
+    timeScale = 1,
+    world?: WorldConfig,
+    signal?: AbortSignal,
+  ): Promise<Session> {
+    if (world && isBlockWorld(world))
+      return this.create(monitors, timeScale, world);
+    const staged = await stageEngine(this.config, {
+      label: "session",
+      ...(world && { world }),
+      ...(signal && { signal }),
+    });
+    try {
+      return this.create(monitors, timeScale, world, staged);
+    } catch (error) {
+      discardStaged(staged);
+      throw error;
+    }
+  }
+
+  /** createNetwork, with every computer's files copied without blocking. */
+  async createNetworkAsync(
+    spec: NetworkSpec,
+    signal?: AbortSignal,
+  ): Promise<LinkedNetwork> {
+    const worlds = linkedWorlds(spec.computers, spec.wired);
+    const staged: StagedRun[] = [];
+    try {
+      for (const [index, computer] of spec.computers.entries()) {
+        const config = computer.workspaceDir
+          ? { ...this.config, workspaceDir: computer.workspaceDir }
+          : this.config;
+        staged.push(
+          await stageEngine(config, {
+            label: "session",
+            world: worlds[index]!,
+            ...(signal && { signal }),
+          }),
+        );
+      }
+      return this.createNetwork(spec, staged);
+    } catch (error) {
+      for (const s of staged) discardStaged(s);
+      throw error;
+    }
+  }
+
   /**
    * Start several computers on one network, each a full session with its own ccsim world. Their
    * modems reach each other by the real rules, so rednet from the unmodified ROM just works.
    */
-  createNetwork(spec: NetworkSpec): LinkedNetwork {
+  createNetwork(
+    spec: NetworkSpec,
+    staged?: readonly StagedRun[],
+  ): LinkedNetwork {
     const worlds = linkedWorlds(spec.computers, spec.wired);
     // One server, one economy: every computer's balances and ledger are the same ones (seedEconomy)
-    mkdirSync(this.config.runtimeDir, { recursive: true });
-    const economyDir = mkdtempSync(join(this.config.runtimeDir, "economy-"));
+    const economyDir = makeRuntimeDir(this.config, "economy");
     this.economies.push(economyDir);
     seedEconomy(economyDir, worlds);
     const network = new ComputerNetwork(spec.wired, economyDir);
@@ -169,6 +226,7 @@ export class SessionManager {
           timeScale: computer.timeScale ?? spec.timeScale ?? 1,
           world,
           economyDir,
+          ...(staged?.[index] && { staged: staged[index] }),
         },
       );
       const session: Session = {
@@ -185,7 +243,16 @@ export class SessionManager {
 
   get(id: string): Session {
     const session = this.sessions.get(id);
-    if (!session) throw new Error(`no such session: ${id}`);
+    if (!session) {
+      const live = [...this.sessions.keys()];
+      throw new Error(
+        `no such session: ${id}. ` +
+          (live.length
+            ? `Live sessions: ${live.join(", ")}.`
+            : "No session is running.") +
+          " Sessions end when the server restarts; craftos_session_create starts a new one.",
+      );
+    }
     return session;
   }
 

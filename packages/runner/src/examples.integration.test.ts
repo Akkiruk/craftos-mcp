@@ -53,8 +53,10 @@ const examples: Example[] = [
   {
     test: "examples/mekanism/reactor.test.lua",
     monitors: [{ name: "top", blocksWide: 3, blocksHigh: 2 }],
-    // the controller must see each step of the heat-up: a faster clock lets a starved host skip past the scram point
-    timeScale: 5,
+    // the controller must see each step of the heat-up. Each reading is seven main-thread calls, each a server tick
+    // plus however late a busy host wakes the computer: on a 5x clock that lateness counted five times over, and the
+    // reactor heated past 1200 K between two readings. 2x keeps a starved host's readings close to the game's.
+    timeScale: 2,
   },
   {
     test: "examples/create/train_board.test.lua",
@@ -69,7 +71,9 @@ const examples: Example[] = [
   {
     test: "examples/power/power_monitor.test.lua",
     monitors: [{ name: "top", blocksWide: 4, blocksHigh: 3 }],
-    timeScale: 20,
+    // the first frame must come before the total drops under 25% (14 s of virtual time): at 20x a busy host ran the
+    // clock past that before the program drew at all
+    timeScale: 5,
   },
   {
     test: "examples/extreme-reactors/rod_controller.test.lua",
@@ -80,6 +84,39 @@ const examples: Example[] = [
     test: "examples/advanced-peripherals/greeter.test.lua",
     timeScale: 20,
   },
+  {
+    test: "examples/unlimited-peripheral-works/ore_survey.test.lua",
+    timeScale: 10,
+  },
+  {
+    test: "examples/metaphysics/watchtower.test.lua",
+    timeScale: 10,
+  },
+  {
+    test: "examples/some-peripherals/turret.test.lua",
+    timeScale: 10,
+  },
+  {
+    // the Crafka resend timings are checked against the clock: real time
+    test: "examples/cloud-solutions/scoreboard.test.lua",
+  },
+  { test: "examples/cccbridge/power_panel.test.lua", timeScale: 5 },
+  { test: "examples/create-cc-logistics/order_desk.test.lua", timeScale: 10 },
+  { test: "examples/cc-liftlink/lift.test.lua", timeScale: 5 },
+  { test: "examples/cc-vs/altitude_hold.test.lua", timeScale: 5 },
+  { test: "examples/cc-shops/kiosk.test.lua", timeScale: 5 },
+  { test: "examples/cc-shops/buyer_bot.test.lua", timeScale: 5 },
+  { test: "examples/advanced-math/furnace_pid.test.lua" },
+  { test: "examples/lectern-hub/dock.test.lua" },
+  { test: "examples/crickets-peripherals/vault.test.lua" },
+  { test: "examples/cctech/tape_log.test.lua" },
+  { test: "examples/embedded-computer/kiosk_admin.test.lua" },
+  { test: "examples/lakes-cc-additions/records_desk.test.lua" },
+  { test: "examples/sc-peripherals/lamp_printer.test.lua" },
+  { test: "examples/ccsecureboot/boot_check.test.lua" },
+  { test: "examples/ccx/storage_card.test.lua" },
+  { test: "examples/directgpu/dashboard.test.lua" },
+  { test: "examples/cide/under_debugger.test.lua" },
 ];
 
 function worldOf(test: string): WorldConfig {

@@ -126,6 +126,8 @@ function stageJs(rel) {
   if (/from\s*["']vitest["']/.test(text)) return false; // a test or a test helper
   const out = text.replace(SPECIFIER, (whole, lead, quote, spec) => {
     if (spec.startsWith(".") || spec.startsWith("node:")) return whole;
+    // text that only looks like an import (`"from":"src"` in a tool description) names no package
+    if (!/^(@[\w.-]+\/)?[\w.-]+(\/[\w./-]*)?$/.test(spec)) return whole;
     const entry = ENTRIES[spec];
     if (entry) {
       let to = posix(relative(dirname(rel), entry));
@@ -173,7 +175,12 @@ const COPY = [
   "LICENSE",
   "NOTICE.md",
   "README.md",
+  // what the MCP server serves as craftos://docs/<name> and craftos://examples/<path>
+  "docs",
+  "workspace/examples",
 ];
+/** Left out of COPY's folders: pictures and the docs' subfolders, and the games (megabytes, and in the repo). */
+const SKIP = [/^docs\/.+\//, /^workspace\/examples\/games\//];
 const NEVER = [
   /(^|\/)fonts\.lua$/, // Tom's Peripherals' fonts: built per user
   /^rom\//, // a built CC:Tweaked ROM
@@ -186,7 +193,8 @@ for (const item of COPY) {
   const files = statSync(from).isDirectory() ? walk(from) : [from];
   for (const file of files) {
     const rel = posix(relative(SRC, file));
-    if (NEVER.some((re) => re.test(rel))) continue;
+    if (NEVER.some((re) => re.test(rel)) || SKIP.some((re) => re.test(rel)))
+      continue;
     const dest = join(PKG, rel);
     mkdirSync(dirname(dest), { recursive: true });
     const buf = readFileSync(file);
@@ -250,6 +258,8 @@ const pkg = {
     "packages/",
     "rom-overlay/",
     "worlds/",
+    "docs/",
+    "workspace/",
     "scripts/",
     "craftos-package.json",
     "NOTICE.md",

@@ -55,7 +55,9 @@ const place = (id: number, x: number): WorldConfig => ({
   position: { x, y: 70, z: 0 },
 });
 
-describe.skipIf(!ready).concurrent("versus games", () => {
+// One test at a time: each plays a real-time match on two computers and checks it kept full speed, and seven
+// computers at once on top of a busy suite starved them of the CPU that takes.
+describe.skipIf(!ready)("versus games", () => {
   it(`${DIR}/computer.test.lua`, async () => {
     const result = await runTests(
       config,

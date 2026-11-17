@@ -2,6 +2,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ADDONS,
+  DEFAULT_MC,
+  NEWEST_MC,
+  VERSIONS,
+  versionChoices,
+  versionInfo,
   type RunnerConfig,
   addonReport,
   checkWorldAddons,
@@ -15,7 +20,8 @@ import {
 
 const config: RunnerConfig = {
   engineExe: "/engine/craftos",
-  romDir: "/repo/rom/cc-1.101.3",
+  // the default version's ROM, as loadConfig picks it
+  romDir: join("/repo/rom", versionInfo(DEFAULT_MC)!.romDir),
   romsDir: "/repo/rom",
   workspaceDir: "/ws",
   worldsDir: "/worlds",
@@ -25,11 +31,29 @@ const config: RunnerConfig = {
 const noEnv: NodeJS.ProcessEnv = {};
 
 describe("version selection", () => {
-  it("defaults to Minecraft 1.18.2 / CC:Tweaked 1.101.3", () => {
+  it("defaults to DEFAULT_MC, with its ROM", () => {
     const v = resolveVersion(undefined, noEnv);
+    expect(v).toMatchObject({
+      mc: DEFAULT_MC,
+      cc: versionInfo(DEFAULT_MC)!.cc,
+    });
+    expect(romDirFor(config, v)).toBe(config.romDir);
+  });
+
+  it("the public build defaults to the newest version", () => {
+    expect(DEFAULT_MC).toBe(NEWEST_MC);
+    expect(resolveVersion(undefined, noEnv)).toMatchObject({
+      mc: "1.21.1",
+      cc: "1.121.0",
+      loader: "neoforge",
+    });
+  });
+
+  it("1.18.2 is CC:Tweaked 1.101.3, the engine's own behaviour", () => {
+    const v = resolveVersion("1.18.2", noEnv);
     expect(v).toMatchObject({ mc: "1.18.2", cc: "1.101.3", loader: "forge" });
     expect(engineVersionArgs(v)).toEqual([]);
-    expect(romDirFor(config, v)).toBe(config.romDir);
+    expect(romDirFor(config, v)).toBe(join("/repo/rom", "cc-1.101.3"));
   });
 
   it("takes world.version as a string or an object", () => {
@@ -80,10 +104,9 @@ describe("version selection", () => {
       join("/repo/rom", "cc-1.121.0"),
     );
     // CRAFTOS_ROM: loadConfig leaves romsDir unset
-    const pinned = { ...config, romsDir: undefined };
-    expect(romDirFor(pinned, resolveVersion("1.21.1", noEnv))).toBe(
-      config.romDir,
-    );
+    const pinned = { ...config, romDir: "/one/rom", romsDir: undefined };
+    expect(romDirFor(pinned, resolveVersion("1.21.1", noEnv))).toBe("/one/rom");
+    expect(romDirFor(pinned, resolveVersion("1.18.2", noEnv))).toBe("/one/rom");
   });
 
   it("passes --cc-version to the engine for newer versions only", () => {
@@ -96,7 +119,12 @@ describe("version selection", () => {
 
   it("writes the version into world.json for ccsim (core.version)", () => {
     const def = JSON.parse(worldJson(undefined));
-    expect(def.version).toMatchObject({ mc: "1.18.2", cc: "1.101.3" });
+    expect(def.version).toMatchObject({
+      mc: DEFAULT_MC,
+      cc: versionInfo(DEFAULT_MC)!.cc,
+    });
+    const old = JSON.parse(worldJson({ version: "1.18.2" }));
+    expect(old.version).toMatchObject({ mc: "1.18.2", cc: "1.101.3" });
     const newer = JSON.parse(worldJson({ version: "1.20.1" }));
     expect(newer.version).toMatchObject({
       mc: "1.20.1",
@@ -107,8 +135,37 @@ describe("version selection", () => {
 });
 
 describe("addons per Minecraft version", () => {
-  it("every addon has a 1.18.2 version", () => {
-    for (const a of ADDONS) expect(a.versions["1.18.2"]).toBeTruthy();
+  it("every addon has a release for a version the emulator runs, and only for those", () => {
+    const known = ["1.18.2", "1.20.1", "1.21.1"];
+    for (const a of ADDONS) {
+      expect(Object.keys(a.versions).length, a.id).toBeGreaterThan(0);
+      for (const mc of Object.keys(a.versions)) expect(known).toContain(mc);
+    }
+  });
+
+  it("each version's default holds exactly the addons with a release for it", () => {
+    for (const mc of ["1.18.2", "1.20.1", "1.21.1"]) {
+      const want = ADDONS.filter((a) => a.versions[mc]).map((a) => a.id);
+      expect([...resolveAddons(undefined, noEnv, mc)].sort(), mc).toEqual(
+        [...want].sort(),
+      );
+    }
+  });
+
+  it("mods that only came out for newer Minecraft are left out of 1.18.2's default", () => {
+    const ids = resolveAddons(undefined, noEnv, "1.18.2");
+    expect(ids).toContain("some-peripherals");
+    expect(ids).toContain("cccbridge");
+    expect(ids).not.toContain("metaphysics");
+    expect(ids).not.toContain("cloud-solutions");
+    expect(ids).not.toContain("unlimited-peripheral-works");
+    expect(ids).not.toContain("create-cc-logistics");
+    expect(ids).not.toContain("cc-liftlink");
+    expect(resolveAddons(undefined, noEnv, "1.20.1")).toContain("metaphysics");
+    expect(ids).not.toContain("cc-androids");
+    expect(ids).not.toContain("cc-drones");
+    expect(resolveAddons(undefined, noEnv, "1.20.1")).toContain("cc-liftlink");
+    expect(resolveAddons(undefined, noEnv, "1.20.1")).toContain("cc-drones");
   });
 
   it("refuses an addon with no release for the version", () => {
@@ -130,7 +187,45 @@ describe("addons per Minecraft version", () => {
     expect(resolveAddons("all", noEnv, "1.21.1")).not.toContain(
       "bigger-reactors",
     );
-    expect(resolveAddons(undefined, noEnv)).toContain("bigger-reactors");
+    expect(resolveAddons(undefined, noEnv, "1.18.2")).toContain(
+      "bigger-reactors",
+    );
+  });
+
+  it("says which versions a missing mod has, and the three ways to pick one", () => {
+    const world = {
+      version: "1.21.1",
+      peripherals: [{ name: "reactor", type: "BiggerReactors_Reactor" }],
+    };
+    let message = "";
+    try {
+      checkWorldAddons(
+        world,
+        resolveAddons(undefined, noEnv, "1.21.1"),
+        "1.21.1",
+      );
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(
+      /^peripheral "reactor" \(BiggerReactors_Reactor\): /,
+    );
+    expect(message).toMatch(
+      /it has 1\.18\.2 \(Bigger Reactors .*\), 1\.20\.1 \(Bigger Reactors /,
+    );
+    expect(message).toMatch(
+      /world\.version "1\.20\.1", --mc 1\.20\.1 on the command line, or CRAFTOS_VERSION=1\.20\.1/,
+    );
+  });
+
+  it("the default is a known version, and NEWEST_MC is the newest", () => {
+    expect(VERSIONS.map((v) => v.mc)).toContain(DEFAULT_MC);
+    expect(NEWEST_MC).toBe("1.21.1");
+    expect(versionChoices()).toMatch(
+      new RegExp(
+        `^1\\.18\\.2 \\(CC:Tweaked 1\\.101\\.3\\), 1\\.20\\.1 or 1\\.21\\.1 \\(CC:Tweaked 1\\.121\\.0\\); default ${DEFAULT_MC.replace(/\./g, "\\.")}$`,
+      ),
+    );
   });
 
   it("a world using a missing mod's peripheral says the version lacks it", () => {
@@ -156,8 +251,9 @@ describe("addons per Minecraft version", () => {
     const ap = report.addons.find((a) => a.id === "advanced-peripherals")!;
     expect(ap.version).toBe("0.7.62b");
     expect(
-      addonReport(noEnv).addons.find((a) => a.id === "advanced-peripherals")!
-        .version,
+      addonReport(noEnv, "1.18.2").addons.find(
+        (a) => a.id === "advanced-peripherals",
+      )!.version,
     ).toBe("0.7.31r");
   });
 });

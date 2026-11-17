@@ -263,6 +263,109 @@ test("board-tap-move", async () => {
   throw new Fail("no tap made a move");
 });
 
+test("blightmare", async () => {
+  const { page } = await openPage();
+  const started = Date.now();
+  await play(page, "blightmare");
+  // the packed modules unpack behind a bar on the wall, then the opening plays on the idle screen
+  await waitText(page, "Loading", "top", undefined, 20000).catch(() => {});
+  await waitFor(
+    page,
+    () => !dev.player.screenText("top").join("\n").includes("Loading"),
+    undefined,
+    30000,
+    "the modules to unpack",
+  );
+  const booted = Date.now() - started;
+  check(await drawn(page, "top"), "the wall is blank after loading");
+  // the wall is the size the game is drawn for
+  const size = await page.evaluate(() =>
+    dev.player.screens().find((s) => s.name === "top"),
+  );
+  check(
+    size.width === 121 && size.height === 81,
+    `the wall is ${size.width}x${size.height}`,
+  );
+  // real clicks: a touch carries the opening on, SKIP, START
+  await page.waitForTimeout(500);
+  await click(page, "top", 60, 40);
+  await page.waitForTimeout(800);
+  await click(page, "top", 110, 4); // SKIP
+  await waitText(page, "No saved game on this computer", "top");
+  await click(page, "top", 60, 64); // START
+  await waitText(page, "DEL", "top"); // the name keyboard
+  for (const [x, y] of [
+    [9, 28], // A
+    [48, 28], // D
+    [9, 28], // A
+  ]) {
+    await click(page, "top", x, y);
+    await page.waitForTimeout(200);
+  }
+  await click(page, "top", 61, 63); // DONE
+  // talk: a question gets its middle answer, anything else a tap in the middle; until the hero is on foot in town
+  const lines = () => page.evaluate(() => dev.player.screenText("top"));
+  for (let i = 0; ; i++) {
+    const l = await lines();
+    if (l.join("\n").includes("TAP THIS BAR: MENU")) break;
+    if (i > 60)
+      throw new Fail(
+        `never got on foot: ${l
+          .filter((s) => s.trim())
+          .slice(-6)
+          .join(" | ")}`,
+      );
+    const answers = l
+      .map((s, r) => [s.trim(), r + 1])
+      .filter(([s, r]) => s && r >= 30 && r <= 64 && !s.includes("GOAL"));
+    const hint = (l[79] ?? "").includes("TAP");
+    await click(
+      page,
+      "top",
+      60,
+      !hint && answers.length ? answers[answers.length >> 1][1] : 40,
+    );
+    await page.waitForTimeout(600);
+  }
+  const town = (await lines()).join("\n");
+  check(
+    /Ada\b/.test(town) && town.includes("SCYTHEBREAK"),
+    "not Ada in Scythebreak",
+  );
+  await shot(page, "blightmare-town");
+  // SAVE & QUIT (two taps), and the ready screen offers the save; Reset starts the cart from its own files again
+  await click(page, "top", 113, 77);
+  await page.waitForTimeout(300);
+  await click(page, "top", 113, 77);
+  await waitFor(
+    page,
+    () => !dev.player.screenText("top").join("\n").includes("TAP THIS BAR"),
+    undefined,
+    10000,
+    "SAVE & QUIT",
+  );
+  await page.waitForTimeout(800);
+  await click(page, "top", 60, 40);
+  await page.waitForTimeout(800);
+  await click(page, "top", 110, 4);
+  await waitText(page, "Your game: Level", "top");
+  await page.evaluate(() => dev.player.reset());
+  await waitText(page, "Loading", "top", undefined, 20000).catch(() => {});
+  await waitFor(
+    page,
+    () => !dev.player.screenText("top").join("\n").includes("Loading"),
+    undefined,
+    30000,
+    "the modules to unpack after Reset",
+  );
+  await page.waitForTimeout(500);
+  await click(page, "top", 60, 40);
+  await page.waitForTimeout(800);
+  await click(page, "top", 110, 4);
+  await waitText(page, "No saved game on this computer", "top");
+  return `booted to the opening in ${booted} ms; named Ada by touch, on foot in Scythebreak; saved, and Reset forgets the save`;
+});
+
 test("keyboard-game", async () => {
   const { page } = await openPage();
   await play(page, "snake");

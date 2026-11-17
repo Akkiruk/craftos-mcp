@@ -17,7 +17,7 @@ There are three levels of evidence, best first:
 
 | Area                                                                                                 | Evidence                                                                                        | Details                                                                              |
 | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Lua, `fs`, `os`, `term`, `http`, `textutils` and the rest of CC's APIs                               | 2: 1189 of 1191 of CC:Tweaked's tests pass (the two failures are explained)                     | [conformance](conformance/README.md)                                                 |
+| Lua, `fs`, `os`, `term`, `http`, `textutils` and the rest of CC's APIs                               | 2: 1189 of 1190 of CC:Tweaked's tests pass (the one failure is explained)                       | [conformance](conformance/README.md)                                                 |
 | Monitors, speakers, timers, events, the 256-event queue                                              | 1: measured in game                                                                             |                                                                                      |
 | Wireless, ender and wired modems, rednet, ranges, wired names                                        | 1: 234 of 234 measured values match                                                             |                                                                                      |
 | Turtles: movement, digging, placing, tick timing, crafting, fuel                                     | 3, from CC:Tweaked's source, with block data from the real game jars                            | [turtle.md](turtle.md)                                                               |
@@ -29,6 +29,12 @@ There are three levels of evidence, best first:
 | Create 0.5.1.i and Create Crafts & Additions 1.0.0                                                   | 3                                                                                               | [create.md](create.md), [create-additions.md](create-additions.md)                   |
 | Tom's Peripherals 1.18.2-1.2.1                                                                       | 3; GPU drawing pixel-exact against the source, PNG output byte-exact against the game's encoder | [toms-peripherals.md](toms-peripherals.md)                                           |
 | Bigger Reactors and Extreme Reactors                                                                 | 3; the physics matches a second, independent port of the Java to 14 digits                      | [bigger-reactors.md](bigger-reactors.md), [extreme-reactors.md](extreme-reactors.md) |
+| CC: Androids 1.3.0 (Minecraft 1.20.1): the `android` API, tasks, fuel, hands and stash               | 3; walking and sight are simplified to whole blocks                                             | [cc-androids.md](cc-androids.md)                                                     |
+| CC: Drones 0.0.1, CC: Drones+ 0.2.0 and AC-Drones alpha 7 (Minecraft 1.20.1): the `drone` APIs       | 3; flight is the game's entity physics against whole blocks                                     | [cc-drones.md](cc-drones.md), [ac-drones.md](ac-drones.md)                           |
+
+Beside these, 58 of the community's own libraries, programs and operating systems are installed and used in the
+emulator as a player would, on both CC:Tweaked versions: [community programs](compatibility.md) lists each with its
+result and what it fixed here.
 
 ## What is a fixture instead of a simulation
 

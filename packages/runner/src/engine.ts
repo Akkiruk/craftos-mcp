@@ -1,5 +1,4 @@
 import {
-  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -10,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   RawSession,
   encodePng,
@@ -28,8 +27,11 @@ import {
   worldVersion,
 } from "./world.js";
 import { engineVersionArgs, isDefaultVersion, romDirFor } from "./versions.js";
-import { missingRomProblem } from "./config.js";
+import { checkConfig, missingRomProblem } from "./config.js";
+import { mobComputer } from "./mobs.js";
 import { resolveInWorkspace } from "./workspace.js";
+import { type CopyOptions, copyWorkspace, copyWorkspaceAsync } from "./copy.js";
+import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 
 export interface EngineHandle {
   /** The running engine. `restart` puts a new one here. */
@@ -47,8 +49,6 @@ export interface EngineHandle {
   dispose(): void;
 }
 
-/** Directory names never copied into the computer. */
-const SKIP = new Set([".git", "node_modules", "__snapshots__"]);
 // computer_space_limit on the real server, which raised it from CC:Tweaked's 1 MB default (StartOptions)
 const COMPUTER_SPACE_LIMIT = 25_000_000;
 /** Cobalt (CC:Tweaked's Lua VM) against native Lua: a 2,000,000-step loop takes about 90 ms real, 12 ms native. */
@@ -103,7 +103,26 @@ export interface StartOptions {
     readonly allow?: readonly string[];
     readonly deny?: readonly string[];
   };
+  /** A run folder stageEngine already copied the files into: startEngine copies nothing and blocks nothing. */
+  readonly staged?: StagedRun;
 }
+
+/**
+ * The bios applies default_computer_settings with settings.set, which queues `setting_changed` for motd.enable before
+ * any program runs. A server with no default settings has no such event, so the boot script takes it out of the queue
+ * (and puts back anything else, in order) before the program starts.
+ */
+const DROP_MOTD_EVENT_LUA = `do
+  local marker = "ccsim_boot_drain"
+  os.queueEvent(marker)
+  local keep = {}
+  while true do
+    local e = table.pack(os.pullEventRaw())
+    if e[1] == marker then break end
+    if not (e[1] == "setting_changed" and e[2] == "motd.enable") then keep[#keep + 1] = e end
+  end
+  for _, e in ipairs(keep) do os.queueEvent(table.unpack(e, 1, e.n)) end
+end`;
 
 /** A directory link that needs no rights on Windows (a junction). */
 function linkDir(target: string, path: string): void {
@@ -111,6 +130,169 @@ function linkDir(target: string, path: string): void {
   rmSync(path, { recursive: true, force: true });
   mkdirSync(join(path, ".."), { recursive: true });
   symlinkSync(target, path, process.platform === "win32" ? "junction" : "dir");
+}
+
+/** The file in each run folder that names the process using it, so a later start can clean up after a dead one. */
+export const RUN_OWNER_FILE = "owner.json";
+
+export function makeRuntimeDir(config: RunnerConfig, label: string): string {
+  mkdirSync(config.runtimeDir, { recursive: true });
+  const dir = mkdtempSync(join(config.runtimeDir, `${label}-`));
+  writeFileSync(
+    join(dir, RUN_OWNER_FILE),
+    JSON.stringify({ pid: process.pid, started: Date.now() }),
+  );
+  return dir;
+}
+
+/** What goes onto a computer: the world's deploy list, else the whole workspace. */
+function copiesFor(
+  config: RunnerConfig,
+  world: WorldConfig | undefined,
+  computerDir: string,
+): [string, { dest: string; deploy: boolean }][] {
+  if (world?.deploy && world.deploy.length > 0)
+    return world.deploy.map((entry) => [
+      resolveInWorkspace(config.workspaceDir, entry.from),
+      {
+        dest: resolveInWorkspace(computerDir, entry.to ?? "."),
+        deploy: true,
+      },
+    ]);
+  return [[config.workspaceDir, { dest: computerDir, deploy: false }]];
+}
+
+/**
+ * Never the runtime folder: a workspace that holds it (the CLI run from a clone's root) would copy every old run. A
+ * deploy list is explicit, so it copies what it names even when .gitignore ignores it.
+ */
+const copyOptions = (
+  config: RunnerConfig,
+  deploy: boolean,
+  signal?: AbortSignal,
+): CopyOptions => ({
+  exclude: [config.runtimeDir],
+  gitignore: !deploy,
+  ...(signal && { signal }),
+});
+
+/** A run folder with the computer's files already copied in, made without blocking (stageEngine). */
+export interface StagedRun {
+  readonly dir: string;
+  readonly computerId: number;
+}
+
+/**
+ * Make a run folder and copy the computer's files in without blocking the event loop, so the MCP server answers other
+ * clients meanwhile; pass the result to startEngine as `staged`. Stops on `signal` and removes the folder. Not for
+ * a block world's computers (their files live in the world's shared folders).
+ */
+export async function stageEngine(
+  config: RunnerConfig,
+  options: { label?: string; world?: WorldConfig; signal?: AbortSignal } = {},
+): Promise<StagedRun> {
+  const computerId = options.world?.computerId ?? 0;
+  const dir = makeRuntimeDir(config, options.label ?? "run");
+  try {
+    const computerDir = join(dir, "computer", String(computerId));
+    await mkdir(computerDir, { recursive: true });
+    for (const [from, to] of copiesFor(config, options.world, computerDir))
+      await copyWorkspaceAsync(
+        from,
+        to.dest,
+        copyOptions(config, to.deploy, options.signal),
+      );
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return { dir, computerId };
+}
+
+/**
+ * stageEngine within a run's timeout: "timed_out" when the copy outlasts it or `signal` cancels it (the folder is
+ * gone either way), so a run answers with a timeout instead of hanging. A too-big workspace still throws.
+ */
+export async function stageWithin(
+  config: RunnerConfig,
+  label: string,
+  world: WorldConfig | undefined,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<StagedRun | "timed_out"> {
+  const limit = AbortSignal.timeout(timeoutMs);
+  const both = signal ? AbortSignal.any([limit, signal]) : limit;
+  try {
+    return await stageEngine(config, {
+      label,
+      signal: both,
+      ...(world && { world }),
+    });
+  } catch (error) {
+    if (both.aborted) return "timed_out";
+    throw error;
+  }
+}
+
+/** The scratch folders the runner makes (makeRuntimeDir); anything else in the runtime folder is left alone. */
+const RUNTIME_LABELS = /^(run|test|session|blockworld|economy)-[A-Za-z0-9]{6}$/;
+const HOUR = 3_600_000;
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it is there, it is just not ours to signal
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Remove scratch folders left by runs whose process is gone (a crash, a kill, a request that timed out in an older
+ * build). A folder with an owner file goes once its process is dead, never while it lives. One from before owner
+ * files goes only when it is old: a day for a one-shot run or test, a week for a session or its world. Returns what
+ * it removed.
+ */
+export async function cleanStaleRuntime(
+  config: RunnerConfig,
+  now = Date.now(),
+): Promise<string[]> {
+  const removed: string[] = [];
+  let names: string[];
+  try {
+    names = await readdir(config.runtimeDir);
+  } catch {
+    return removed;
+  }
+  for (const name of names) {
+    if (!RUNTIME_LABELS.test(name)) continue;
+    const dir = join(config.runtimeDir, name);
+    try {
+      let stale: boolean;
+      const owner = await readFile(join(dir, RUN_OWNER_FILE), "utf8")
+        .then((t) => JSON.parse(t) as { pid?: unknown })
+        .catch(() => undefined);
+      if (owner && typeof owner.pid === "number") {
+        stale = owner.pid !== process.pid && !processAlive(owner.pid);
+      } else {
+        const age = now - (await stat(dir)).mtimeMs;
+        const oneShot = name.startsWith("run-") || name.startsWith("test-");
+        stale = age > (oneShot ? 24 : 7 * 24) * HOUR;
+      }
+      if (!stale) continue;
+      await rm(dir, { recursive: true, force: true });
+      removed.push(name);
+    } catch {
+      // in use (Windows keeps open files) or gone already: leave it for next time
+    }
+  }
+  return removed;
+}
+
+/** Remove a staged run folder that never got started. */
+export function discardStaged(staged: StagedRun): void {
+  rmSync(staged.dir, { recursive: true, force: true });
 }
 
 export function startEngine(
@@ -127,33 +309,49 @@ export function startEngine(
     computerSpaceLimit = COMPUTER_SPACE_LIMIT,
     httpRules,
   } = options;
-  const dir = mkdtempSync(join(config.runtimeDir, `${label}-`));
-  const resultsDir = join(dir, "results");
+  // no engine (a failed first run, an unbuilt clone): say so, instead of a spawn error later
+  const noEngine = checkConfig(config).find((p) => p.startsWith("engine "));
+  if (noEngine) {
+    if (options.staged) discardStaged(options.staged);
+    throw new Error(noEngine);
+  }
   const computerId = world?.computerId ?? 0;
+  if (options.staged && options.staged.computerId !== computerId)
+    throw new Error("staged for another computer id");
+  if (options.staged && shared)
+    throw new Error("a block world's computer is not staged");
+  const dir = options.staged?.dir ?? makeRuntimeDir(config, label);
+  const resultsDir = join(dir, "results");
   const computerDir = join(dir, "computer", String(computerId));
-  if (shared) {
-    linkDir(shared.diskDir, join(dir, "computer", "disk"));
-    if (shared.computerDir) linkDir(shared.computerDir, computerDir);
-  }
-  mkdirSync(computerDir, { recursive: true });
-  const copyFilter = (source: string): boolean =>
-    !SKIP.has(basename(source) ?? "");
-  if (shared?.fresh) {
-    // a computer a turtle placed: nothing on it but what it was given before
-  } else if (world?.deploy && world.deploy.length > 0) {
-    for (const entry of world.deploy) {
-      cpSync(
-        resolveInWorkspace(config.workspaceDir, entry.from),
-        resolveInWorkspace(computerDir, entry.to ?? "."),
-        { recursive: true, filter: copyFilter },
-      );
+  if (!options.staged) {
+    try {
+      if (shared) {
+        linkDir(shared.diskDir, join(dir, "computer", "disk"));
+        if (shared.computerDir) linkDir(shared.computerDir, computerDir);
+      }
+      mkdirSync(computerDir, { recursive: true });
+      if (!shared?.fresh) {
+        // a computer a turtle placed (fresh) has nothing on it but what it was given before
+        for (const [from, to] of copiesFor(config, world, computerDir))
+          copyWorkspace(from, to.dest, copyOptions(config, to.deploy));
+      }
+    } catch (error) {
+      // the half-made run folder goes, as dispose would
+      rmSync(dir, { recursive: true, force: true });
+      throw error;
     }
-  } else {
-    cpSync(config.workspaceDir, computerDir, {
-      recursive: true,
-      filter: copyFilter,
-    });
   }
+  // Floppy disks a plain world starts with (a block world's host writes its own, shared by every computer in it)
+  if (!shared)
+    for (const [id, files] of Object.entries(world?.disks ?? {})) {
+      const diskDir = join(dir, "computer", "disk", String(Number(id)));
+      mkdirSync(diskDir, { recursive: true });
+      for (const [path, text] of Object.entries(files)) {
+        const file = resolveInWorkspace(diskDir, path);
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, text);
+      }
+    }
   mkdirSync(resultsDir, { recursive: true });
   if (economyDir) linkDir(economyDir, join(resultsDir, "economy"));
 
@@ -172,6 +370,11 @@ export function startEngine(
     join(dir, "config", "global.json"),
     JSON.stringify({
       computerSpaceLimit,
+      // The ROM's random tip under "CraftOS 1.8" is noise in every captured screen: off, as a server admin can set
+      // it (CC:Tweaked's default_computer_settings). world.motd: true brings it back.
+      ...(world?.motd !== true && {
+        default_computer_settings: "motd.enable=false",
+      }),
       ...(size && { defaultWidth: size.width, defaultHeight: size.height }),
       ...(httpRules?.allow && { http_whitelist: httpRules.allow }),
       ...(httpRules?.deny && { http_blacklist: httpRules.deny }),
@@ -181,6 +384,8 @@ export function startEngine(
   if (
     (world?.turtle && !world.turtle.advanced) ||
     world?.placed?.block?.endsWith("_normal") ||
+    mobComputer(world as Record<string, unknown> | undefined)?.colour ===
+      false ||
     world?.advanced === false
   ) {
     writeFileSync(
@@ -192,7 +397,13 @@ export function startEngine(
   const bootPath = join(dir, "boot.lua");
   writeFileSync(
     bootPath,
-    [enginePeripheralLua(world), bootLua].filter(Boolean).join("\n"),
+    [
+      world?.motd === true ? "" : DROP_MOTD_EVENT_LUA,
+      enginePeripheralLua(world),
+      bootLua,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   );
 
   const stderr: string[] = [];
@@ -211,6 +422,10 @@ export function startEngine(
         `ccunit=${config.luaLibDir}`,
         "--mount-rw",
         `results=${resultsDir}`,
+        // lets the sim mount a mod's drive writable at run time (mounter.mount(name, dir, false), as Cricket's hard
+        // drive mounts its folder); programs never see `mounter` (emulator.hide)
+        "-o",
+        "mount_mode=ro",
         ...(timeScale !== 1 ? ["--time-scale", String(timeScale)] : []),
         ...(cobaltSlowdown(world) > 1
           ? ["--cobalt-speed", String(cobaltSlowdown(world))]

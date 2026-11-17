@@ -7,6 +7,7 @@ import {
   loadConfig,
   resolveVersion,
   startWebApp,
+  versionChoices,
 } from "@craftos-mcp/runner";
 import type { Command } from "../command.js";
 
@@ -35,7 +36,7 @@ const app: Command = {
     "  craftos-mcp app [--port 7878] [--dir <folder>] [--worlds <folder>] [--mc <version>] [--no-open]",
     "",
     "  --port     port on 127.0.0.1 (default 7878; 0 picks a free one)",
-    "  --mc       the Minecraft version new computers start on (1.18.2, the default, 1.20.1 or 1.21.1); the form can change it",
+    `  --mc       the Minecraft version new computers start on (${versionChoices()}); the form can change it`,
     "  --dir      your Lua project: copied onto every computer you make (default the workspace folder)",
     "  --worlds   folder of saved worlds (<name>.json) the New computer form offers (default worlds/)",
     "  --no-open  do not open the browser, just print the address",

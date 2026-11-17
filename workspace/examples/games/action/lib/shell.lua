@@ -428,7 +428,13 @@ local function tick()
       plugin.view.onEvents(app, r.state, plugin.rules.tick(r.state, r.rng) or {})
       if r.state.over then finish() end
     end
-    if t >= r.nextAt then r.nextAt = t + plugin.tickMs end -- too far behind to catch up: carry on from now
+    if t >= r.nextAt then
+      -- too far behind to catch up: the steps it would have taken are lost, and it carries on from now
+      if S.view == "play" then
+        S.droppedSteps = (S.droppedSteps or 0) + math.floor((t - r.nextAt) / plugin.tickMs) + 1
+      end
+      r.nextAt = t + plugin.tickMs
+    end
     -- how smoothly it runs: steps taken, and frames that had to catch up on more than one
     S.steps = (S.steps or 0) + steps
     if steps > 1 then S.lateFrames = (S.lateFrames or 0) + 1 end

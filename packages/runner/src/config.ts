@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_MC, versionInfo } from "./versions.js";
+
+/** The default version's ROM folder under rom/ (cc-1.101.3 for 1.18.2, cc-1.121.0 for 1.20.1 and 1.21.1). */
+const DEFAULT_ROM_DIR = versionInfo(DEFAULT_MC)!.romDir;
 
 export interface RunnerConfig {
   /** The forked engine binary. */
@@ -82,7 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
     engineExe: resolve(
       env["CRAFTOS_ENGINE"] ?? join(base, "engine", "build", exeName),
     ),
-    romDir: resolve(env["CRAFTOS_ROM"] ?? join(base, "rom", "cc-1.101.3")),
+    romDir: resolve(env["CRAFTOS_ROM"] ?? join(base, "rom", DEFAULT_ROM_DIR)),
     ...(env["CRAFTOS_ROM"] === undefined && { romsDir: join(base, "rom") }),
     // an installed package works on the folder it is run in
     workspaceDir: resolve(
@@ -130,13 +134,13 @@ export function checkConfig(config: RunnerConfig): string[] {
   }
   if (!existsSync(config.engineExe)) {
     problems.push(
-      `engine not found at ${config.engineExe} (build it with engine/build.cmd on Windows or engine/build.sh on Linux)`,
+      `engine not found at ${config.engineExe} (build it with engine/build.cmd on Windows or engine/build.sh on Linux and macOS)`,
     );
   }
   if (!existsSync(join(config.romDir, "bios.lua"))) {
     problems.push(
       `ROM not found at ${config.romDir} (run: node scripts/build-rom.mjs --download, ` +
-        `or node scripts/build-rom.mjs <cc-tweaked.jar> rom/cc-1.101.3 with a jar you have)`,
+        `or node scripts/build-rom.mjs <cc-tweaked.jar> rom/${DEFAULT_ROM_DIR} with a jar you have)`,
     );
   }
   return problems;

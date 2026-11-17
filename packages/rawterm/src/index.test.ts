@@ -73,3 +73,18 @@ describe("packets", () => {
     ]);
   });
 });
+
+describe("an engine that cannot start", () => {
+  it("exits with the reason on stderr instead of throwing", async () => {
+    const { RawSession } = await import("./index.js");
+    const session = new RawSession({
+      executable: "this-engine-does-not-exist-anywhere",
+    });
+    const stderr: string[] = [];
+    session.on("stderr", (t: string) => stderr.push(t));
+    const exit = await session.waitForExit(5000);
+    expect(exit.code).toBeNull();
+    expect(session.running).toBe(false);
+    expect(stderr.join("")).toMatch(/could not start the engine .*ENOENT/);
+  });
+});

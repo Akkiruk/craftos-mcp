@@ -233,6 +233,30 @@ describe.skipIf(!ready)("against the real engine", () => {
     expect(r.out).toContain("PASS rel/in.test.lua");
   }, 60000);
 
+  it("run from a clone's root uses its workspace folder and finishes", async () => {
+    // it used to copy the whole repo, .runtime with every old run in it, before the timeout even started
+    // the clone's own default, not the CRAFTOS_WORKSPACE the other tests here leave set
+    const { CRAFTOS_WORKSPACE: _, ...env } = process.env;
+    const clone = loadConfig(env);
+    const name = `tmp/cli-root-${process.pid}.lua`;
+    const file = join(clone.workspaceDir, name);
+    mkdirSync(join(file, ".."), { recursive: true });
+    writeFileSync(file, 'print("from the root")');
+    process.chdir(join(clone.workspaceDir, ".."));
+    const saved = process.env["CRAFTOS_WORKSPACE"];
+    try {
+      const started = Date.now();
+      const r = await call(run, `workspace/${name}`, "--timeout", "20");
+      expect(r.out).toContain("from the root");
+      expect(r.code).toBe(0);
+      expect(Date.now() - started).toBeLessThan(20000);
+    } finally {
+      if (saved === undefined) delete process.env["CRAFTOS_WORKSPACE"];
+      else process.env["CRAFTOS_WORKSPACE"] = saved;
+      rmSync(file, { force: true });
+    }
+  }, 60000);
+
   it("test says so when there are no test files", async () => {
     const empty = mkdtempSync(join(tmpdir(), "cli-empty-"));
     try {
@@ -313,4 +337,104 @@ describe.skipIf(!ready)("against the real engine", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("inventory");
   }, 60000);
+});
+
+describe.skipIf(!ready)("checks and reports", () => {
+  it("run refuses a missing program and a bad world before booting", async () => {
+    put("real.lua", 'print("ok")');
+    const missing = await call(run, "--dir", scratch, "rael.lua");
+    expect(missing.code).toBe(2);
+    expect(missing.err).toMatch(
+      /no program "rael.lua".*Did you mean "real.lua"/,
+    );
+    put("typo.json", JSON.stringify({ peripheralz: [] }));
+    const world = await call(
+      run,
+      "--dir",
+      scratch,
+      "real.lua",
+      "--world",
+      join(scratch, "typo.json"),
+    );
+    expect(world.code).toBe(2);
+    expect(world.err).toMatch(/Did you mean "peripherals"/);
+  });
+
+  it("run prints the error with its file and line", async () => {
+    put("oops.lua", "local t = nil\nprint(t.x)\n");
+    const r = await call(run, "--dir", scratch, "oops.lua");
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/error \(runtime\): oops\.lua:2: attempt to index/);
+  }, 60000);
+
+  const suite = (): void => {
+    mkdirSync(join(scratch, "rep"), { recursive: true });
+    put(
+      "rep/mixed.test.lua",
+      [
+        'ccunit.test("good", function() ccunit.eq(1, 1) end)',
+        'ccunit.test("bad <one>", function() ccunit.eq(1, 2) end)',
+        'ccunit.skip("later")',
+      ].join("\n"),
+    );
+  };
+
+  it("test --json prints the whole result", async () => {
+    suite();
+    const r = await call(test, "--dir", scratch, "rep", "--json");
+    expect(r.code).toBe(1);
+    const result = JSON.parse(r.out) as {
+      passed: number;
+      failed: number;
+      skipped: number;
+      files: { tests: { name: string; line?: number }[] }[];
+    };
+    expect([result.passed, result.failed, result.skipped]).toEqual([1, 1, 1]);
+    expect(result.files[0]!.tests[1]).toMatchObject({
+      name: "bad <one>",
+      line: 2,
+    });
+  }, 60000);
+
+  it("test --reporter junit writes XML, and github annotates the line", async () => {
+    suite();
+    const out = join(scratch, "reports", "junit.xml");
+    const j = await call(
+      test,
+      "--dir",
+      scratch,
+      "rep",
+      "--reporter",
+      "junit",
+      "--out",
+      out,
+    );
+    expect(j.code).toBe(1);
+    expect(j.out).toContain("1 passed, 1 failed, 1 skipped");
+    const xml = readFileSync(out, "utf8");
+    expect(xml).toMatch(
+      /<testsuite name="rep\/mixed.test.lua" tests="3" failures="1" skipped="1"/,
+    );
+    expect(xml).toContain('name="bad &lt;one&gt;"><failure message=');
+    expect(xml).toContain("<skipped/>");
+    const cwd = process.cwd();
+    process.chdir(scratch);
+    try {
+      const g = await call(test, "rep", "--reporter", "github");
+      expect(g.code).toBe(1);
+      expect(g.out).toMatch(
+        /^::error file=rep\/mixed\.test\.lua,line=2,title=bad <one>::.*expected 2 but got 1/m,
+      );
+    } finally {
+      process.chdir(cwd);
+    }
+  }, 60000);
+
+  it("test refuses a test file that is not there", async () => {
+    const r = await call(test, "--dir", scratch, "rep/mixd.test.lua");
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(
+      /no file "rep\/mixd.test.lua".*Did you mean "rep\/mixed.test.lua"/,
+    );
+  });
 });

@@ -6,9 +6,9 @@
 //
 //   node scripts/setup.mjs [--force-engine] [--mc <versions>]
 //
-// --mc picks the Minecraft versions to build ROMs for, separated by commas, or "all" (default 1.18.2, CC:Tweaked
-// 1.101.3). 1.20.1 and 1.21.1 share one ROM (CC:Tweaked 1.121.0). The CRAFTOS_SETUP_MC environment variable does
-// the same.
+// --mc picks the Minecraft versions to build ROMs for, separated by commas, or "all" (default: the emulator's default
+// version, DEFAULT_MC in packages/runner/src/versions.ts). 1.20.1 and 1.21.1 share one ROM (CC:Tweaked 1.121.0). The
+// CRAFTOS_SETUP_MC environment variable does the same.
 //
 // Environment (for forks and for testing):
 //   CRAFTOS_RELEASE_REPO  owner/name of the repository whose latest release holds the engine zips
@@ -37,6 +37,12 @@ const FONTS = "rom/ccsim/addons/toms-peripherals/fonts.lua";
 
 /** The release asset suffix for this machine, or undefined where there is no prebuilt engine. */
 export function platformKey(platform = process.platform, arch = process.arch) {
+  if (platform === "darwin")
+    return arch === "arm64"
+      ? "macos-arm64"
+      : arch === "x64"
+        ? "macos-x64"
+        : undefined;
   if (arch !== "x64") return undefined;
   if (platform === "win32") return "windows-x64";
   if (platform === "linux") return "linux-x64";
@@ -113,7 +119,7 @@ export function extractZip(buf, root, prefixes = ["engine/build/"]) {
       throw new Error(`unsafe path in zip: ${name}`);
     mkdirSync(dirname(dest), { recursive: true });
     if ((mode & 0o170000) === 0o120000) {
-      // a symlink (Linux shared libraries): the data is the link target
+      // a symlink (Linux and macOS shared libraries): the data is the link target
       try {
         symlinkSync(data.toString("utf8"), dest);
       } catch (error) {
@@ -228,7 +234,7 @@ function buildInstructions() {
       ]
     : [
         "  Build it yourself: a C++17 compiler, CMake, Ninja and a vcpkg checkout in VCPKG_ROOT, then run",
-        "  bash engine/build.sh   (the package list is at the top of that file)",
+        "  bash engine/build.sh   (Linux and macOS; the package list is at the top of that file)",
       ];
 }
 
@@ -266,11 +272,16 @@ async function getEngine(force) {
   return true;
 }
 
-/** The Minecraft versions to build ROMs for: --mc a,b (or "all"), else CRAFTOS_SETUP_MC, else 1.18.2. */
-export function romVersions(argv, versions, env = process.env) {
+/** The Minecraft versions to build ROMs for: --mc a,b (or "all"), else CRAFTOS_SETUP_MC, else the default version. */
+export function romVersions(
+  argv,
+  versions,
+  env = process.env,
+  defaultMc = "1.18.2",
+) {
   const at = argv.indexOf("--mc");
   const spec =
-    at >= 0 ? (argv[at + 1] ?? "") : (env.CRAFTOS_SETUP_MC ?? "1.18.2");
+    at >= 0 ? (argv[at + 1] ?? "") : (env.CRAFTOS_SETUP_MC ?? defaultMc);
   const list =
     spec.trim().toLowerCase() === "all"
       ? versions.map((v) => v.mc)
@@ -309,10 +320,10 @@ export async function main(argv = process.argv.slice(2)) {
   step(2, total, "build the TypeScript");
   run("npm", ["run", "build"]);
 
-  const { VERSIONS } = await import(
+  const { VERSIONS, DEFAULT_MC } = await import(
     pathToFileURL(join(REPO, "packages", "runner", "dist", "versions.js")).href
   );
-  const mcList = romVersions(argv, VERSIONS);
+  const mcList = romVersions(argv, VERSIONS, process.env, DEFAULT_MC);
   step(
     3,
     total,

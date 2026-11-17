@@ -1,0 +1,39 @@
+{
+  "simProgram": true,
+  "version": "1.20.1",
+  "addons": ["ducky-peripherals"],
+  "duckyPeripherals": { "raining": true },
+  "peripherals": [
+    {
+      "name": "entity_detector_0",
+      "type": "entity_detector",
+      "entities": [
+        {
+          "name": "Steve",
+          "player": true,
+          "uuid": "8667ba71-b85a-4004-af54-457a9734eed7",
+          "x": 3.5,
+          "y": 0,
+          "z": -2.5
+        },
+        {
+          "type": "Cow",
+          "x": -4.2,
+          "y": 0,
+          "z": 1.7,
+          "width": 0.9,
+          "height": 1.4
+        },
+        { "type": "Zombie", "x": 30, "y": 0, "z": 30 }
+      ]
+    },
+    {
+      "name": "weather_machine_0",
+      "type": "weather_machine",
+      "biome": "minecraft:taiga",
+      "temperature": 0.25
+    },
+    { "name": "keyboard_0", "type": "keyboard" },
+    { "name": "sculkophone_0", "type": "sculkophone" }
+  ]
+}

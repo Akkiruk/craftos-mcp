@@ -41,5 +41,9 @@ extern void setFloating(SDL_Window* win, bool state);
 extern void platformExit();
 extern void addSystemCertificates(Poco::Net::Context::Ptr context);
 extern void unblockInput();
+#ifdef __APPLE__
+// Timed waits of the calling thread come back on time from here on (see platform/darwin.cpp).
+extern void darwinPreciseTimers();
+#endif
 extern bool winFolderIsReadOnly(path_t path);
 #endif

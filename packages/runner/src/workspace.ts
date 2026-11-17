@@ -83,12 +83,15 @@ export interface WorkspaceEntry {
 export function listWorkspace(
   workspaceDir: string,
   userPath = ".",
+  /** Names not listed or walked into (COPY_SKIP: what never goes onto a computer). */
+  skip?: ReadonlySet<string>,
 ): WorkspaceEntry[] {
   const start = resolveInWorkspace(workspaceDir, userPath);
   const root = resolve(workspaceDir);
   const entries: WorkspaceEntry[] = [];
   const walk = (dir: string): void => {
     for (const name of readdirSync(dir)) {
+      if (skip?.has(name)) continue;
       const full = join(dir, name);
       const info = statSync(full);
       const path = relative(root, full).split(sep).join("/");
