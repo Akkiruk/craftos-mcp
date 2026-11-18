@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; frame-src http://127.0.0.1:*; style-src 'self'; script-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CraftOS</title>
+    <link rel="stylesheet" href="home.css" />
+  </head>
+  <body>
+    <div id="home" class="view">
+      <aside class="side">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">&gt;_</span>
+          <span>CraftOS</span>
+        </div>
+        <button id="open" class="wide primary-soft">Open a folder</button>
+        <button id="new" class="wide">New project</button>
+        <h2>Recent projects</h2>
+        <ul id="recents" class="recents"></ul>
+        <p id="no-recents" class="hint" hidden>
+          Projects you open show up here.
+        </p>
+        <div class="side-foot">
+          <button id="settings-open" class="quiet">Settings</button>
+          <span id="version" class="hint"></span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div id="update" class="banner" hidden>
+          <span id="update-text"></span>
+          <button id="update-act"></button>
+        </div>
+
+        <section id="welcome" class="welcome">
+          <h1>Run ComputerCraft programs without Minecraft</h1>
+          <p>
+            Open the folder that holds your Lua programs, or start a new
+            project. Then pick your Minecraft version and mods and press Run.
+          </p>
+          <div class="row">
+            <button id="welcome-open" class="primary big">Open a folder</button>
+            <button id="welcome-new" class="big">New project</button>
+          </div>
+        </section>
+
+        <section id="project" hidden>
+          <header class="project-head">
+            <div>
+              <h1 id="p-name"></h1>
+              <button
+                id="p-path"
+                class="link"
+                title="Show this folder"
+              ></button>
+            </div>
+            <div class="actions">
+              <button id="tests" class="big">Run tests</button>
+              <button id="run" class="primary big">&#9654; Run</button>
+            </div>
+          </header>
+          <p id="p-errors" class="problem" hidden></p>
+          <p id="p-status" class="status" hidden></p>
+
+          <div class="grid">
+            <div class="card">
+              <h2>Minecraft version</h2>
+              <div id="versions" class="versions" role="radiogroup"></div>
+              <h2 class="gap">Program to run</h2>
+              <select id="program"></select>
+              <p id="p-saved" class="hint"></p>
+            </div>
+
+            <div class="card mods">
+              <div class="mods-head">
+                <h2>Mods <span id="mods-count" class="count"></span></h2>
+                <input
+                  id="mods-filter"
+                  type="search"
+                  placeholder="Find a mod"
+                />
+                <button id="mods-all" class="small">All</button>
+                <button id="mods-none" class="small">None</button>
+              </div>
+              <p class="hint">
+                Tick the mods your modpack has. A program can only use the
+                blocks of mods that are on.
+              </p>
+              <ul id="mods" class="mod-list"></ul>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="running" class="view" hidden>
+      <div class="bar">
+        <button id="back">&#8592; Home</button>
+        <strong id="r-name"></strong>
+        <span id="r-info" class="hint"></span>
+        <span class="spacer"></span>
+        <button id="r-tests">Run tests</button>
+        <button
+          id="r-restart"
+          title="Start again with the files as they are now"
+        >
+          Run again
+        </button>
+      </div>
+      <!-- the emulator's own page; it may read the clipboard (its Paste button) and go full screen -->
+      <iframe
+        id="frame"
+        title="The running computer"
+        allow="clipboard-read; clipboard-write; fullscreen"
+      ></iframe>
+    </div>
+
+    <dialog id="tests-dialog">
+      <h2 id="t-title">Tests</h2>
+      <div id="t-body" class="tests-body"></div>
+      <div class="dialog-foot">
+        <button id="t-again">Run again</button>
+        <button id="t-close" class="primary">Close</button>
+      </div>
+    </dialog>
+
+    <dialog id="new-dialog">
+      <form method="dialog" id="new-form">
+        <h2>New project</h2>
+        <label>
+          Name
+          <input
+            id="n-name"
+            required
+            maxlength="80"
+            placeholder="my-programs"
+          />
+        </label>
+        <label>
+          Where
+          <span class="row">
+            <input id="n-parent" readonly />
+            <button id="n-pick" type="button">Change</button>
+          </span>
+        </label>
+        <p class="hint">
+          Makes the folder with a first program, a first test and a craftos.json
+          that remembers your choices.
+        </p>
+        <p id="n-error" class="problem" hidden></p>
+        <div class="dialog-foot">
+          <button type="button" id="n-cancel">Cancel</button>
+          <button type="submit" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog">
+      <h2>Settings</h2>
+      <label>
+        Look
+        <select id="s-theme">
+          <option value="system">Same as my computer</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
+      <label class="check">
+        <input id="s-update" type="checkbox" />
+        Look for a new version when CraftOS starts
+      </label>
+      <div class="row">
+        <button id="s-check">Look for a new version now</button>
+        <span id="s-update-state" class="hint"></span>
+      </div>
+      <h3>CC:Tweaked's files</h3>
+      <p class="hint">
+        CraftOS gets CC:Tweaked's own files from its official download the first
+        time a Minecraft version is used. You can get all of them now, for use
+        without internet later.
+      </p>
+      <div class="row">
+        <button id="s-all">Get every version now</button>
+        <span id="s-all-state" class="hint"></span>
+      </div>
+      <p class="hint" id="s-about"></p>
+      <div class="dialog-foot">
+        <button id="s-close" class="primary">Done</button>
+      </div>
+    </dialog>
+
+    <script src="home.js"></script>
+  </body>
+</html>

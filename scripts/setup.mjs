@@ -15,6 +15,7 @@
 //   CRAFTOS_RELEASE_API   the "latest release" API URL (default: derived from CRAFTOS_RELEASE_REPO)
 //   CRAFTOS_ENGINE_URL    a zip URL or a local zip path to use instead of looking at releases
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -186,7 +187,7 @@ async function fetchEngineZip(key) {
   const override = process.env.CRAFTOS_ENGINE_URL;
   if (override) {
     if (existsSync(override)) return readFileSync(override);
-    return download(override);
+    return downloadVerified(override);
   }
   const api =
     process.env.CRAFTOS_RELEASE_API ??
@@ -212,7 +213,39 @@ async function fetchEngineZip(key) {
     return undefined;
   }
   console.log(`  release ${release.tag_name}: ${asset.name}`);
-  return download(asset.browser_download_url);
+  return downloadVerified(asset.browser_download_url);
+}
+
+/**
+ * download, checked against the SHA-256 the release publishes beside the zip (<url>.sha256, sha256sum's format). A
+ * mismatch is downloaded again once, then fails; a release from before the checksums (404) is taken as it is.
+ */
+async function downloadVerified(url) {
+  for (let attempt = 1; ; attempt++) {
+    const buf = await download(url);
+    const res = await fetch(`${url}.sha256`, {
+      headers: { "User-Agent": "craftos-mcp-setup" },
+    });
+    if (res.status === 404) {
+      console.log("  no checksum published beside it; not verified");
+      return buf;
+    }
+    if (!res.ok) throw new Error(`${url}.sha256: HTTP ${res.status}`);
+    const want = /\b([0-9a-f]{64})\b/i.exec(await res.text())?.[1];
+    if (!want) throw new Error(`${url}.sha256 holds no SHA-256`);
+    const got = createHash("sha256").update(buf).digest("hex");
+    if (got === want.toLowerCase()) {
+      console.log("  SHA-256 verified");
+      return buf;
+    }
+    if (attempt >= 2)
+      throw new Error(
+        `the engine zip does not match its published SHA-256, twice (expected ${want.toLowerCase()}, got ${got})`,
+      );
+    console.log(
+      "  the download does not match its SHA-256; downloading it again",
+    );
+  }
 }
 
 async function download(url) {
@@ -377,7 +410,13 @@ export async function main(argv = process.argv.slice(2)) {
   console.log(
     `    npx craftos-mcp help        (inside this folder; or node ${q(join(REPO, "apps", "cli", "dist", "index.js"))} help)`,
   );
-  console.log("    craftos-mcp test | run | info | serve");
+  console.log(
+    "    craftos-mcp window   a computer in a desktop window (no AI agent needed)",
+  );
+  console.log(
+    "    craftos-mcp app      computers, monitors and turtles in your browser",
+  );
+  console.log("    craftos-mcp run | test | doctor | info | serve");
   return problems.length ? 1 : 0;
 }
 

@@ -1,0 +1,14 @@
+sim changes the simulated world around this computer. It is the emulator's own program: a computer on a real server has no sim.
+
+sim join <player>          a player logs in (added if new)
+sim leave <player>         and out again
+sim chat <player> <text>   a player says something in chat
+sim advance <seconds>      jump the clock; due timers fire
+sim item <inv> <slot> [item] [count]   put an item in a chest's slot (no item: empty it)
+sim state                  the players, peripherals and the last chat
+
+Any other world command: sim <command> key=value ...
+  e.g. sim setPlayerPos player=Alice x=10 y=64 z=0
+sim help lists every command this world knows.
+
+To place a block next to the computer: attach <side> <type> (attach left printer), and detach <side>.

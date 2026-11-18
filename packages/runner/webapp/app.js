@@ -102,6 +102,9 @@ function select(id) {
     refreshSide(true);
     setTimeout(() => $("#term-wrap").focus(), 0);
   }
+  window.craftosViews?.selected(); // views.js
+  // world panel (worldpanel.js) follows the computer shown
+  document.dispatchEvent(new CustomEvent("craftos:select", { detail: { id } }));
 }
 
 function layout() {
@@ -112,11 +115,12 @@ function layout() {
   if (current === "lastrun") renderLastRun();
   if (!s) return;
   const pill = $("#status");
-  pill.textContent = s.running
-    ? "on"
-    : s.exitCode === null
-      ? "off"
-      : `off (${s.exitCode})`;
+  pill.textContent = s.running ? "on" : !s.exitCode ? "off" : "stopped";
+  // an engine that went away by itself: say so in words, the code is for a bug report
+  pill.title =
+    s.running || !s.exitCode
+      ? ""
+      : `The computer stopped by itself (engine exit code ${s.exitCode}). Turn it on again, or make a new one.`;
   pill.className = `pill${s.running ? "" : " off"}`;
   $("#title").textContent =
     `${s.name} · ${s.advanced ? "advanced " : ""}${s.kind}${s.program ? " · " + s.program : ""}`;
@@ -430,6 +434,15 @@ function post(sub, body) {
   );
 }
 function command(cmd) {
+  // a jump of the clock is the whole world's, as the time bar's: the timers on the way fire one at a time and the
+  // programs run between them (the sim's own advance fires them all at once)
+  if (cmd?.cmd === "advance")
+    return api("/api/clock", {
+      json: { action: "jump", amount: Math.round(Number(cmd.seconds) * 1000) },
+    }).then(
+      () => ({ applied: true }),
+      (e) => ({ applied: false, error: e.message }),
+    );
   return api(`/api/sessions/${current}/command`, {
     json: { command: cmd },
   }).catch((e) => ({ applied: false, error: e.message }));
@@ -663,7 +676,15 @@ for (const b of $$("[data-act]")) {
     }
     if (act === "close") {
       const s = cur();
-      if (!s || !confirm(`Turn off and remove ${s.name}?`)) return;
+      if (
+        !s ||
+        !confirm(
+          s.liveDir // live files
+            ? `Turn off and remove ${s.name}? Its files stay in ${s.liveDir}.`
+            : `Turn off and remove ${s.name}? Files you made or changed on this computer go with it (your project folder is not touched).`,
+        )
+      )
+        return;
       await api(`/api/sessions/${s.id}`, { method: "DELETE" }).catch(
         () => undefined,
       );
@@ -741,7 +762,11 @@ for (const b of $$("[data-world]")) {
     if (!player && ["addPlayer", "join", "leave", "chat"].includes(act))
       return worldMsg({ error: "type a player name first" });
     b.classList.add("busy");
-    worldMsg(await command(cmd));
+    let result = await command(cmd);
+    // Join adds a player the world has not seen yet, as `sim join` does in the computer
+    if (act === "join" && result?.error === "unknown player")
+      result = await command({ cmd: "addPlayer", name: player, online: true });
+    worldMsg(result);
     b.classList.remove("busy");
     if (act === "chat") $("#p-chat").value = "";
     refreshSide(true);
@@ -831,6 +856,8 @@ async function refreshSide(force) {
         const players = new Set([
           ...Object.keys(state.balances || {}),
           ...(state.players ? Object.keys(state.players) : []),
+          // the world's players as they stand (a world without the server mod has no balances)
+          ...(state.live?.players || []).map((p) => p.name).filter(Boolean),
         ]);
         $("#player-list").replaceChildren(
           ...[...players].map((p) => el("option", { value: p })),
@@ -938,9 +965,14 @@ async function loadFiles() {
   const s = cur();
   if (!s) return;
   try {
-    const { dir, entries } = await api(`/api/sessions/${s.id}/files`);
+    const { dir, live, entries } = await api(`/api/sessions/${s.id}/files`);
     $("#files-dir").textContent = dir;
     $("#files-dir").title = dir;
+    // live files: the folder itself has nothing to copy in, and the hint says what that means
+    $("#files-sync").hidden = !!live;
+    $("#files-hint").textContent = live
+      ? "These are the files of that folder itself, as CraftOS-PC keeps a computer's folder: what the computer saves appears there, and what you save there in your own editor the computer sees at once. Reboot to start a program again. Close leaves them where they are."
+      : "This computer has a scratch copy of your project folder. What you change here stays on this computer and goes when you close it: keep your work in the project folder, and copy it in again after editing there.";
     const list = $("#files");
     list.replaceChildren(
       ...entries.map((e) => {
@@ -1082,9 +1114,18 @@ function showVersion(mc) {
     if (!ver) box.checked = false;
     const label = box.closest("label");
     label.classList.toggle("off", !ver);
+    // a mod written from its 1.18.2 release acts as that one on every version (addons.ts simulates)
+    const acts =
+      a.simulates && ver && a.simulates !== ver.split(" ")[0]
+        ? `, acts as ${a.simulates}`
+        : "";
     $(".ver", label).textContent = ver
-      ? ` ${ver.split(" ")[0]}`
+      ? ` ${ver.split(" ")[0]}${acts}`
       : ` (none for ${mc})`;
+    const base = a.requires.length ? `needs ${a.requires.join(", ")}` : a.id;
+    label.title = acts
+      ? `${base}. On Minecraft ${mc} the mod is ${ver.split(" ")[0]}; the emulator acts as its ${a.simulates} release`
+      : base;
   }
 }
 form.elements.version.addEventListener("change", () =>
@@ -1136,8 +1177,10 @@ form.addEventListener("submit", async (e) => {
     err.textContent = `World JSON: ${x.message}`;
     return;
   }
+  // a pasted world's own "monitors" count when the form lists none
+  const pasted = Array.isArray(world.monitors) ? world.monitors : [];
   delete world.monitors;
-  const monitors = $$(".mon-row").map((r) => {
+  let monitors = $$(".mon-row").map((r) => {
     const [name, w, h, scale] = $$("input", r).map((i) => i.value);
     return {
       name: name.trim(),
@@ -1148,6 +1191,7 @@ form.addEventListener("submit", async (e) => {
         : {}),
     };
   });
+  if (monitors.length === 0) monitors = pasted;
   const body = {
     name: form.elements.name.value.trim() || undefined,
     kind: form.elements.kind.value,
@@ -1160,6 +1204,7 @@ form.addEventListener("submit", async (e) => {
     timeScale: Number(form.elements.timeScale.value) || 1,
     count: Number(form.elements.count.value) || 1,
     modem: form.elements.modem.value,
+    files: form.elements.files.value, // live files
   };
   const btn = $("#create");
   btn.disabled = true;
@@ -1193,6 +1238,7 @@ async function poll(force) {
     renderTabs();
     layout();
     updateScreens();
+    window.craftosViews?.poll(); // views.js
   } catch {
     // server restarting
   } finally {
@@ -1232,6 +1278,24 @@ async function init() {
   );
   form.elements.version.value = meta.version;
   showVersion(meta.version);
+  // live files: the app's default, and which folder that is
+  form.elements.files.value = meta.files || "project";
+  const filesWhat = () => {
+    const many = Number(form.elements.count.value) > 1;
+    const how = form.elements.files.value;
+    const sep = meta.workspaceDir.includes("\\") ? "\\" : "/";
+    $("#files-what").textContent =
+      how === "copy"
+        ? ""
+        : how === "own"
+          ? `${meta.workspaceDir}${sep}computer${sep}<id>`
+          : many
+            ? `${meta.workspaceDir}, shared by all of them`
+            : meta.workspaceDir;
+  };
+  form.elements.files.addEventListener("change", filesWhat);
+  form.elements.count.addEventListener("input", filesWhat);
+  filesWhat();
   setAddons(undefined);
   await poll(true);
   setInterval(poll, 120);

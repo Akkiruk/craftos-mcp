@@ -471,7 +471,84 @@ static Rand64 Int2I(lua_Unsigned n) {
 */
 typedef struct {
     Rand64 s[4];
+    unsigned long long jseed;  /* craftos-agent: the java.util.Random of CC 1.101.3 (below) */
 } RanState;
+
+
+/*
+** craftos-agent: CC:Tweaked 1.101.3's Cobalt 0.6 does math.random with a java.util.Random kept on the LuaState: a
+** 48-bit linear congruential generator, `new Random(seed)` on math.randomseed(seed). Read off Cobalt 0.6.0's
+** MathLib (tools/conformance/cobalt-oracle/Oracle6.java): random() is nextDouble(), random(m) is 1 + nextInt(m) and
+** random(m, n) is m + nextInt(n + 1 - m), the bounds as Java ints (the number cast to long, then to int) and the
+** sums in int arithmetic; randomseed takes a long and returns nothing. Cobalt 0.8+ (CC 1.109+) is Lua 5.4's
+** xoshiro256** above, as is this engine for those versions.
+*/
+#define JRAND_MUL 0x5DEECE66DULL
+#define JRAND_MASK ((1ULL << 48) - 1)
+
+/* Java's (long) of a double: NaN is 0, out of range saturates */
+static long long java_long (lua_Number d) {
+    if (d != d) return 0;
+    if (d >= 9223372036854775807.0) return 9223372036854775807LL;
+    if (d <= -9223372036854775807.0 - 1.0) return -9223372036854775807LL - 1;
+    return (long long)d;
+}
+
+/* Cobalt's checkInteger: (int) (long) d, the low 32 bits */
+static int java_int (lua_Number d) {
+    return (int)(unsigned int)(unsigned long long)java_long(d);
+}
+
+static void jrand_seed (RanState *state, long long seed) {
+    state->jseed = ((unsigned long long)seed ^ JRAND_MUL) & JRAND_MASK;
+}
+
+static int jrand_next (RanState *state, int bits) {
+    state->jseed = (state->jseed * JRAND_MUL + 0xBULL) & JRAND_MASK;
+    return (int)(unsigned int)(state->jseed >> (48 - bits));
+}
+
+/* Random.nextInt(bound), bound > 0 */
+static int jrand_nextint (RanState *state, int bound) {
+    int r = jrand_next(state, 31);
+    const int m = bound - 1;
+    if ((bound & m) == 0) return (int)(((long long)bound * (long long)r) >> 31);
+    for (int u = r; (int)((unsigned int)u - (unsigned int)(r = u % bound) + (unsigned int)m) < 0;
+         u = jrand_next(state, 31));
+    return r;
+}
+
+/* LuaValue.checkDouble's error names no argument: "bad argument (number expected, got nil)", a missing one too */
+static lua_Number cobalt6_number (lua_State *L, int arg) {
+    int isnum;
+    const lua_Number d = lua_tonumberx(L, arg, &isnum);
+    if (!isnum)
+        luaL_error(L, "bad argument (number expected, got %s)", lua_isnoneornil(L, arg) ? "nil" : luaL_typename(L, arg));
+    return d;
+}
+
+static int math_random_cobalt6 (lua_State *L, RanState *state) {
+    int m, n, bound;
+    switch (lua_gettop(L)) {
+    case 0:
+        lua_pushnumber(L, (lua_Number)(((long long)jrand_next(state, 26) << 27) + jrand_next(state, 27)) *
+                          (1.0 / 9007199254740992.0));
+        return 1;
+    case 1:
+        m = java_int(cobalt6_number(L, 1));
+        luaL_argcheck(L, m >= 1, 1, "interval is empty");
+        lua_pushinteger(L, (lua_Integer)(int)(1u + (unsigned int)jrand_nextint(state, m)));
+        return 1;
+    default:  /* the first two; the rest are ignored */
+        m = java_int(cobalt6_number(L, 1));
+        n = java_int(cobalt6_number(L, 2));
+        luaL_argcheck(L, n >= m, 2, "interval is empty");
+        bound = (int)((unsigned int)n + 1u - (unsigned int)m);
+        if (bound <= 0) return luaL_error(L, "vm error: java.lang.IllegalArgumentException: bound must be positive");
+        lua_pushinteger(L, (lua_Integer)(int)((unsigned int)m + (unsigned int)jrand_nextint(state, bound)));
+        return 1;
+    }
+}
 
 
 /*
@@ -496,9 +573,9 @@ static lua_Unsigned project(lua_Unsigned ran, lua_Unsigned n,
         lim |= (lim >> 4);
         lim |= (lim >> 8);
         lim |= (lim >> 16);
-#if (LUA_MAXUNSIGNED >> 31) >= 3
-        lim |= (lim >> 32);  /* integer type has more than 32 bits */
-#endif
+        /* craftos-agent: this Lua has no LUA_MAXUNSIGNED, so the 5.4 test here was always false and a range past
+           2^32 never gave an odd number (math.random(0, 2^32)); Cobalt 0.9.9 masks with 64 - nlz(n) bits */
+        if (sizeof(lua_Unsigned) > 4) lim |= ((lim >> 16) >> 16);  /* integer type has more than 32 bits */
         lua_assert((lim & (lim + 1)) == 0  /* 'lim + 1' is a power of 2, */
                    && lim >= n  /* not smaller than 'n', */
                    && (lim >> 1) < n);  /* and it is the smallest one */
@@ -513,7 +590,9 @@ static int math_random(lua_State *L) {
     lua_Integer low, up;
     lua_Unsigned p;
     RanState *state = (RanState *)lua_touserdata(L, lua_upvalueindex(1));
-    Rand64 rv = nextrand(state->s);  /* next pseudo-random value */
+    Rand64 rv;
+    if (!lua_ccatleast(L, 1, 109, 0)) return math_random_cobalt6(L, state);
+    rv = nextrand(state->s);  /* next pseudo-random value */
     switch (lua_gettop(L)) {  /* check number of arguments */
     case 0: {  /* no arguments */
         lua_pushnumber(L, I2d(rv));  /* float between 0 and 1 */
@@ -575,6 +654,10 @@ static void randseed(lua_State *L, RanState *state) {
 
 static int math_randomseed(lua_State *L) {
     RanState *state = (RanState *)lua_touserdata(L, lua_upvalueindex(1));
+    if (!lua_ccatleast(L, 1, 109, 0)) {  /* Cobalt 0.6: new Random(arg1.checkLong()), no results */
+        jrand_seed(state, java_long(cobalt6_number(L, 1)));
+        return 0;
+    }
     if (lua_isnone(L, 1)) {
         randseed(L, state);
     } else {
@@ -600,6 +683,8 @@ static void setrandfunc(lua_State *L) {
     RanState *state = (RanState *)lua_newuserdata(L, sizeof(RanState));
     randseed(L, state);  /* initialize with a "random" seed */
     lua_pop(L, 2);  /* remove pushed seeds */
+    /* new Random(): seeded from the clock and this state's address until math.randomseed */
+    jrand_seed(state, (long long)time(NULL) * 1000003LL ^ (long long)(size_t)L);
     luaL_setfuncs(L, randfuncs, 1);
 }
 

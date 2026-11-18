@@ -1,0 +1,191 @@
+/* The time controls bar (timecontrol.js): along the bottom of the window, always there. Colours come from app.css. */
+body.has-timebar {
+  padding-bottom: 52px;
+}
+.timebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 12px;
+  background: var(--panel, #1c1c1c);
+  border-top: 2px solid var(--line, #3a3a3a);
+  font-size: 13px;
+}
+.timebar .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.timebar .btn:disabled,
+.tc-seg button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tc-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  flex: none;
+}
+.tc-play {
+  min-width: 92px;
+  justify-content: center;
+}
+.tc-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line, #3a3a3a);
+  margin: 0 4px;
+}
+.tc-cap {
+  color: var(--dim, #999);
+  font-size: 12px;
+}
+.tc-seg {
+  display: inline-flex;
+  border: 1px solid var(--line, #3a3a3a);
+}
+.tc-seg button {
+  font: 12px var(--mono, monospace);
+  padding: 4px 8px;
+  background: var(--panel, #1c1c1c);
+  color: var(--fg, #f0f0f0);
+  border: 0;
+  border-right: 1px solid var(--line, #3a3a3a);
+  cursor: pointer;
+}
+.tc-seg button:last-child {
+  border-right: 0;
+}
+.tc-seg button:hover:not(:disabled) {
+  background: var(--card, #232323);
+}
+.tc-seg button.on {
+  background: var(--accent, #dede6c);
+  color: var(--bg, #141414);
+  font-weight: 700;
+}
+.tc-grow {
+  flex: 1;
+}
+.tc-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono, monospace);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.tc-sky {
+  display: inline-flex;
+}
+.tc-sky.day {
+  color: var(--yellow, #dede6c);
+}
+.tc-sky.night {
+  color: var(--lightBlue, #99b2f2);
+}
+.tc-state.paused {
+  background: var(--orange, #f2b233);
+  color: var(--bg, #141414);
+  border-color: var(--orange, #f2b233);
+}
+.tc-state.fast {
+  background: var(--lightBlue, #99b2f2);
+  color: var(--bg, #141414);
+  border-color: var(--lightBlue, #99b2f2);
+}
+.tc-msg {
+  color: var(--dim, #999);
+  font-size: 12px;
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-msg.bad,
+.tc-dlg .msg.bad {
+  color: var(--red, #cc4c4c);
+}
+
+/* dialogs */
+.tc-dlg {
+  width: min(560px, 94vw);
+}
+.tc-dlg label {
+  display: block;
+  margin: 10px 0;
+}
+.tc-dlg input:not([type="file"]) {
+  width: 100%;
+}
+.tc-dlg .row input {
+  flex: 1;
+}
+.tc-dlg .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tc-snap-dlg h2 {
+  margin-top: 0;
+}
+.tc-snaps {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow: auto;
+}
+.tc-snap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line, #3a3a3a);
+}
+.tc-snap-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.tc-snap-text .sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-snap a.btn {
+  text-decoration: none;
+}
+.tc-none {
+  padding: 8px 0;
+}
+
+/* small windows: icons and the essentials */
+@media (max-width: 900px) {
+  .tc-cap,
+  .tc-keys {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  body.has-timebar {
+    padding-bottom: 92px;
+  }
+  .tc-label,
+  .tc-sep,
+  .tc-msg {
+    display: none;
+  }
+  .tc-play {
+    min-width: 0;
+  }
+}

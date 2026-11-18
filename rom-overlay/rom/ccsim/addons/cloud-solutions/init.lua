@@ -133,11 +133,7 @@ return function(core, host)
 
   -- ===== CC's argument checks =====
 
-  local function long(i, v)
-    if type(v) ~= "number" then error(("bad argument #%d (number expected, got %s)"):format(i, C.typeName(v)), 0) end
-    if v ~= floor(v) then error(("bad argument #%d (number has no integer representation)"):format(i), 0) end
-    return v
-  end
+  local long = C.long -- IArguments.getLong: 1.5 is 1
   local function optLong(i, v) if v == nil then return nil end return long(i, v) end
   local function double(i, v)
     if type(v) ~= "number" then error(("bad argument #%d (number expected, got %s)"):format(i, C.typeName(v)), 0) end

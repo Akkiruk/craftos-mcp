@@ -54,13 +54,11 @@ local function waitFor(condition, limit)
 end
 
 -- the same touches as testkit.lua (which isn't on this computer): a player's pace before the touch, and the shell has
--- taken it on return (two markers round, as with some mods on the emulator queues a touch a second time)
+-- taken it on return (one marker round: a touch queued here reaches the game in the order it was queued)
 local function touchNow(px, py)
   os.queueEvent("monitor_touch", monitorName, px + 1, py + 1)
-  for _ = 1, 2 do
-    os.queueEvent("install_test_settle")
-    os.pullEvent("install_test_settle")
-  end
+  os.queueEvent("install_test_settle")
+  os.pullEvent("install_test_settle")
 end
 
 local function tap(px, py)

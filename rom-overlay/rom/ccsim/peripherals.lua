@@ -16,20 +16,34 @@ return function(core)
 
   local function fail(message) error(message, 0) end
 
+  -- IArguments.getString: a string and nothing else, numbers included (CobaltLuaMachine.toObject makes a number a
+  -- Double, which is not a String)
   local function checkString(index, v)
     if type(v) == "string" then return v end
-    if type(v) == "number" then return tostring(v) end
     error(("bad argument #%d (string expected, got %s)"):format(index, v == nil and "nil" or type(v)), 0)
   end
 
-  local function checkInt(index, v)
+  -- IArguments.getLong: a finite number, truncated toward zero (LuaValues.checkFinite, then Java's (long) cast).
+  -- CC:Tweaked has no "no integer representation" error: 1.5 is 1, -1.5 is -1 (1.101.3 and 1.121.0 alike).
+  local function javaLong(index, v)
     if type(v) ~= "number" then
       error(("bad argument #%d (number expected, got %s)"):format(index, v == nil and "nil" or type(v)), 0)
     end
-    if v ~= math.floor(v) then
-      error(("bad argument #%d (number has no integer representation)"):format(index), 0)
+    if v ~= v then error(("bad argument #%d (number expected, got nan)"):format(index), 0) end
+    if v == math.huge or v == -math.huge then
+      error(("bad argument #%d (number expected, got %s)"):format(index, v > 0 and "inf" or "-inf"), 0)
     end
-    return v
+    return v < 0 and math.ceil(v) or math.floor(v)
+  end
+
+  -- IArguments.getInt: (int) getLong, the long's low 32 bits
+  local function checkInt(index, v)
+    local n = javaLong(index, v)
+    if n >= 9223372036854775807 then return -1 end -- (int) Long.MAX_VALUE
+    if n <= -9223372036854775808 then return 0 end -- (int) Long.MIN_VALUE
+    n = n % 4294967296
+    if n >= 2147483648 then n = n - 4294967296 end
+    return n
   end
 
   -- ===== inventories =====
@@ -661,6 +675,14 @@ return function(core)
     end
   end
 
+  -- ===== CC:Tweaked's printer (see ccsim/printer.lua) =====
+
+  local newPrinter = dofile("/rom/ccsim/printer.lua")(core, {
+    newInventory = function(def) return newInventory(def) end,
+    md5 = ap.md5,
+    checkInt = checkInt,
+  })
+
   -- Machines on the virtual clock catch up before anything looks at the world. Each addon adds its own.
   local catchUps = {}
   core.beforeObserve = function()
@@ -801,6 +823,13 @@ return function(core)
       entry.methods = entry.mek.methods
       entry.types = { ty }
       entry.methodOrder = entry.mek.methodOrder
+    elseif ty == "printer" then
+      -- its slots are an inventory others push to and pull from by name, but the printer has no inventory methods
+      entry.ap = newPrinter(def)
+      entry.methods = entry.ap.methods
+      entry.types = { ty }
+      entry.computerThread = entry.ap.computerThread
+      entry.inventory = entry.ap.inventory
     elseif apFactories[ty] then
       entry.ap = apFactories[ty](def)
       entry.methods = entry.ap.methods
@@ -880,6 +909,14 @@ return function(core)
     order[#order + 1] = def.name
   end
 
+  -- the world file's peripherals as written, before register fills them in (core.liveWorld, for a snapshot)
+  local function plainCopy(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, x in pairs(v) do out[k] = plainCopy(x) end
+    return out
+  end
+  core.worldPeripherals = plainCopy(core.world.peripherals or {})
   for _, def in ipairs(core.world.peripherals or {}) do register(def) end
   -- An addon configured by a world key (world.create, ...) loads at boot even before any of its blocks is used
   -- (and one with `boot = true` in types.lua always: a mod that adds an API to every computer)
@@ -986,9 +1023,10 @@ return function(core)
       end
       local values = {}
       for i, key in ipairs(args) do values[i] = cmd[key] end
-      local ok, result = pcall(entry.ap.setters[field], table.unpack(values, 1, #args))
+      local ok, result, reason = pcall(entry.ap.setters[field], table.unpack(values, 1, #args))
       if not ok then return false, tostring(result) end
-      return result ~= false
+      if result == false then return false, reason end
+      return true
     end
   end
   setter("setEnergyTransferRate", "transferRate", { "rate" })
@@ -1059,7 +1097,62 @@ return function(core)
   -- Engine peripherals that are not on a side (a monitor named monitor_0): nothing lists them unless they are named
   -- here. The boot script does that, and hide() takes the function away before any program runs.
   local engineNamed = {}
-  function api.__ccsimNamed(name)
+  -- the size of each monitor wall put down or resized while the computer runs (name -> { wide, high })
+  local monitorSizes = {}
+
+  -- A normal (not advanced) monitor: CC:Tweaked's Palette with colour off shows each entry as the average of its
+  -- channels, getPaletteColour still reads back the colours that were set, isColour() is false, and a player's touch
+  -- does nothing (core.lua drops monitor_touch for it). name -> { [0..15] = { r, g, b } as set }.
+  local normalMonitors = {}
+  core.normalMonitors = normalMonitors
+  local function log2(c)
+    local i = 0
+    while c > 1 do c, i = math.floor(c / 2), i + 1 end
+    return i
+  end
+  local function grey(r, g, b) return math.floor((r + g + b) / 3 * 255) / 255 end
+  local function markNormal(name)
+    local set = {}
+    for i = 0, 15 do
+      local r, g, b = realPeripheral.call(name, "getPaletteColour", 2 ^ i)
+      set[i] = { r, g, b }
+      local v = grey(r, g, b)
+      realPeripheral.call(name, "setPaletteColour", 2 ^ i, v, v, v)
+    end
+    normalMonitors[name] = set
+  end
+  local function normalCall(name, method, ...)
+    local set = normalMonitors[name]
+    if method == "isColour" or method == "isColor" then return false end
+    if method == "getPaletteColour" or method == "getPaletteColor" then
+      realPeripheral.call(name, method, ...) -- the argument checks
+      local p = set[log2((...))]
+      return p[1], p[2], p[3]
+    end
+    if method == "setPaletteColour" or method == "setPaletteColor" then
+      local results = table.pack(realPeripheral.call(name, method, ...)) -- the argument checks
+      local c, r, g, b = ...
+      if g == nil then r, g, b = colours.unpackRGB(r) end
+      set[log2(c)] = { r, g, b }
+      local v = grey(r, g, b)
+      realPeripheral.call(name, "setPaletteColour", c, v, v, v)
+      return table.unpack(results, 1, results.n)
+    end
+    return realPeripheral.call(name, method, ...)
+  end
+
+  -- After a reboot the engine's monitors are still there (a block outlives its computer's reboot): the world's
+  -- normal ones go grey again
+  for _, m in ipairs(type(core.world.monitors) == "table" and core.world.monitors or {}) do
+    if type(m) == "table" and m.advanced == false and type(m.name) == "string" and realPeripheral.isPresent(m.name)
+      and realPeripheral.getType(m.name) == "monitor" then
+      markNormal(m.name)
+    end
+  end
+
+  --- The boot script names each monitor it made; `opts.normal`: a normal monitor rather than an advanced one.
+  function api.__ccsimNamed(name, opts)
+    if type(opts) == "table" and opts.normal and realPeripheral.getType(name) == "monitor" then markNormal(name) end
     engineNamed[#engineNamed + 1] = name
     if relay then
       -- a monitor appeared after this computer told linked ones what it has: tell them again at the next event
@@ -1097,6 +1190,24 @@ return function(core)
   function api.isPresent(name)
     if virtual[name] then return true end
     return realPeripheral.isPresent(name)
+  end
+
+  --- The engine's own blocks next to the computer now, monitors and drives (core.liveWorld `engine`): the world panel
+  --- shows them after `attach` and `detach` in the shell too. A wall's size is known when it was put down or resized
+  --- while the computer ran; the host knows the rest.
+  function core.engineBlocks()
+    local out = {}
+    for _, name in ipairs(realPeripheral.getNames()) do
+      local ty = realPeripheral.getType(name)
+      if ty == "monitor" or ty == "drive" then
+        local entry = { name = name, type = ty }
+        local size = monitorSizes[name]
+        if ty == "monitor" and size then entry.blocksWide, entry.blocksHigh = size[1], size[2] end
+        if ty == "monitor" and normalMonitors[name] then entry.advanced = false end
+        out[#out + 1] = entry
+      end
+    end
+    return out
   end
 
   function api.getType(p)
@@ -1279,6 +1390,7 @@ return function(core)
     if not entry then
       local ghost = link and link.ghost(name)
       if ghost then error(ghost, 2) end
+      if normalMonitors[name] then return normalCall(name, method, ...) end
       return realPeripheral.call(name, method, ...)
     end
     if type(entry.methods[method]) ~= "function" or tostring(method):sub(1, 2) == "__" then fail("No such method " .. tostring(method)) end
@@ -1294,6 +1406,14 @@ return function(core)
 
   function api.wrap(name)
     local entry = virtual[name]
+    if not entry and normalMonitors[name] and realPeripheral.isPresent(name) then
+      local wrapped = {}
+      for _, method in ipairs(realPeripheral.getMethods(name) or {}) do
+        wrapped[method] = function(...) return api.call(name, method, ...) end
+      end
+      wrappedNames[wrapped] = name
+      return wrapped
+    end
     if not entry then return realPeripheral.wrap(name) end
     local wrapped = {}
     for _, method in ipairs(methodNames(name)) do
@@ -1334,14 +1454,20 @@ return function(core)
       core.periphemu.create(def.name, def.type)
       if def.type == "monitor" then
         pcall(realPeripheral.call, def.name, "setBlockSize", def.blocksWide or 1, def.blocksHigh or 1)
+        monitorSizes[def.name] = { def.blocksWide or 1, def.blocksHigh or 1 }
+        if def.textScale then pcall(realPeripheral.call, def.name, "setTextScale", def.textScale) end
+        if def.advanced == false then markNormal(def.name) end
       end
       local listed = false
       for _, name in ipairs(engineNamed) do if name == def.name then listed = true end end
       if not listed then engineNamed[#engineNamed + 1] = def.name end
     else
+      local plain = textutils.serializeJSON(def) -- as given, before register fills it in
       local ok, err = pcall(register, def)
       if not ok then return false, tostring(err) end
       os.queueEvent("peripheral", def.name)
+      -- the world has it now (core.liveWorld, for a snapshot)
+      if core.worldPeripherals then table.insert(core.worldPeripherals, textutils.unserializeJSON(plain)) end
     end
     exportsCache = nil
     return true
@@ -1354,7 +1480,23 @@ return function(core)
     if not realPeripheral.isPresent(name) or realPeripheral.getType(name) ~= "drive" then
       return false, "no disk drive named " .. name
     end
+    -- a drive holds one disk: in game the slot is full, so nothing goes in until it comes out (ejectDisk)
+    if realPeripheral.call(name, "isDiskPresent") then return false, "a disk is already in " .. name end
     local ok, err = pcall(realPeripheral.call, name, "insertDisk", id)
+    if not ok then return false, tostring(err) end
+    return true
+  end
+
+  --- A player takes the floppy out of an engine drive: ejectDisk {peripheral}. Its mount goes and `disk_eject` is
+  --- queued, as when the disk comes out in game; the disk's files stay with its id, for insertDisk to bring back.
+  function core.extraHandlers.ejectDisk(cmd)
+    local name = cmd.peripheral
+    if type(name) ~= "string" then return false, "ejectDisk needs peripheral" end
+    if not realPeripheral.isPresent(name) or realPeripheral.getType(name) ~= "drive" then
+      return false, "no disk drive named " .. name
+    end
+    if not realPeripheral.call(name, "isDiskPresent") then return false, "no disk in " .. name end
+    local ok, err = pcall(realPeripheral.call, name, "ejectDisk")
     if not ok then return false, tostring(err) end
     return true
   end
@@ -1370,9 +1512,13 @@ return function(core)
       virtual[name] = nil
       core.peripherals[name] = nil
       for i = #order, 1, -1 do if order[i] == name then table.remove(order, i) end end
+      local defs = core.worldPeripherals or {}
+      for i = #defs, 1, -1 do if type(defs[i]) == "table" and defs[i].name == name then table.remove(defs, i) end end
       os.queueEvent("peripheral_detach", name)
     elseif not entry and realPeripheral.isPresent(name) and core.periphemu then
       core.periphemu.remove(name) -- the engine queues peripheral_detach
+      normalMonitors[name] = nil
+      monitorSizes[name] = nil
       for i = #engineNamed, 1, -1 do if engineNamed[i] == name then table.remove(engineNamed, i) end end
     else
       return false, "no peripheral named " .. name
@@ -1390,6 +1536,8 @@ return function(core)
     if not w or not h or w < 1 or h < 1 or w > 8 or h > 6 then return false, "a monitor wall is 1x1 to 8x6 blocks" end
     local ok, err = pcall(realPeripheral.call, name, "setBlockSize", w, h)
     if not ok then return false, tostring(err) end
+    monitorSizes[name] = { w, h }
+    core.dirty = true
     return true
   end
 

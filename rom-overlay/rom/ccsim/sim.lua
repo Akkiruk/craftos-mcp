@@ -92,7 +92,8 @@ local function state()
   print(("Day %d, %s, %.1f s up"):format(os.day(), textutils.formatTime(os.time(), true), os.clock()))
   if #players == 0 then print("Players: none") end
   for _, p in ipairs(players) do
-    print((" %s %s, balance %s"):format(p.name, p.online and "online" or "offline", tostring(p.balance)))
+    local balance = p.balance ~= nil and (", balance %s"):format(tostring(p.balance)) or ""
+    print((" %s %s%s"):format(p.name, p.online and "online" or "offline", balance))
   end
   local names = peripheral.getNames()
   print("Peripherals: " .. (#names == 0 and "none" or ""))
@@ -109,7 +110,8 @@ local function help()
   local ok, err, names = send("list")
   if not ok then return report(ok, err) end
   print("Commands this world knows:")
-  textutils.pagedPrint(names or "")
+  -- a run or a test (the runner leaves /results/unattended): nobody is there to press a key, so no "Press any key"
+  if fs.exists("/results/unattended") then print(names or "") else textutils.pagedPrint(names or "") end
 end
 
 local verb = args[1]
@@ -130,7 +132,8 @@ elseif verb == "chat" then
   if not args[2] or not args[3] then return usage() end
   report(send({ cmd = "chat", player = args[2], message = table.concat(args, " ", 3) }))
 elseif verb == "advance" then
-  report(send({ cmd = "advance", seconds = tonumber(args[2]) }))
+  -- as the time bar's jump: each timer on the way fires and the programs run before the next
+  report(send({ cmd = "advance", seconds = tonumber(args[2]), stepped = true }))
 elseif verb == "item" then
   local slot = tonumber(args[3])
   if not args[2] or not slot then return usage() end

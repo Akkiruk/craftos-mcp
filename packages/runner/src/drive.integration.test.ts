@@ -189,4 +189,24 @@ describe.skipIf(!ready)("scripted driving", () => {
     expect(rolls[0]).toContain("roll");
     expect(rolls[0]!.replace(/^\S+ /, "")).toBe(rolls[1]!.replace(/^\S+ /, ""));
   }, 90000);
+
+  it("applies a sim command sent before the computer has booted", async () => {
+    // The engine empties the event queue at boot, so these were lost whenever the machine was slow to start one
+    for (let i = 0; i < 4; i++) {
+      const { handle } = start();
+      expect(
+        await sendAndWait(
+          handle,
+          {
+            cmd: "setItem",
+            peripheral: "chest_0",
+            slot: 1,
+            item: { name: "minecraft:dirt", count: 9 },
+          },
+          30000,
+        ),
+      ).toBe(true);
+      await manager.destroyAll();
+    }
+  }, 150000);
 });

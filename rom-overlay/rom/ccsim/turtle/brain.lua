@@ -951,8 +951,8 @@ return function(core)
   end
 
   local rawSet = world.set
-  function world.set(x, y, z, block)
-    rawSet(x, y, z, block)
+  function world.set(x, y, z, block, background)
+    rawSet(x, y, z, block, background)
     if block == nil or isFree(block) then checkFall(x, y + 1, z) end
     if block and rules.hasGravity(block) then checkFall(x, y, z) end
   end
@@ -1134,6 +1134,7 @@ return function(core)
 
   local function turn(left)
     t.facing = left and LEFT[t.facing] or RIGHT[t.facing]
+    share(pos.x, pos.y, pos.z) -- the turtle block faces the new way for the other computers, and for whoever watches
     refreshPeripherals(false)
     core.dirty = true
     return success(true)

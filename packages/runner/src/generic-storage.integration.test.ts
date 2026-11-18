@@ -304,7 +304,7 @@ ccunit.test("errors", function()
   ccunit.eq(err(m.pushFluid, "nope", 0), "Target 'nope' does not exist") -- then the target, then the limit
   ccunit.eq(err(m.pushFluid), "bad argument #1 (string expected, got nil)")
   ccunit.eq(err(m.pushFluid, "tank_0", "x"), "bad argument #2 (number expected, got string)")
-  ccunit.eq(err(m.pushFluid, "tank_0", 1.5), "bad argument #2 (number has no integer representation)")
+  ccunit.eq(err(m.pushFluid, "tank_0", 0 / 0), "bad argument #2 (number expected, got nan)")
   ccunit.eq(m.pushFluid("tank_0", 10, "minecraft:empty"), 0)
   ccunit.eq(m.pushFluid("tank_0", 10, "mymod:steam"), 0) -- a mod fluid the tank does not hold
 end)

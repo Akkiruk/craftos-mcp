@@ -204,6 +204,21 @@ describe.skipIf(!ready)("browser app API", () => {
     expect((await call("/api/sessions")).sessions).toHaveLength(0);
   }, 60000);
 
+  it("refuses a world with a typo before a computer boots", async () => {
+    const count = async (): Promise<number> =>
+      ((await call("/api/sessions")) as { sessions: unknown[] }).sessions
+        .length;
+    const before = await count();
+    await expect(
+      call("/api/sessions", {
+        world: { playrs: [], peripherals: [{ name: "left", type: "chest" }] },
+      }),
+    ).rejects.toThrow(
+      /400 .*Did you mean "players".*Did you mean "minecraft:chest"/s,
+    );
+    expect(await count()).toBe(before);
+  });
+
   it("makes a normal computer without colour", async () => {
     const { ids } = await call("/api/sessions", { advanced: false, world: {} });
     const id = ids[0] as string;

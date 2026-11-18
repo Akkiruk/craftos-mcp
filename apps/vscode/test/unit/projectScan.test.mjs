@@ -11,6 +11,7 @@ import {
   missingVersion,
 } from "../../src/launcher.ts";
 import {
+  ccProjectSign,
   countFiles,
   craftosServers,
   suggestWorkspace,
@@ -99,4 +100,30 @@ test("only the default pinned npx command falls back, and only on ETARGET", () =
     missingVersion("npm error code ENOTFOUND registry.npmjs.org"),
     false,
   );
+});
+
+test("registerServer auto: what makes a folder a ComputerCraft project", () => {
+  assert.equal(
+    ccProjectSign(project(["README.md", "src/index.ts"])),
+    undefined,
+  );
+  assert.equal(ccProjectSign(project(["craftos.json"])), "craftos.json");
+  assert.equal(ccProjectSign(project(["src/deep/door.lua"])), "Lua files");
+  assert.equal(ccProjectSign(project(["base.world.json"])), "a world file");
+  // Lua only inside node_modules or a dot folder does not count
+  assert.equal(
+    ccProjectSign(project(["node_modules/x/a.lua", ".git/hooks/b.lua"])),
+    undefined,
+  );
+  const typed = project([]);
+  mkdirSync(join(typed, ".vscode"), { recursive: true });
+  writeFileSync(
+    join(typed, ".vscode", "settings.json"),
+    '{ "Lua.workspace.library": ["C:/x/globalStorage/rogiedoji.craftos-mcp/lua-addons/cc-tweaked/library"] }',
+  );
+  assert.equal(
+    ccProjectSign(typed),
+    "the CC:Tweaked types in .vscode/settings.json",
+  );
+  assert.equal(ccProjectSign(join(typed, "missing")), undefined);
 });

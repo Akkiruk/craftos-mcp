@@ -32,18 +32,30 @@ return function(core)
     error(("bad argument #%d (%s expected, got %s)"):format(index, expected, typeName(v)), 0)
   end
 
+  -- getString: a number is not a string (CobaltLuaMachine.toObject makes it a Double)
   function B.string(index, v)
     if type(v) == "string" then return v end
-    if type(v) == "number" then return tostring(v) end
     bad(index, "string", v)
   end
 
-  function B.int(index, v)
+  -- getInt: (int) getLong, and getLong truncates a finite number toward zero (LuaValues.checkFinite, Java's (long)
+  -- cast): 1.5 is 1. CC:Tweaked has no "no integer representation" error.
+  function B.long(index, v)
     if type(v) ~= "number" then bad(index, "number", v) end
-    if v ~= math.floor(v) then
-      error(("bad argument #%d (number has no integer representation)"):format(index), 0)
+    if v ~= v then error(("bad argument #%d (number expected, got nan)"):format(index), 0) end
+    if v == math.huge or v == -math.huge then
+      error(("bad argument #%d (number expected, got %s)"):format(index, v > 0 and "inf" or "-inf"), 0)
     end
-    return v
+    return v < 0 and math.ceil(v) or math.floor(v)
+  end
+
+  function B.int(index, v)
+    local n = B.long(index, v)
+    if n >= 9223372036854775807 then return -1 end -- (int) Long.MAX_VALUE
+    if n <= -9223372036854775808 then return 0 end -- (int) Long.MIN_VALUE
+    n = n % 4294967296
+    if n >= 2147483648 then n = n - 4294967296 end
+    return n
   end
 
   function B.number(index, v)

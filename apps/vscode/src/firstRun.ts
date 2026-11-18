@@ -5,11 +5,14 @@ import { tmpdir } from "node:os";
 import * as vscode from "vscode";
 import {
   NPM_PACKAGE,
+  getPinnedStore,
   killTree,
   readSetupLine,
   setupFailure,
   spawnCommand,
 } from "./launcher";
+import { installPinned, pinnedBin } from "./pinned";
+import { PINNED_LOCK } from "./pinnedLock";
 import { base, noteMissingVersion, settings, settingsEnv } from "./settings";
 import type { Status } from "./status";
 
@@ -59,6 +62,34 @@ function runSetup(
   });
 }
 
+/**
+ * The pinned craftos-mcp into the extension's storage, once per version, so it starts with node and never needs npx
+ * (src/pinned.ts). Quiet: on any failure (offline, a proxy) everything keeps going through npx as before.
+ */
+async function installPackage(output: vscode.OutputChannel): Promise<void> {
+  const store = getPinnedStore();
+  if (!store || pinnedBin(store, PINNED_LOCK.spec)) return;
+  if (PINNED_LOCK.spec !== NPM_PACKAGE) {
+    output.appendLine(
+      `pinned package: the lock is for ${PINNED_LOCK.spec}, not ${NPM_PACKAGE}; using npx`,
+    );
+    return;
+  }
+  output.appendLine(
+    `downloading ${NPM_PACKAGE} into ${store} (once, checked against npm's integrity hashes)`,
+  );
+  try {
+    const bin = await installPinned(store, PINNED_LOCK, {
+      log: (line) => output.appendLine(line),
+    });
+    output.appendLine(`craftos-mcp now starts with node ${bin}, without npx`);
+  } catch (error) {
+    output.appendLine(
+      `could not download ${NPM_PACKAGE} (${(error as Error).message}); using npx instead`,
+    );
+  }
+}
+
 /** Set up once per pinned version, in the background; a notification only if there is real work (a download). */
 export async function firstRun(
   context: vscode.ExtensionContext,
@@ -67,6 +98,7 @@ export async function firstRun(
 ): Promise<void> {
   // a custom command is someone's own build: leave its setup to them
   if (settings().command.length) return;
+  await installPackage(output);
   if (context.globalState.get(DONE) === NPM_PACKAGE) return;
   const source = new vscode.CancellationTokenSource();
   let progress: vscode.Progress<{ message?: string }> | undefined;

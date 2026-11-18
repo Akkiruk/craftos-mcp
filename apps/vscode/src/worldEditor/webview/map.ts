@@ -1,9 +1,17 @@
 // The map: the world seen from above (x to the right, z down, north up), with the computer, every block and
 // player that has a position, and the other computers of the folder. Drag a thing, or focus it and use the arrow
 // keys (Shift: 10 blocks), to move it.
-import type { JsonPath } from "../jsonDoc.ts";
-import type { ComputerFacts, Neighbour, Thing } from "../model.ts";
-import { icon, iconKind, s } from "./dom.ts";
+import type { JsonPath } from "../../../../../packages/world-editor/src/jsonDoc.ts";
+import type {
+  ComputerFacts,
+  Neighbour,
+  Thing,
+} from "../../../../../packages/world-editor/src/model.ts";
+import {
+  icon,
+  iconKind,
+  s,
+} from "../../../../../packages/world-editor/src/dom.ts";
 
 export interface MapItem {
   readonly key: string;

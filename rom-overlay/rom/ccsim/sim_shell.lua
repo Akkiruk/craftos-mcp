@@ -11,6 +11,25 @@ do
 end
 if show then show("rom/ccsim/sim.lua") end
 shell.setAlias("sim", "/rom/ccsim/sim.lua")
+-- `help sim`: a help topic, only here, so a computer with no `sim` has no help for it either
+if help and help.setPath then
+  if show then
+    show("rom/ccsim/help")
+    show("rom/ccsim/help/sim.txt")
+  end
+  help.setPath(help.path() .. ":/rom/ccsim/help")
+end
+
+-- CraftOS-PC's commands (attach, detach, config, mount, unmount), for people used to them: each does the real game's
+-- way (rom/ccsim/craftospc_common.lua). Last on the path, not aliases, so a program of the same name in the
+-- computer's files still wins.
+local CRAFTOS_PC = { "attach", "detach", "config", "mount", "unmount" }
+if show then
+  show("rom/ccsim/craftospc")
+  show("rom/ccsim/craftospc_common.lua")
+  for _, name in ipairs(CRAFTOS_PC) do show("rom/ccsim/craftospc/" .. name .. ".lua") end
+end
+shell.setPath(shell.path() .. ":/rom/ccsim/craftospc")
 
 local verbs = { "join ", "leave ", "chat ", "advance ", "item ", "state", "help" }
 
@@ -19,8 +38,10 @@ local function players()
   local h = fs.open("/results/state.json", "r")
   local saved = h and textutils.unserializeJSON(h.readAll())
   if h then h.close() end
-  for name in pairs(type(saved) == "table" and type(saved.balances) == "table" and saved.balances or {}) do
-    names[#names + 1] = name .. " "
+  -- the world's players as they stand now (state.json's live world)
+  local live = type(saved) == "table" and type(saved.live) == "table" and saved.live or {}
+  for _, p in ipairs(type(live.players) == "table" and live.players or {}) do
+    if type(p) == "table" and type(p.name) == "string" then names[#names + 1] = p.name .. " " end
   end
   table.sort(names)
   return names

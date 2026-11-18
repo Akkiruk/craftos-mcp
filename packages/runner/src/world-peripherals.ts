@@ -131,8 +131,28 @@ export interface GenericStorageSpec
     FluidStorageSpec,
     EnergyStorageSpec {}
 
-/** CC:Tweaked's speaker: a recording fake (headless has no audio). Sounds land in the sim state. No extra fields. */
+/**
+ * CC:Tweaked's speaker. What it plays is listed in the sim state (peripherals.<name>.sounds); `craftos-mcp window`
+ * plays it out loud. No extra fields.
+ */
 export interface SpeakerSpec {}
+
+/**
+ * CC:Tweaked's printer. 13 slots: 1 ink (any dye; its colour is the text's), 2-7 paper, 8-13 the printed pages
+ * (computercraft:printed_page) that come out. Chests reach the slots with pushItems/pullItems by the printer's name.
+ * The pages printed so far show in the sim state (peripherals.<name>.printed).
+ */
+export interface PrinterSpec {
+  /** Black dye in the ink slot (slot 1), at most 64. @default 0 */
+  ink?: number;
+  /** Paper in the paper slots (2-7), 64 to a slot. @default 0 */
+  paper?: number;
+  /**
+   * Slots 1-13 as they start, besides `ink` and `paper`. A printed page here can carry its `title`, `text` (up to 21
+   * lines of 25 characters) and `colours` (one blit colour character per letter).
+   */
+  items?: InventoryItems;
+}
 
 /** The engine's own disk drive. No extra fields: put disks in with `disks` and the drive methods. */
 export interface DriveSpec {}
@@ -4976,6 +4996,7 @@ export interface PeripheralTypeMap {
   fluid_storage: GenericStorageSpec;
   energy_storage: GenericStorageSpec;
   speaker: SpeakerSpec;
+  printer: PrinterSpec;
   drive: DriveSpec;
   modem: ModemSpec;
   redstone_relay: RedstoneRelaySpec;

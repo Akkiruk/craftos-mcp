@@ -83,7 +83,9 @@ block world, and peripherals from Create, Mekanism, Advanced Peripherals, Tom's 
 ## Requirements
 
 - **Windows x64, Linux x64, or macOS 11+ (Apple silicon or Intel).**
-- **Node.js 22 or newer** on your PATH. The extension starts the emulator with `npx -y craftos-mcp@0.4.0`.
+- **Node.js 22 or newer** on your PATH. On first start the extension downloads `craftos-mcp@0.4.0` and its
+  dependencies from npm into its own storage, each file checked against the registry's integrity hash, and runs it
+  with `node` from then on. If that download fails it uses `npx -y craftos-mcp@0.4.0` instead.
 - The debugger needs craftos-mcp 0.4.0 or newer, which is what extension 0.4.0 starts. With an older one the program
   still runs, and the Debug Console says the engine never connected.
 
@@ -202,12 +204,19 @@ emulator with. There:
 | `craftos-mcp.testCodeLens`     | **Run test** and **Debug test** above each test in `*.test.lua` files (default on).                                                              |
 | `craftos-mcp.diagnostics`      | The warnings about what the computer's Minecraft version or pack lacks (default on).                                                             |
 | `craftos-mcp.testTimeout`      | Seconds a test file may run (default 60).                                                                                                        |
-| `craftos-mcp.registerServer`   | `auto` (default), `always` or `never`: whether the extension gives VS Code its own MCP server.                                                   |
+| `craftos-mcp.registerServer`   | `auto` (default), `everywhere`, `always` or `never`: where the extension gives VS Code its own MCP server.                                       |
 | `craftos-mcp.luaTypes`         | `ask` (default), `auto` or `off`: whether to add the CC:Tweaked Lua types to a CC workspace.                                                     |
 | `craftos-mcp.command`          | Start craftos-mcp another way, such as `["node", "/path/to/craftos-mcp/apps/cli/dist/index.js"]`.                                                |
 
 The version and the addons are easier to set from the status bar item; a world file's own `version` and `addons`
 win over both.
+
+### craftos.json
+
+A `craftos.json` in your project (`npx craftos-mcp init` writes one) fills in `minecraftVersion`, `addons` and
+`workspace` when you haven't set them: a setting you set wins, then craftos.json, then the default. The command line
+and the MCP server read the same file, so the terminal, CI and the agent all get the same pack. It's checked as you
+type against its schema, like world files are.
 
 ### Which folder the computers see
 
@@ -225,9 +234,13 @@ It never sets it on its own.
 
 ### registerServer
 
-`auto` leaves the extension's server out when the workspace's `.vscode/mcp.json` already has a server with
-`craftos` in its name, command or arguments, so the agent doesn't get two sets of the same tools. `always` registers
-it anyway, `never` never does (Run in CraftOS and the tests still work).
+`auto` registers the extension's server only in workspaces that look like ComputerCraft projects: a `.lua` or
+`*.world.json` file somewhere, a `craftos.json`, or the CC:Tweaked Lua types in the settings. Your other projects'
+agents don't carry the emulator's tools. The first Lua file you add to a folder turns it on. `auto` also leaves it out
+when the workspace's `.vscode/mcp.json` already has a server with `craftos` in its name, command or arguments, so the
+agent doesn't get two sets of the same tools. `everywhere` registers it in every workspace (still not next to a
+craftos server in `.vscode/mcp.json`), `always` registers it even then, `never` never does (Run in CraftOS and the
+tests still work).
 
 ### Lua types
 
@@ -253,9 +266,14 @@ that, pick **Not Here** and use a `.luarc.json` pointing at your own copy of the
 ## Commands
 
 Run in CraftOS, Debug in CraftOS, New Test for This File, New World for This File, Open in World Editor, Pick
-Minecraft Version, Pick Addons, Set Up Lua Types, Remove Lua Types, Restart MCP Server, Show Log, Add to Claude Code,
-Add to Cursor / Windsurf MCP Config, Copy MCP Server JSON, Refresh Tests, Open Settings, Show Menu and Get Started,
-all under `craftos-mcp:` in the Command Palette. Most are in the status bar item's menu too.
+Minecraft Version, Pick Addons, Set Up Lua Types, Remove Lua Types, Watch the Agent's Computers, Restart MCP Server,
+Show Log, Add to Claude Code, Add to Cursor / Windsurf MCP Config, Copy MCP Server JSON, Refresh Tests, Open
+Settings, Show Menu and Get Started, all under `craftos-mcp:` in the Command Palette. Most are in the status bar
+item's menu too.
+
+**Watch the Agent's Computers** opens the MCP server's own viewer in a panel: every computer the agent has made, live,
+and you can type and click monitors next to it. If 7878 is taken (another window's server) the server picks a free
+port and the command finds it. A server another client started (Claude Code, say) works too while it has 7878.
 
 ## Troubleshooting
 

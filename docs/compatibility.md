@@ -114,7 +114,8 @@ Bugs in the emulator that the projects found, all fixed and each pinned by a tes
   option was ignored, and CC:Tweaked 1.101.3's text handles did not decode UTF-8.
 - **`debug.sethook` was refused** when the emulator ran at CC:Tweaked's speed.
 - **Floppy disks**: a world could not start with a disk in a drive, a floppy reported the host disk's size instead of
-  125000 bytes, and `fs.getDrive` named it `disk` instead of the drive it is in.
+  125000 bytes, `fs.getDrive` named it `disk` instead of the drive it is in, a full floppy took more, and nothing
+  but the computer or a turtle could put a disk in or take it out (the `insertDisk` and `ejectDisk` sim commands now).
 - **A backslash before a character that is no escape was an error.** `"\q"` raised `invalid escape sequence`. In
   CC:Tweaked it is `"q"`, and a program packed into one file with raw bytes in a string relies on that.
 - **`require "os"` worked**, and so did a few other names that only native Lua knows. In CC:Tweaked it is
@@ -125,9 +126,8 @@ Bugs in the emulator that the projects found, all fixed and each pinned by a tes
 
 ## What is still different
 
-- A floppy disk reports 125000 bytes but does not refuse the write that goes past them.
-- Nothing puts a disk into a drive or takes it out while a computer runs, other than the computer itself
-  (`disk.eject`) or a turtle. A world can start with one in.
+- On CC:Tweaked 1.101.3 a text-mode write that does not fit on a floppy fails at once; the real one buffers 8 KiB
+  first. Copying or moving a file onto a floppy is not counted against its space.
 - Speakers record what they are given instead of playing it. The checks look at how much audio arrived, not at how
   it sounds.
 - The browser build of the emulator has its own web request code, which did not get the `read(n)` fix yet.

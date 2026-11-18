@@ -416,6 +416,7 @@ typedef union TString {
     union TString *str;
     size_t offset;
     size_t len;
+    union TString *res;  /* craftos-agent: the bytes as a plain string once asked for (luaS_resolvesub) */
   } tss;
 } TString;
 

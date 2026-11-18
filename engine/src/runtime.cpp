@@ -23,6 +23,7 @@
 #include "debug_server.hpp"
 #include "main.hpp"
 #include "runtime.hpp"
+#include "simclock.hpp"
 #include "peripheral/debugger.hpp"
 #include "platform.hpp"
 #include "terminal/SDLTerminal.hpp"
@@ -57,6 +58,19 @@ std::thread::id mainThreadID;
 std::atomic_bool taskQueueReady(false);
 bool listenerMode = false;
 static std::unordered_map<std::string, std::list<std::pair<const event_hook&, void*> > > globalEventHooks;
+
+// craftos-agent: a monitor_touch the engine makes (a click on a monitor's window) carries "ccsim_engine" as a fifth
+// value when the ROM has the ccsim layer, which takes it off before the program sees the touch. That is how ccsim
+// tells a player's touch (which the sim may answer for, as mods do) from one a program queued
+// itself with os.queueEvent, which CC hands on as an ordinary event. Without ccsim the touch is CC's plain three.
+bool engineTagsTouches() {
+    static int tags = -1;
+    if (tags < 0) {
+        std::error_code e;
+        tags = fs::exists(getROMPath() / "rom" / "ccsim" / "core.lua", e) ? 1 : 0;
+    }
+    return tags == 1;
+}
 
 monitor * findMonitorFromWindowID(Computer *comp, unsigned id, std::string* sideReturn) {
     std::lock_guard<std::mutex> lock(comp->peripherals_mutex);
@@ -291,6 +305,10 @@ int getNextEvent(lua_State *L, const std::string& filter) {
                 if (computer->running != 1) return 0;
             }
         } while (computer->eventQueue.empty());
+        // Paused (simclock.hpp): the event waits here until the clock runs again or a step lets it through; the
+        // computer counts as waiting all along (getting_event), so the 7 s limit without yielding never trips
+        simclock::waitWhilePaused(computer);
+        if (computer->running != 1) return 0;
         ev = computer->eventQueue.front();
         computer->eventQueue.pop();
         if (!filter.empty() && ev != filter && ev != "terminate") lua_remove(computer->paramQueue, 1);

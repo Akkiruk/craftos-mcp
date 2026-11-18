@@ -210,7 +210,7 @@ ccunit.test("note block", function()
   ccunit.eq({ note.getNote(), note.getInstrument() }, { 24, "iron_xylophone" })
   ccunit.eq({ note.play() }, {})
   ccunit.eq(err(note.setNote, 25), "note should be between 0 and 24")
-  ccunit.eq(err(note.setNote, 1.5), "bad argument #1 (number has no integer representation)")
+  ccunit.eq(err(note.setNote, 0 / 0), "bad argument #1 (number expected, got nan)") -- 1.5 would be 1: CC truncates
   ccunit.truthy(err(note.setInstrument, "kazoo"):find("^Instrument should be one of: harp, basedrum, snare"), "instruments")
 end)
 

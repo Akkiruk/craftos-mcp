@@ -221,6 +221,55 @@ extern void load_library(Computer *comp, lua_State *L, const library_t& lib);
 extern void HTTPDownload(const std::string& url, const std::function<void(std::istream*, Poco::Exception*, Poco::Net::HTTPResponse*)>& callback);
 /** craftos-agent: clean one path part as CC's FileSystem.sanitizePath does (trim spaces; ". ." is "." from 1.117); false to drop it. */
 extern bool ccPathPart(const Computer * comp, std::string& part);
+/**
+ * craftos-agent: one part of a computer's path as a host file name, as CC:Tweaked stores it. A Lua string reaches Java
+ * as ISO-8859-1, every byte the character of that number, so "caf\233" is a file named "café". On Windows the name is
+ * those characters; elsewhere their UTF-8, as Java writes it. (A std::string went through the ANSI code page or stayed
+ * raw bytes, and fs.list answered in UTF-8, so such a name did not come back as it went in.)
+ */
+inline path_t ccPathName(const std::string& part) {
+#ifdef _WIN32
+    std::wstring name;
+    name.reserve(part.size());
+    for (const unsigned char c : part) name.push_back((wchar_t)c);
+    return path_t(name);
+#else
+    std::string name;
+    name.reserve(part.size());
+    for (const unsigned char c : part) {
+        if (c < 0x80) name.push_back((char)c);
+        else { name.push_back((char)(0xC0 | (c >> 6))); name.push_back((char)(0x80 | (c & 0x3F))); }
+    }
+    return path_t(name);
+#endif
+}
+/** craftos-agent: a host file name as a computer sees it (Java's String to a Lua string): a character past 255 is "?". */
+inline std::string ccNameString(const path_t& name) {
+    std::string out;
+#ifdef _WIN32
+    for (const wchar_t c : name.native()) out.push_back(c < 256 ? (char)c : '?');
+#else
+    const std::string& bytes = name.native();
+    for (size_t i = 0; i < bytes.size();) {
+        const unsigned char c = (unsigned char)bytes[i];
+        size_t len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 0;
+        if (len == 0 || i + len > bytes.size()) { out.push_back('?'); i++; continue; }
+        unsigned long cp = len == 1 ? c : len == 2 ? (c & 0x1F) : len == 3 ? (c & 0x0F) : (c & 0x07);
+        bool ok = true;
+        for (size_t k = 1; k < len; k++) {
+            const unsigned char cc = (unsigned char)bytes[i + k];
+            if ((cc & 0xC0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (!ok) { out.push_back('?'); i++; continue; }
+        // a character outside the Basic Multilingual Plane is two Java chars, so two "?"
+        if (cp < 256) out.push_back((char)cp);
+        else out.append(cp >= 0x10000 ? "??" : "?");
+        i += len;
+    }
+#endif
+    return out;
+}
 extern path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt = true, std::string * mountPath = NULL, bool * isRoot = NULL);
 extern bool fixpath_ro(Computer *comp, std::string path);
 extern path_t fixpath_mkdir(Computer * comp, const std::string& path, bool md = true, std::string * mountPath = NULL);

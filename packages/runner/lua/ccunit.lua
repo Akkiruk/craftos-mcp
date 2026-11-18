@@ -216,7 +216,17 @@ end
 function M.screen(name)
   local win = captures[name or "term"]
   if win then return linesOf(win) end
-  if name then error("no screen " .. show(name) .. " captured: call ccunit.run first (monitors attach with \"monitors\")", 2) end
+  if name then
+    if not peripheral.isPresent(name) then
+      error("no monitor " .. show(name) .. " is attached: give the test one (--monitor " .. tostring(name) ..
+        ":2x1 on the command line, or \"monitors\" in the world file)", 2)
+    end
+    if not peripheral.hasType(name, "monitor") then
+      error(show(name) .. " is a " .. tostring(peripheral.getType(name)) .. ", not a monitor", 2)
+    end
+    error("no screen " .. show(name) .. " captured: the program never wrapped the monitor " .. show(name) ..
+      " (call ccunit.run first, and check the program uses that name)", 2)
+  end
   local t = term.current()
   if t.getLine then return linesOf(t) end
   return {}

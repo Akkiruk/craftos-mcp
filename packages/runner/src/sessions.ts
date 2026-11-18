@@ -25,6 +25,7 @@ import {
   seedEconomy,
 } from "./network.js";
 import type { WorldConfig } from "./world.js";
+import { ensureRom } from "./versions.js";
 
 export interface Session {
   readonly id: string;
@@ -50,6 +51,13 @@ export interface SessionSummary {
     width: number;
     height: number;
   }[];
+}
+
+/** A network createNetwork started: what it is called (net1, net2, ...) and each computer's session. */
+export interface StartedNetwork {
+  readonly name: string;
+  readonly network: ComputerNetwork;
+  readonly computers: Map<string, string>;
 }
 
 /** What is in front once a computer has booted: the shell prompt, or a program started from startup.lua. */
@@ -102,17 +110,35 @@ export function waitForBoot(
   });
 }
 
+/** The owner of computers a person starts in the browser app (webapp.ts), as SessionManager.setOwner records it. */
+export const VIEWER_OWNER = "a person in the viewer";
+
 /** Interactive computers that stay alive between tool calls. */
 export class SessionManager {
   private readonly sessions = new Map<string, Session>();
+  /** Who made each session (setOwner); sessions with no entry are everyone's. */
+  private readonly owners = new Map<string, string>();
   /** Economies of the networks this manager started, removed with the last of their computers. */
   private readonly economies: string[] = [];
 
+  /** The networks this manager started, for viewers: each computer's name on it -> its session id. */
+  private readonly networks: StartedNetwork[] = [];
+  private networkCount = 0;
+
   constructor(private readonly config: RunnerConfig) {}
+
+  /** The networks that still have a computer, oldest first. */
+  listNetworks(): StartedNetwork[] {
+    return this.networks.filter((n) =>
+      [...n.computers.values()].some((id) => this.sessions.has(id)),
+    );
+  }
 
   /**
    * A new session; `staged` is a folder stageEngine already copied its files into (createAsync). `debug`: a debug
-   * adapter the computer's engine connects to before it boots.
+   * adapter the computer's engine connects to before it boots. `workspaceDir`: the folder copied onto this computer
+   * instead of the configured workspace (an imported CraftOS-PC computer's own files). `liveDir`: the computer's files
+   * are this folder itself, live (StartOptions.liveDir), instead of a copy.
    */
   create(
     monitors: readonly MonitorSpec[] = [],
@@ -120,26 +146,33 @@ export class SessionManager {
     world?: WorldConfig,
     staged?: StagedRun,
     debug?: DebugLink,
+    workspaceDir?: string,
+    liveDir?: string,
   ): Session {
+    const config = workspaceDir
+      ? { ...this.config, workspaceDir }
+      : this.config;
     const boot = monitorSetupLua(monitors);
     // a world with blocks gets its host, as craftos_run does: what the turtle places can boot
     const blocks =
       world && isBlockWorld(world)
-        ? startInBlockWorld(this.config, boot, {
+        ? startInBlockWorld(config, boot, {
             label: "session",
             timeScale,
             world,
             ...(debug && { debug }),
+            ...(liveDir && { liveDir }),
           })
         : undefined;
     const handle =
       blocks?.handle ??
-      startEngine(this.config, boot, {
+      startEngine(config, boot, {
         label: "session",
         timeScale,
         world,
         ...(staged && { staged }),
         ...(debug && { debug }),
+        ...(liveDir && { liveDir }),
       });
     const session: Session = {
       id: randomUUID().slice(0, 8),
@@ -153,15 +186,28 @@ export class SessionManager {
     return session;
   }
 
-  /** create, with the workspace copied without blocking (the MCP server stays free for other clients). */
+  /**
+   * create, with the workspace copied without blocking (the MCP server stays free for other clients). `liveDir`: no
+   * copy, the computer's files are this folder itself.
+   */
   async createAsync(
     monitors: readonly MonitorSpec[] = [],
     timeScale = 1,
     world?: WorldConfig,
     signal?: AbortSignal,
+    liveDir?: string,
   ): Promise<Session> {
-    if (world && isBlockWorld(world))
-      return this.create(monitors, timeScale, world);
+    await ensureRom(this.config, world?.version);
+    if ((world && isBlockWorld(world)) || liveDir)
+      return this.create(
+        monitors,
+        timeScale,
+        world,
+        undefined,
+        undefined,
+        undefined,
+        liveDir,
+      );
     const staged = await stageEngine(this.config, {
       label: "session",
       ...(world && { world }),
@@ -181,9 +227,14 @@ export class SessionManager {
     signal?: AbortSignal,
   ): Promise<LinkedNetwork> {
     const worlds = linkedWorlds(spec.computers, spec.wired);
-    const staged: StagedRun[] = [];
+    for (const world of worlds) await ensureRom(this.config, world.version);
+    const staged: (StagedRun | undefined)[] = [];
     try {
       for (const [index, computer] of spec.computers.entries()) {
+        if (computer.liveDir) {
+          staged.push(undefined); // nothing to copy
+          continue;
+        }
         const config = computer.workspaceDir
           ? { ...this.config, workspaceDir: computer.workspaceDir }
           : this.config;
@@ -197,7 +248,7 @@ export class SessionManager {
       }
       return this.createNetwork(spec, staged);
     } catch (error) {
-      for (const s of staged) discardStaged(s);
+      for (const s of staged) if (s) discardStaged(s);
       throw error;
     }
   }
@@ -208,7 +259,7 @@ export class SessionManager {
    */
   createNetwork(
     spec: NetworkSpec,
-    staged?: readonly StagedRun[],
+    staged?: readonly (StagedRun | undefined)[],
   ): LinkedNetwork {
     const worlds = linkedWorlds(spec.computers, spec.wired);
     // One server, one economy: every computer's balances and ledger are the same ones (seedEconomy)
@@ -234,6 +285,7 @@ export class SessionManager {
           world,
           economyDir,
           ...(staged?.[index] && { staged: staged[index] }),
+          ...(computer.liveDir && { liveDir: computer.liveDir }),
         },
       );
       const session: Session = {
@@ -244,6 +296,13 @@ export class SessionManager {
       this.sessions.set(session.id, session);
       computers[name] = session;
       network.add(name, handle, world);
+    });
+    this.networks.push({
+      name: `net${++this.networkCount}`,
+      network,
+      computers: new Map(
+        Object.entries(computers).map(([name, s]) => [name, s.id]),
+      ),
     });
     return { network, computers };
   }
@@ -293,9 +352,35 @@ export class SessionManager {
     });
   }
 
-  async destroy(id: string): Promise<void> {
+  /**
+   * Mark a session as one client's (the MCP server's agent, a person in the viewer), so another client lists it apart
+   * from its own and does not stop it by accident (destroy's `by`). A session nobody claimed is everyone's.
+   */
+  setOwner(id: string, owner: string): void {
+    this.get(id);
+    this.owners.set(id, owner);
+  }
+
+  ownerOf(id: string): string | undefined {
+    return this.owners.get(id);
+  }
+
+  /**
+   * Stop a session. With `by`, a session another client owns is refused unless `force` (the owner is named), so one
+   * client does not stop another's computers by accident.
+   */
+  async destroy(
+    id: string,
+    options: { by?: string; force?: boolean } = {},
+  ): Promise<void> {
     const session = this.get(id);
+    const owner = this.owners.get(id);
+    if (options.by && owner && owner !== options.by && !options.force)
+      throw new Error(
+        `session ${id} belongs to ${owner}, not to you: it was left running. Stop it anyway with force: true.`,
+      );
     this.sessions.delete(id);
+    this.owners.delete(id);
     await session.handle.session.stop();
     if (session.blockWorld) {
       session.blockWorld.network.close();

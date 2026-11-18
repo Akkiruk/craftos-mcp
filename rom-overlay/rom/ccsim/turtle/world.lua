@@ -151,12 +151,19 @@ return function(core, data)
   --- Forget a block the world file put where this computer itself stands (a placed turtle's own block), unchanged.
   function M.forget(x, y, z) blocks[key(x, y, z)] = false end
 
-  --- Put a block (or air, for nil) at a position.
-  function M.set(x, y, z, block)
+  M.changedCount = 0 -- blocks in `changed`
+  M.unsaved = 0      -- background changes since state.json was last gathered (M.state)
+
+  --- Put a block (or air, for nil) at a position. `background`: a change the world made on its own (water flowing, a
+  --- crop growing; living.lua decides when those are written), counted in M.unsaved instead of marking state dirty.
+  function M.set(x, y, z, block, background)
     local k = key(x, y, z)
     blocks[k] = block or false
-    changed[k] = true
-    core.dirty = true
+    if not changed[k] then
+      changed[k] = true
+      M.changedCount = M.changedCount + 1
+    end
+    if background then M.unsaved = M.unsaved + 1 else core.dirty = true end
     if M.onChange then M.onChange(x, y, z, block) end
   end
 
@@ -198,7 +205,10 @@ return function(core, data)
         x, y, z = tonumber(x), tonumber(y), tonumber(z)
         if def == false or (type(def) == "table" and def.name == nil) then blocks[key(x, y, z)] = false
         else blocks[key(x, y, z)] = M.newBlock(def) end
-        changed[key(x, y, z)] = true
+        if not changed[key(x, y, z)] then
+          changed[key(x, y, z)] = true
+          M.changedCount = M.changedCount + 1
+        end
       end
     end
   end
@@ -212,6 +222,7 @@ return function(core, data)
 
   --- Every block the sim changed, "x,y,z" -> { name, state, items } or { } for air.
   function M.state()
+    M.unsaved = 0 -- this write takes every change with it
     local out = {}
     for k in pairs(changed) do
       local b = blocks[k]

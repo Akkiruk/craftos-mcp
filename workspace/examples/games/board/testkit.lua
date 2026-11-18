@@ -53,13 +53,9 @@ end
 --- event queued behind the touch comes back only once the cabinet is done with it. A sleep instead let the cabinet's
 --- own clock run on by however long a busy machine took to wake the scenario: a toast could be gone, or a computer
 --- move made, before the scenario looked.
---- Twice round: with some mods on, the emulator takes a touch and queues it again behind its own touch event, so the touch
---- the cabinet gets is behind the first marker; the second marker is queued behind that.
 function kit.settle()
-  for _ = 1, 2 do
-    os.queueEvent("testkit_settle")
-    os.pullEvent("testkit_settle")
-  end
+  os.queueEvent("testkit_settle")
+  os.pullEvent("testkit_settle")
 end
 
 --- Touch the monitor at a surface cell (0-based, as the cabinet draws). wallIndex 1 is the main wall.

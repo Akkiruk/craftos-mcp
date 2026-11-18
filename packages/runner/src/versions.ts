@@ -11,6 +11,7 @@
  * Accuracy on 1.20.1 and 1.21.1 rests on CC:Tweaked's source and its own test suite (docs/conformance), not on a
  * real game: there is no instance of those versions to compare against.
  */
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { RunnerConfig } from "./config.js";
 
@@ -306,4 +307,44 @@ export function versionReport(env: NodeJS.ProcessEnv = process.env): {
       loaders: v.loaders,
     })),
   };
+}
+
+/**
+ * Builds a missing ROM: an installed npm package sets one (scripts/npm/craftos-mcp.mjs, from first-run.mjs), so its
+ * first run builds only the ROM of the version in use and the others when a world asks for them. Kept on globalThis
+ * under a registered symbol, so the package's bin and the runner it imports agree whatever path each was loaded by.
+ */
+export type RomBuilder = (
+  romDir: string,
+  version: ResolvedVersion,
+) => Promise<void>;
+
+const ROM_BUILDER = Symbol.for("craftos-mcp.romBuilder");
+const builderSlot = globalThis as { [ROM_BUILDER]?: RomBuilder };
+
+export function setRomBuilder(builder: RomBuilder | undefined): void {
+  if (builder) builderSlot[ROM_BUILDER] = builder;
+  else delete builderSlot[ROM_BUILDER];
+}
+
+/**
+ * Build the ROM a world's version needs when it is missing and a builder is set; otherwise nothing (startEngine then
+ * says what is missing). Never for CRAFTOS_ROM (one ROM of the user's own) or an invalid version (startEngine says so).
+ */
+export async function ensureRom(
+  config: RunnerConfig,
+  worldVersion: VersionSpec | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const builder = builderSlot[ROM_BUILDER];
+  if (!builder || !config.romsDir) return;
+  let version: ResolvedVersion;
+  try {
+    version = resolveVersion(worldVersion, env);
+  } catch {
+    return;
+  }
+  const dir = romDirFor(config, version);
+  if (existsSync(join(dir, "bios.lua"))) return;
+  await builder(dir, version);
 }

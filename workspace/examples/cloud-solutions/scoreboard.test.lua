@@ -204,6 +204,6 @@ ccunit.test("StatsD bridge: off in the server config by default", function()
     ccunit.eq(err(call), "Statsd Bridge is disabled in server configuration")
   end
   ccunit.eq(err(statsd.count, "x"), "bad argument #2 (number expected, got nil)")
-  ccunit.eq(err(statsd.count, "x", 1.5), "bad argument #2 (number has no integer representation)")
+  ccunit.eq(err(statsd.count, "x", 0 / 0), "bad argument #2 (number expected, got nan)") -- 1.5 would be 1: CC truncates
   ccunit.eq(err(statsd.set, "x"), "bad argument #2 (string expected, got nil)")
 end)

@@ -3,6 +3,7 @@
 import { readdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
+import { didYouMean, packageVersion } from "@craftos-mcp/runner";
 import type { Command } from "./command.js";
 
 const dir = fileURLToPath(new URL("./commands/", import.meta.url));
@@ -33,11 +34,27 @@ function help(name?: string): number {
 const [name, ...rest] = process.argv.slice(2);
 if (!name || name === "help" || name === "--help" || name === "-h") {
   process.exitCode = help(rest[0]);
+} else if (name === "--version" || name === "-v" || name === "version") {
+  console.log(packageVersion() ?? "clone");
 } else {
   const command = commands.find((c) => c.name === name);
   if (!command) {
-    console.error(`unknown command ${JSON.stringify(name)}`);
-    help();
+    // `craftos-mcp door.lua`: a program, so the command that runs one
+    const close = /\.lua$/i.test(name)
+      ? "run"
+      : didYouMean(
+          name,
+          commands.map((c) => c.name),
+        );
+    console.error(
+      `unknown command ${JSON.stringify(name)}${
+        close
+          ? `. Did you mean: craftos-mcp ${close}${close === "run" && /\.lua$/i.test(name) ? ` ${name}` : ""}`
+          : ""
+      }`,
+    );
+    if (!close) help();
+    else console.error("craftos-mcp help lists the commands.");
     process.exitCode = 2;
   } else {
     process.exitCode = await command.run(rest);

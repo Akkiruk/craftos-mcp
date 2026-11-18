@@ -37,6 +37,8 @@ export interface MonitorSpec {
   readonly blocksHigh?: number;
   /** Text scale at the start, 0.5 to 5 in steps of 0.5. @default 1 @minimum 0.5 @maximum 5 */
   readonly textScale?: number;
+  /** false: a normal monitor, which shows greys only, says isColour() is false and takes no touches. @default true */
+  readonly advanced?: boolean;
 }
 
 /** Largest monitor in blocks: term_sizes.monitor in the modpack's computercraft-server.toml. */
@@ -50,16 +52,17 @@ export function monitorSetupLua(monitors: readonly MonitorSpec[]): string {
       const high = m.blocksHigh ?? 1;
       if (wide > MONITOR_LIMIT.width || high > MONITOR_LIMIT.height)
         throw new Error(
-          `monitor "${m.name}" is ${wide}x${high} blocks; the server allows at most ${MONITOR_LIMIT.width}x${MONITOR_LIMIT.height}`,
+          `monitor "${m.name}" is ${wide}x${high} blocks; a monitor wall is at most ${MONITOR_LIMIT.width}x${MONITOR_LIMIT.height} blocks (wide x high)`,
         );
       // The boot script runs again after a reboot. A monitor is a block in the world: it keeps its text scale, palette
-      // and contents across a reboot of the computer, so the starting scale only applies the first time.
+      // and contents across a reboot of the computer, so the starting scale only applies the first time. So does its
+      // size: a wall grown while the computer ran (the browser app's world panel) keeps it.
       const lines = [
         `do`,
         `  local fresh = periphemu.create(${luaString(m.name)}, "monitor")`,
-        `  if peripheral.__ccsimNamed then peripheral.__ccsimNamed(${luaString(m.name)}) end`,
+        `  if peripheral.__ccsimNamed then peripheral.__ccsimNamed(${luaString(m.name)}${m.advanced === false ? ", { normal = true }" : ""}) end`,
         `  local m = peripheral.wrap(${luaString(m.name)})`,
-        `  m.setBlockSize(${m.blocksWide ?? 1}, ${m.blocksHigh ?? 1})`,
+        `  if fresh then m.setBlockSize(${m.blocksWide ?? 1}, ${m.blocksHigh ?? 1}) end`,
       ];
       if (m.textScale !== undefined)
         lines.push(

@@ -1,6 +1,7 @@
 // craftos-mcp for VS Code: the emulator's MCP server for VS Code's agents, Run in CraftOS, *.test.lua in the
 // Testing view, and commands that set up other MCP clients.
 import * as vscode from "vscode";
+import { registerAgentView, watchAgents } from "./agentView";
 import { registerDebugger } from "./debug/adapter";
 import { addDebugProfile } from "./debug/testProfile";
 import { firstRun } from "./firstRun";
@@ -21,11 +22,12 @@ import {
   serverDefinition,
   serverEvents,
   skipReason,
+  viewerUrl,
 } from "./clients";
 import { suggestWorkspace } from "./projectScan";
 import { oneAtATime } from "./prompts";
 import { runInCraftOS, runningPanels, stopAll } from "./runPanel";
-import { projectFolder, runFolder } from "./settings";
+import { projectFolder, runFolder, settings } from "./settings";
 import { CraftosTests } from "./tests";
 import { registerDiagnostics } from "./diagnostics";
 import { registerPackPicker } from "./packPicker";
@@ -55,6 +57,10 @@ export interface CraftosApi {
   /** The status bar menu's entries, for (another editor's fork, a Lua file open). */
   menuItems: typeof menuItems;
   testLens: TestLensApi;
+  /** Watch the Agent's Computers, and the viewer address the server said. */
+  watchAgents: () => ReturnType<typeof watchAgents>;
+  viewerUrl: typeof viewerUrl;
+  settings: typeof settings;
   /** The World Editor's view type, and the edit path its webview's changes take. */
   worldEditor: {
     viewType: string;
@@ -136,6 +142,7 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
     vscode.commands.registerCommand("craftos-mcp.addToEditor", () =>
       addToEditor(context, output, "command"),
     ),
+    registerAgentView(output),
   );
   if (editorKind(vscode.env.appName))
     void addToEditor(context, output, "offer").catch((error: Error) =>
@@ -195,6 +202,9 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
     status,
     menuItems,
     testLens: lens.api,
+    watchAgents: () => watchAgents(output),
+    viewerUrl,
+    settings,
     worldEditor: { viewType: VIEW_TYPE, edit: editDocument, lastRender },
   };
 }

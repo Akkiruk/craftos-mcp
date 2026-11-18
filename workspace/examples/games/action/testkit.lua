@@ -32,13 +32,10 @@ end
 
 --- Touch the wall at surface cell (px, py), 0-based, as a player would, and give the shell a moment.
 --- Let the shell take every event queued so far: it handles a touch (and redraws) the moment it gets one, so an event
---- queued behind the touch comes back only when that's done. Twice round: with some mods on, the emulator queues a
---- touch again behind its own touch event, which puts it behind the first marker.
+--- queued behind the touch comes back only when that's done.
 function kit.settle()
-  for _ = 1, 2 do
-    os.queueEvent("testkit_settle")
-    os.pullEvent("testkit_settle")
-  end
+  os.queueEvent("testkit_settle")
+  os.pullEvent("testkit_settle")
 end
 
 --- In play a tap is only noted: the game's next step acts on it. So the touch is done once the shell has taken it and,

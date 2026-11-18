@@ -78,6 +78,8 @@ export function frameToText(frame: TerminalFrame): ScreenText {
  */
 export class RawSession extends EventEmitter<{
   frame: [ServerFrame];
+  /** Every packet as the engine sent it, after `frame`: what a raw client (craftos --raw-client) draws. */
+  payload: [Uint8Array];
   exit: [ExitInfo];
   stderr: [string];
 }> {
@@ -148,11 +150,49 @@ export class RawSession extends EventEmitter<{
     this.child.stdin.write(encodeFrame(payload, { binaryCrc: false }));
   }
 
+  /**
+   * Send a packet as it is, already encoded (a raw client's key, mouse or window packet). Its window byte must be one
+   * of this engine's windows.
+   */
+  sendRaw(payload: Uint8Array): void {
+    this.sendPayload(payload);
+  }
+
+  /** Each open window's last announcement and last screen, as the engine sent them (replayPayloads). */
+  private readonly lastPackets = new Map<
+    number,
+    { window?: Uint8Array; terminal?: Uint8Array }
+  >();
+
+  /**
+   * The packets that draw every open window as it is now: its announcement, then its last screen. A raw client that
+   * starts watching late gets these first.
+   */
+  replayPayloads(): Uint8Array[] {
+    return [...this.lastPackets.values()].flatMap((p) =>
+      p.window ? [p.window, ...(p.terminal ? [p.terminal] : [])] : [],
+    );
+  }
+
   private onData(chunk: Buffer): void {
     for (const payload of this.parser.push(chunk)) {
       const frame = decodeServerPacket(payload);
       this.apply(frame);
+      if (frame.type === "window") {
+        if (frame.closing === 0)
+          this.lastPackets.set(frame.window, {
+            ...this.lastPackets.get(frame.window),
+            window: payload,
+          });
+        else this.lastPackets.delete(frame.window);
+      } else if (frame.type === "terminal") {
+        this.lastPackets.set(frame.window, {
+          ...this.lastPackets.get(frame.window),
+          terminal: payload,
+        });
+      }
       this.emit("frame", frame);
+      this.emit("payload", payload);
     }
   }
 
@@ -320,8 +360,9 @@ export class RawSession extends EventEmitter<{
   }
 
   /**
-   * Simulate a right-click on a monitor cell (1-based CC coordinates). With `player`, the touch carries the player
-   * who made it (the ccsim layer reads it and hands the program a plain three-value touch).
+   * Simulate a right-click on a monitor cell (1-based CC coordinates). The touch carries a tag saying a player made
+   * it, `ccsim_player:<name>` with `player` and `ccsim_engine` without: the ccsim layer reads it and hands the
+   * program a plain three-value touch. A touch a program queues itself carries no tag, and ccsim leaves it alone.
    */
   touchMonitor(
     peripheralName: string,
@@ -329,15 +370,13 @@ export class RawSession extends EventEmitter<{
     y: number,
     player?: string,
   ): void {
-    if (player === undefined) this.event("monitor_touch", peripheralName, x, y);
-    else
-      this.event(
-        "monitor_touch",
-        peripheralName,
-        x,
-        y,
-        `ccsim_player:${player}`,
-      );
+    this.event(
+      "monitor_touch",
+      peripheralName,
+      x,
+      y,
+      player === undefined ? "ccsim_engine" : `ccsim_player:${player}`,
+    );
   }
 
   async stop(graceMs = 1000): Promise<ExitInfo> {

@@ -95,7 +95,7 @@ return function(core, ctx)
   local function limitOf(item) return min(item.maxCount or items.maxCount(item.name), 64) end
 
   local function isAir(b) return b == nil or rules.isAir(b) end
-  local function set(x, y, z, b) world.set(x, y, z, b) end
+  local function set(x, y, z, b) world.set(x, y, z, b, true) end -- the world's own change (see askSave)
   local function mk(name, state) return world.newBlock({ name = name, state = state }) end
 
   local HORIZ = { { 0, -1, "north" }, { 1, 0, "east" }, { 0, 1, "south" }, { -1, 0, "west" } }
@@ -1137,6 +1137,23 @@ return function(core, ctx)
     return active
   end
 
+  -- Each write of state.json (core.saveNow) puts every changed block through textutils.serializeJSON, about 30 us a
+  -- block, and it is written whenever the computer waits for an event with something changed. A flood marked it
+  -- changed at every catch-up, so a flood of a few thousand blocks spent most of its time rewriting the file (434
+  -- writes, 27 s of a 31 s run, against about 1 s of fluid ticks); in the game there is no such file. The world's own
+  -- changes ask for a write only when the flow is quiet, when they come to a quarter of all the changed blocks, or
+  -- after 100 ticks; a turtle's or a program's changes still ask at once, and every write takes all changes with it.
+  local SAVE_EVERY = 100
+  local askedAt = 0
+  local function askSave()
+    local n = world.unsaved
+    if n == 0 then return end
+    if next(pendingFluid) == nil or n * 4 >= world.changedCount or last - askedAt >= SAVE_EVERY then
+      core.dirty = true
+      askedAt = last
+    end
+  end
+
   local keepAlive
   local function arm()
     if keepAlive or not core.after then return end
@@ -1173,6 +1190,7 @@ return function(core, ctx)
     end)
     busy = false
     cur = last
+    askSave()
     if not ok then error(err, 0) end
     -- something still in motion that nobody may look at: keep it moving so other computers see it
     if next(pendingFluid) ~= nil then arm() end
@@ -1195,6 +1213,7 @@ return function(core, ctx)
       end
     end
     if next(pendingFluid) ~= nil then arm() end
+    if not busy then askSave() end -- a change of the world's own outside a catch-up (bone meal on a sapling)
   end
 
   --- world.dropItem hook: the stack starts ageing now
@@ -1230,9 +1249,9 @@ return function(core, ctx)
   -- world.set and world.dropItem first bring the world up to date, then tell it what changed
   if enabled then
     local rawSet = world.set
-    function world.set(x, y, z, b)
+    function world.set(x, y, z, b, background)
       M.catchUp()
-      rawSet(x, y, z, b)
+      rawSet(x, y, z, b, background)
       M.changed(x, y, z, b)
     end
     local rawDrop = world.dropItem
@@ -1246,6 +1265,15 @@ return function(core, ctx)
     core.beforeObserve = function()
       if previous then previous() end
       M.catchUp()
+    end
+    -- what the world changed on its own and has not written yet goes with the write before a shutdown or reboot
+    -- (ccsim/core.lua wraps these first and writes when something is unsaved)
+    for _, name in ipairs({ "shutdown", "reboot" }) do
+      local raw = os[name]
+      os[name] = function(...)
+        if world.unsaved > 0 then core.dirty = true end
+        return raw(...)
+      end
     end
   end
 

@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/Akkiruk/craftos-mcp/main/schemas/craftos.schema.json",
+  "title": "craftos-mcp project",
+  "description": "craftos.json: a project's settings for craftos-mcp (the CLI, the MCP server and the VS Code extension). A flag or an environment variable still wins over it. craftos-mcp init writes one; schemas/craftos.schema.json is generated from packages/runner/src/project.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema of this file, for editors.",
+      "type": "string"
+    },
+    "workspace": {
+      "description": "The folder with the Lua programs, relative to craftos.json: every computer gets a copy of it. Default: the folder craftos.json is in. --dir and CRAFTOS_WORKSPACE win over it.",
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "src",
+        "."
+      ]
+    },
+    "minecraft": {
+      "description": "The Minecraft version computers run as; it picks the CC:Tweaked version and the mods' versions. --mc, CRAFTOS_VERSION and a world's version win over it.",
+      "enum": [
+        "1.18.2",
+        "1.20.1",
+        "1.21.1"
+      ]
+    },
+    "addons": {
+      "description": "The mods besides CC:Tweaked: \"all\", \"none\", ids by commas, or a list of ids. --addons, CRAFTOS_ADDONS and a world's addons win over it.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "examples": [
+            "all",
+            "none"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "enum": [
+              "advanced-peripherals",
+              "mekanism",
+              "mekanism-generators",
+              "create",
+              "create-additions",
+              "toms-peripherals",
+              "bigger-reactors",
+              "extreme-reactors",
+              "unlimited-peripheral-works",
+              "metaphysics",
+              "some-peripherals",
+              "cloud-solutions",
+              "cccbridge",
+              "create-cc-logistics",
+              "cc-liftlink",
+              "cc-vs",
+              "cc-shops",
+              "cc-androids",
+              "ac-drones",
+              "cc-drones",
+              "cc-drones-plus",
+              "advanced-math",
+              "lectern-hub",
+              "crickets-peripherals",
+              "cctech",
+              "embedded-computer",
+              "lakes-cc-additions",
+              "sc-peripherals",
+              "ccsecureboot",
+              "ccx",
+              "directgpu",
+              "cide",
+              "plethora",
+              "cc-link",
+              "finer-peripherals",
+              "ducky-peripherals",
+              "more-peripherals",
+              "classic-peripherals"
+            ]
+          },
+          "uniqueItems": true
+        }
+      ]
+    },
+    "tests": {
+      "description": "The test files to run when none are named: globs relative to the workspace (** any folders, * any name, {a,b} either).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "examples": [
+        [
+          "tests/**/*.test.lua"
+        ]
+      ]
+    },
+    "world": {
+      "description": "The world computers start in: a .json file relative to craftos.json, or the name of a saved world in worlds/. --world, worldFile and world win over it.",
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "default.world.json"
+      ]
+    },
+    "run": {
+      "description": "The program the desktop app's Run button starts, relative to the workspace. Leave it out and the computer opens at its shell.",
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "startup.lua"
+      ]
+    }
+  }
+}

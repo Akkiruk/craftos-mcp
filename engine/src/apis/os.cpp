@@ -11,28 +11,71 @@
 #include <Computer.hpp>
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
+#include <cstdio>
+#include <cstdlib>
+#include <thread>
 #include <vector>
 #include "../debug_server.hpp"
 #include "../main.hpp"
 #include "../runtime.hpp"
+#include "../simclock.hpp"
 #include "../util.hpp"
 #include "../termsupport.hpp"
 
-// Virtual clock: --time-scale N makes clocks, dates and timers run N times faster than real time.
+// Virtual clock (simclock.hpp): --time-scale N or `speed` makes clocks, dates and timers run N times faster than real
+// time; `advance` (and os.__ccsimAdvance) jumps it forward; a hold (a debugger's stop, a pause) keeps it still.
 static const std::chrono::system_clock::time_point processStart = std::chrono::system_clock::now();
-// os.__ccsimAdvance(seconds) jumps the virtual clock forward and fires the timers that fall due in the jump.
-static std::atomic<long long> timeOffsetMs(0);
+// how far the clock was jumped, in system_clock ticks (whole milliseconds lost a little each jump, and a stepped jump
+// lands on each timer exactly)
+static std::atomic<long long> timeOffsetTicks(0);
+// held: the real time spent held so far is taken off the clock; while held the clock reads the same to the tick
+static std::mutex holdMu;
+static int holdCount = 0;
+static std::chrono::system_clock::duration heldTotal = std::chrono::system_clock::duration::zero();
+static std::chrono::system_clock::time_point holdStarted;
+/** Real time with the time held taken off: it stands still while held. */
+static std::chrono::system_clock::time_point unheldNow() {
+    std::lock_guard<std::mutex> lock(holdMu);
+    return (holdCount > 0 ? holdStarted : std::chrono::system_clock::now()) - heldTotal;
+}
+// scaled: vAnchor + (real - rAnchor) * timeScale; a change of speed moves the anchors, so the clock never jumps
+static std::mutex anchorMu;
+static std::chrono::system_clock::time_point vAnchor = processStart, rAnchor = processStart;
+static std::chrono::system_clock::time_point scaledNow(std::chrono::system_clock::time_point real) {
+    if (timeScale == 1.0 && vAnchor == rAnchor) return real;
+    return vAnchor + std::chrono::duration_cast<std::chrono::system_clock::duration>((real - rAnchor) * timeScale);
+}
 static std::chrono::system_clock::time_point vnow() {
-    // a debugger's stop holds the clock: the time spent stopped is taken off (debug_server.cpp; 0 with no debugger)
-    const auto real = std::chrono::system_clock::now() - std::chrono::microseconds(debugsrv::clockHeldMicros());
-    const auto offset = std::chrono::milliseconds(timeOffsetMs.load());
-    if (timeScale == 1.0) return real + offset;
-    return processStart + std::chrono::duration_cast<std::chrono::system_clock::duration>((real - processStart) * timeScale) + offset;
+    const auto real = unheldNow();
+    const auto offset = std::chrono::system_clock::duration(timeOffsetTicks.load());
+    std::lock_guard<std::mutex> lock(anchorMu);
+    return scaledNow(real) + offset;
 }
 static Uint32 scaledMs(Uint32 ms) {
     if (timeScale == 1.0) return ms;
     const Uint32 scaled = (Uint32)(ms / timeScale);
     return scaled == 0 ? 1 : scaled;
+}
+// os.time / os.day: from each computer's start, unless `worldtime` set one world clock for every computer
+static std::atomic<bool> worldStartSet(false);
+static std::atomic<long long> worldStartMs(0); // virtual ms since the epoch
+std::chrono::system_clock::time_point simclock::worldStart(Computer * comp) {
+    if (worldStartSet.load()) return std::chrono::system_clock::time_point(std::chrono::milliseconds(worldStartMs.load()));
+    return comp->system_start;
+}
+std::chrono::system_clock::time_point simclock::now() {return vnow();}
+void simclock::hold(bool on) {
+    std::lock_guard<std::mutex> lock(holdMu);
+    if (on) {
+        if (holdCount++ == 0) holdStarted = std::chrono::system_clock::now();
+    } else if (holdCount > 0 && --holdCount == 0) {
+        heldTotal += std::chrono::system_clock::now() - holdStarted;
+    }
+}
+bool simclock::held() {
+    std::lock_guard<std::mutex> lock(holdMu);
+    return holdCount > 0;
 }
 
 static int os_getComputerID(lua_State *L) { lastCFunction = __func__; lua_pushinteger(L, get_comp(L)->id); return 1; }
@@ -49,6 +92,8 @@ static int os_setComputerLabel(lua_State *L) {
     lastCFunction = __func__;
     Computer * comp = get_comp(L);
     comp->config->label = tostring(L, 1, "");
+    // craftos-agent: on disk at once, not only when the computer stops, so a world snapshot taken now has it
+    setComputerConfig(comp->id, *comp->config);
     if (comp->term != NULL) comp->term->setLabel(comp->config->label.empty() ? "CraftOS Terminal: " + std::string(comp->isDebugger ? "Debugger" : "Computer") + " " + std::to_string(comp->id) : "CraftOS Terminal: " + asciify(comp->config->label));
     return 0;
 }
@@ -177,8 +222,8 @@ static Uint32 notifyEvent(Uint32 interval, void* param) {
     // has passed (four 0.05 s timers in a row came to 0.199 s). In the game both move by the same ticks: never fire
     // early, wait out the rest. interval 0 is os.__ccsimAdvance firing it on purpose.
     if (interval != 0 && !exiting && data->comp != NULL) {
-        // stopped in the debugger: the clock stands still, so no timer falls due; look again shortly
-        if (debugsrv::isStopped()) return 20;
+        // held (a debugger's stop, a pause): the clock stands still, so no timer falls due; look again shortly
+        if (simclock::held()) return 20;
         const auto left = data->vdue - vnow();
         if (left > std::chrono::system_clock::duration::zero()) {
             const double leftMs = std::chrono::duration<double, std::milli>(left).count() / timeScale;
@@ -273,34 +318,383 @@ int os_cancelTimer(lua_State *L) {
     return 0;
 }
 
-// Test harness hook: advance the virtual clock by N seconds and fire every timer that falls due within the
-// jump, earliest first. Timers due later keep their real deadline. The overlay (ccsim.core) takes this
-// function out of the os table at boot, so programs never see it.
-static int os_advance(lua_State *L) {
-    lastCFunction = __func__;
-    const double seconds = luaL_checknumber(L, 1);
-    if (seconds <= 0) return 0;
-    const double realMs = seconds * 1000.0 / timeScale;
-    const auto limit = std::chrono::steady_clock::now() + std::chrono::microseconds((long long)(realMs * 1000.0));
+// Move the virtual clock on to `limit` (never back) and fire every timer due by then, earliest first (two due at once:
+// the one started first). Timers due later keep their deadline on the clock. Works paused too: the clock is held, the
+// jump moves it all the same.
+static void advanceTo(std::chrono::system_clock::time_point limit) {
+    const auto gap = limit - vnow();
+    if (gap > std::chrono::system_clock::duration::zero()) timeOffsetTicks += gap.count();
     std::vector<timer_data_t*> due;
     {
         LockGuard lock(runningTimerData);
-        for (const auto& i : *runningTimerData) if (i.second->due <= limit) due.push_back(i.second);
+        for (const auto& i : *runningTimerData) if (i.second->vdue <= limit) due.push_back(i.second);
     }
-    std::sort(due.begin(), due.end(), [](timer_data_t * a, timer_data_t * b) {return a->due < b->due;});
-    timeOffsetMs += (long long)(seconds * 1000.0);
+    std::sort(due.begin(), due.end(), [](timer_data_t * a, timer_data_t * b) {return a->vdue < b->vdue || (a->vdue == b->vdue && a->timer < b->timer);});
     for (timer_data_t * data : due) {
         const SDL_TimerID id = data->timer;
         SDL_RemoveTimer(id);
         notifyEvent(0, data);
     }
+}
+
+// Jump the virtual clock forward by ms at once (os.__ccsimAdvance, a step, as fast as possible): the timers that fall
+// due within the jump fire in order, but a timer the program starts on one of them does not (the person's jump,
+// `advance`, is stepped: startJump).
+static void advanceBy(double ms) {
+    if (ms <= 0) return;
+    advanceTo(vnow() + std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::duration<double, std::milli>(ms)));
+}
+
+// Test harness hook: advance the virtual clock by N seconds (advanceBy). The overlay (ccsim.core) takes this
+// function out of the os table at boot, so programs never see it.
+static int os_advance(lua_State *L) {
+    lastCFunction = __func__;
+    const double seconds = luaL_checknumber(L, 1);
+    if (seconds <= 0) return 0;
+    advanceBy(seconds * 1000.0);
     return 0;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The controls a person has over the clock (simclock.hpp): pause, step, speed, as fast as possible, jump.
+
+static std::atomic<bool> clockPaused(false), clockStepping(false), clockMax(false);
+static std::atomic<bool> pauseHolding(false); // the pause holds the clock (every computer reached its wait)
+static std::atomic<long long> clockSeq(0);
+static std::chrono::steady_clock::time_point stepDeadline;
+static std::mutex gateMu, statusMu, watcherMu;
+static std::condition_variable gateCv;
+static bool watcherStarted = false;
+// A person's jump (`advance`): the clock is held and moves from one timer to the next up to the target, and every
+// computer handles each one (and starts its next timer) before the clock moves again, so a loop of sleep(600) runs six
+// times in an hour's jump. One that would take more than JUMP_BUDGET of real time does the rest at once.
+static std::atomic<bool> clockJumping(false);
+static std::mutex jumpMu;
+static std::chrono::system_clock::time_point jumpTarget;
+static std::chrono::steady_clock::time_point jumpStageDeadline, jumpDeadline;
+static const auto JUMP_BUDGET = std::chrono::seconds(30);
+
+/** Not running any Lua now: waiting for an event (maybe with events queued behind a pause), or off. */
+static bool atRest(Computer * c) {
+    return c->running != 1 || c->L == NULL || c->getting_event;
+}
+
+/** Waiting for an event with none queued and no http request open: nothing will happen until a timer fires. */
+static bool idleNow(Computer * c) {
+    if (c->running != 1 || c->L == NULL) return true;
+    if (!c->getting_event || !c->eventQueue.empty() || c->requests_open > 0) return false;
+    {
+        std::lock_guard<std::mutex> lock(c->event_provider_queue_mutex);
+        if (!c->event_provider_queue.empty()) return false;
+    }
+    std::lock_guard<std::mutex> lock(c->termEventQueueMutex);
+    return c->termEventQueue.empty();
+}
+
+static long long epochMs(std::chrono::system_clock::time_point t) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch()).count();
+}
+
+static void writeStatus() {
+    static const char * path = getenv("CRAFTOS_CLOCK_FILE");
+    if (path == NULL || !*path) return;
+    const auto v = vnow();
+    long long clockMs = -1, worldMs = -1;
+    {
+        LockGuard lock(computers);
+        for (Computer * c : *computers) {
+            if (c->isDebugger) continue;
+            clockMs = epochMs(v) - epochMs(c->system_start);
+            worldMs = epochMs(v) - epochMs(simclock::worldStart(c));
+            break;
+        }
+    }
+    if (worldMs < 0 && worldStartSet.load()) worldMs = epochMs(v) - worldStartMs.load();
+    char buf[512];
+    snprintf(buf, sizeof(buf),
+        "{\"seq\":%lld,\"paused\":%s,\"held\":%s,\"stepping\":%s,\"jumping\":%s,\"max\":%s,\"speed\":%g,\"virtualMs\":%lld,\"realMs\":%lld,\"clockMs\":%lld,\"worldMs\":%lld}\n",
+        clockSeq.load(), clockPaused ? "true" : "false", simclock::held() ? "true" : "false",
+        clockStepping ? "true" : "false", clockJumping ? "true" : "false", clockMax ? "true" : "false", timeScale, epochMs(v),
+        epochMs(std::chrono::system_clock::now()), clockMs, worldMs);
+    std::lock_guard<std::mutex> lock(statusMu);
+    FILE * fp = fopen(path, "wb");
+    if (fp == NULL) return;
+    fputs(buf, fp);
+    fclose(fp);
+}
+
+/** Jump to the earliest timer still to come (as fast as possible). */
+static void jumpToNextTimer() {
+    bool any = false;
+    std::chrono::system_clock::time_point next;
+    {
+        LockGuard lock(runningTimerData);
+        for (const auto& i : *runningTimerData) {
+            if (!any || i.second->vdue < next) next = i.second->vdue;
+            any = true;
+        }
+    }
+    if (!any) return;
+    const double ms = std::chrono::duration<double, std::milli>(next - vnow()).count();
+    advanceBy((std::max)(ms, 1.0));
+}
+
+/** A person's jump of `ms`: see clockJumping. A jump while one runs goes on further. */
+static void startJump(double ms) {
+    if (!(ms > 0)) return;
+    std::lock_guard<std::mutex> lock(jumpMu);
+    const auto length = std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::duration<double, std::milli>(ms));
+    if (clockJumping) {jumpTarget += length; return;}
+    simclock::hold(true);
+    jumpTarget = vnow() + length;
+    const auto now = std::chrono::steady_clock::now();
+    jumpStageDeadline = now + std::chrono::seconds(5);
+    jumpDeadline = now + JUMP_BUDGET;
+    clockJumping = true;
+    gateCv.notify_all();
+}
+
+/** Every computer has handled the last timer (or kept working 5 s): on to the next one, or the end of the jump. */
+static void jumpStage(std::chrono::steady_clock::time_point now) {
+    std::lock_guard<std::mutex> lock(jumpMu);
+    if (!clockJumping) return;
+    bool any = false;
+    std::chrono::system_clock::time_point next;
+    {
+        LockGuard lock2(runningTimerData);
+        for (const auto& i : *runningTimerData) {
+            if (!any || i.second->vdue < next) next = i.second->vdue;
+            any = true;
+        }
+    }
+    if (any && next <= jumpTarget && now <= jumpDeadline) {
+        advanceTo(next);
+        jumpStageDeadline = now + std::chrono::seconds(5);
+        return;
+    }
+    advanceTo(jumpTarget);
+    clockJumping = false;
+    simclock::hold(false);
+}
+
+static void watchLoop() {
+    int idleRuns = 0;
+    auto lastWrite = std::chrono::steady_clock::now();
+    auto idleSince = lastWrite;
+    while (!exiting) {
+        // a jump looks often (a 1 s loop in an hour's jump is 3600 rounds); otherwise every 2 ms
+        if (clockJumping) std::this_thread::sleep_for(std::chrono::microseconds(100));
+        else std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        const auto now = std::chrono::steady_clock::now();
+        const bool needed = (clockPaused && !pauseHolding) || clockStepping || clockJumping || (clockMax && !clockPaused);
+        if (!needed) {
+            idleRuns = 0;
+            // now and then, so the host's view follows reboots (each computer's clock starts again)
+            if (now - lastWrite > std::chrono::seconds(1)) {writeStatus(); lastWrite = now;}
+            continue;
+        }
+        bool rest = true, idle = true;
+        {
+            LockGuard lock(computers);
+            for (Computer * c : *computers) {
+                if (!atRest(c)) rest = false;
+                if (!idleNow(c)) idle = false;
+            }
+        }
+        if (clockPaused && !pauseHolding && rest) {
+            simclock::hold(true);
+            pauseHolding = true;
+            writeStatus();
+            lastWrite = now;
+        }
+        if (clockJumping) {
+            // every computer still waiting, with nothing queued, half a millisecond on: it is done with the timer
+            if (!idle) idleRuns = 0;
+            else if (idleRuns++ == 0) idleSince = now;
+            if ((idleRuns >= 3 && now - idleSince >= std::chrono::microseconds(500)) || now > jumpStageDeadline) {
+                idleRuns = 0;
+                jumpStage(now);
+                if (!clockJumping) {writeStatus(); lastWrite = now;}
+            }
+            if (now - lastWrite > std::chrono::milliseconds(100)) {writeStatus(); lastWrite = now;}
+        } else if (clockStepping) {
+            idleRuns = idle ? idleRuns + 1 : 0;
+            // done when every computer waits with nothing to do, or after 5 s of a computer that keeps working
+            if (idleRuns >= 3 || now > stepDeadline) {
+                clockStepping = false;
+                idleRuns = 0;
+                writeStatus();
+                lastWrite = now;
+            }
+        } else if (clockMax && !clockPaused) {
+            idleRuns = idle ? idleRuns + 1 : 0;
+            if (idleRuns >= 3) {
+                idleRuns = 0;
+                jumpToNextTimer();
+            }
+            if (now - lastWrite > std::chrono::milliseconds(100)) {writeStatus(); lastWrite = now;}
+        }
+    }
+}
+
+static void ensureWatcher() {
+    std::lock_guard<std::mutex> lock(watcherMu);
+    if (watcherStarted) return;
+    watcherStarted = true;
+    std::thread(watchLoop).detach();
+}
+
+/**
+ * After the clock speeds up, a timer already waiting would still wait out the real time it was given at the old speed:
+ * this goes off when it falls due at the new speed and fires it (the timer's own SDL timer stays, and finds it gone).
+ */
+static Uint32 speedHelper(Uint32, void* param) {
+    const SDL_TimerID id = (SDL_TimerID)(intptr_t)param;
+    timer_data_t * data;
+    {
+        LockGuard lock(runningTimerData);
+        const auto it = runningTimerData->find(id);
+        if (it == runningTimerData->end() || exiting) return 0;
+        data = it->second;
+        if (simclock::held()) return 20;
+        const auto left = data->vdue - vnow();
+        if (left > std::chrono::system_clock::duration::zero())
+            return (Uint32)(std::max)(1.0, ceil(std::chrono::duration<double, std::milli>(left).count() / timeScale));
+    }
+    SDL_RemoveTimer(id);
+    notifyEvent(0, data);
+    return 0;
+}
+
+static void setSpeed(double x) {
+    if (!(x > 0)) return;
+    x = (std::min)((std::max)(x, 0.01), 1000.0);
+    const double was = timeScale;
+    {
+        const auto real = unheldNow();
+        std::lock_guard<std::mutex> lock(anchorMu);
+        vAnchor = scaledNow(real);
+        rAnchor = real;
+        timeScale = x;
+    }
+    if (x <= was) return; // slower: a timer looks again when it goes off, and waits the rest
+    std::vector<SDL_TimerID> ids;
+    {
+        LockGuard lock(runningTimerData);
+        for (const auto& i : *runningTimerData) ids.push_back(i.first);
+    }
+    for (SDL_TimerID id : ids) SDL_AddTimer(1, speedHelper, (void*)(intptr_t)id);
+}
+
+static void resumeClock() {
+    clockStepping = false;
+    clockPaused = false;
+    if (pauseHolding.exchange(false)) simclock::hold(false);
+    gateCv.notify_all();
+}
+
+void simclock::command(const std::string& text) {
+    // "<seq>:<verb>[:<arg>]"
+    std::string seq, verb, arg;
+    const size_t a = text.find(':');
+    if (a == std::string::npos) verb = text;
+    else {
+        seq = text.substr(0, a);
+        const size_t b = text.find(':', a + 1);
+        verb = text.substr(a + 1, b == std::string::npos ? std::string::npos : b - a - 1);
+        if (b != std::string::npos) arg = text.substr(b + 1);
+    }
+    const double value = arg.empty() ? 0.0 : atof(arg.c_str());
+    if (verb == "pause") {
+        clockPaused = true;
+    } else if (verb == "resume") {
+        resumeClock();
+    } else if (verb == "step") {
+        clockPaused = true;
+        stepDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        advanceBy(value > 0 ? value : 50.0);
+        clockStepping = true;
+        gateCv.notify_all();
+    } else if (verb == "speed") {
+        clockMax = false;
+        setSpeed(value);
+    } else if (verb == "max") {
+        setSpeed(1.0);
+        clockMax = true;
+    } else if (verb == "advance") {
+        startJump(value);
+    } else if (verb == "worldtime") {
+        worldStartMs = epochMs(vnow()) - (long long)value;
+        worldStartSet = true;
+    }
+    if (!seq.empty()) clockSeq = atoll(seq.c_str());
+    ensureWatcher();
+    writeStatus();
+}
+
+void simclock::waitWhilePaused(Computer * comp) {
+    if (!clockPaused.load() || clockStepping.load() || clockJumping.load()) return;
+    std::unique_lock<std::mutex> lock(gateMu);
+    while (clockPaused.load() && !clockStepping.load() && !clockJumping.load() && comp->running == 1 && !exiting)
+        gateCv.wait_for(lock, std::chrono::milliseconds(50));
+}
+
+std::string simclock::tag() {
+    if (clockPaused) return "[Paused] ";
+    if (clockMax) return "[Max speed] ";
+    if (timeScale != 1.0) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "[%gx] ", timeScale);
+        return buf;
+    }
+    return "";
+}
+
+bool simclock::hotkey(int sym, int mod) {
+    // Alt and the key, nothing else held (Caps and Num Lock aside)
+    const int held = mod & ~(KMOD_CAPS | KMOD_NUM);
+    if (!(held & KMOD_ALT) || (held & ~(KMOD_ALT | KMOD_SHIFT))) return false;
+    static const double speeds[] = {0.5, 1, 2, 5, 10};
+    const int count = sizeof(speeds) / sizeof(speeds[0]);
+    int at = 1;
+    for (int i = 0; i < count; i++) if (timeScale >= speeds[i] - 1e-9) at = i;
+    switch (sym) {
+        case SDLK_p: command(clockPaused ? "0:resume" : "0:pause"); return true;
+        case SDLK_PERIOD: command("0:step:50"); return true;
+        case SDLK_RIGHTBRACKET:
+            if (clockMax) return true;
+            if (at + 1 < count) command("0:speed:" + std::to_string(speeds[at + 1]));
+            else command("0:max");
+            return true;
+        case SDLK_LEFTBRACKET:
+            if (clockMax) command("0:speed:" + std::to_string(speeds[count - 1]));
+            else if (at > 0) command("0:speed:" + std::to_string(speeds[at - 1]));
+            return true;
+        case SDLK_BACKSLASH: command("0:speed:1"); return true;
+        case SDLK_j: command("0:advance:60000"); return true;      // a minute
+        case SDLK_h: command("0:advance:3600000"); return true;    // an hour
+        case SDLK_n: command("0:advance:1200000"); return true;    // a Minecraft day (20 minutes)
+        default: return false;
+    }
 }
 
 // os.__ccsimServerWork(): the sim did the server's own work on this computer's thread (a machine catching up on the
 // ticks a jump of the clock skipped). In the game that work runs on the server thread and never counts towards the
 // computer's 7 s "Too long without yielding" limit, so it starts the computer's limit again from now, as getNextEvent
 // does. The overlay (ccsim.core) takes it out of the os table at boot.
+// os.__ccsimJump(seconds): a person's jump typed in the computer (`sim advance`), stepped as the time bar's is
+// (startJump): it starts now and goes on while the computer waits. The overlay (ccsim.core) takes it out of os at boot.
+static int os_jump(lua_State *L) {
+    lastCFunction = __func__;
+    const double seconds = luaL_checknumber(L, 1);
+    if (seconds > 0) {
+        startJump(seconds * 1000.0);
+        ensureWatcher();
+        writeStatus();
+    }
+    return 0;
+}
+
 static int os_serverWork(lua_State *L) {
     lastCFunction = __func__;
     Computer * computer = get_comp(L);
@@ -391,7 +785,7 @@ static int os_time(lua_State *L) {
     std::string tmp(luaL_optstring(L, 1, "ingame"));
     std::transform(tmp.begin(), tmp.end(), tmp.begin(), [](unsigned char c) {return std::tolower(c); });
     if (tmp == "ingame") {
-        lua_pushnumber(L, floor((double)((std::chrono::duration_cast<std::chrono::milliseconds>(vnow() - get_comp(L)->system_start).count() + 300000LL) % 1200000LL) / 50.0) / 1000.0);
+        lua_pushnumber(L, floor((double)((std::chrono::duration_cast<std::chrono::milliseconds>(vnow() - simclock::worldStart(get_comp(L))).count() + 300000LL) % 1200000LL) / 50.0) / 1000.0);
         return 1;
     } else if (tmp != "utc" && tmp != "local") luaL_error(L, "Unsupported operation");
     time_t t = std::chrono::system_clock::to_time_t(vnow());
@@ -427,8 +821,8 @@ static int os_epoch(lua_State *L) {
         lua_pushinteger(L, std::chrono::duration_cast<std::chrono::milliseconds>(vnow().time_since_epoch()).count() + (off * 1000LL));
 #endif
     } else if (tmp == "ingame") {
-        const double m_time = (double)((std::chrono::duration_cast<std::chrono::milliseconds>(vnow() - get_comp(L)->system_start).count() + 300000LL) % 1200000LL) / 50000.0;
-        const double m_day = std::chrono::duration_cast<std::chrono::minutes>(vnow() - get_comp(L)->system_start).count() / 20 + 1;
+        const double m_time = (double)((std::chrono::duration_cast<std::chrono::milliseconds>(vnow() - simclock::worldStart(get_comp(L))).count() + 300000LL) % 1200000LL) / 50000.0;
+        const double m_day = std::chrono::duration_cast<std::chrono::minutes>(vnow() - simclock::worldStart(get_comp(L))).count() / 20 + 1;
         lua_Integer epoch = (lua_Integer)(m_day * 86400000) + (lua_Integer)(m_time * 3600000.0);
         if (config.standardsMode) epoch = (lua_Integer)floor(epoch / 200) * 200;
         lua_pushinteger(L, epoch);
@@ -448,7 +842,7 @@ static int os_day(lua_State *L) {
     std::transform(tmp.begin(), tmp.end(), tmp.begin(), [](unsigned char c) {return std::tolower(c); });
     time_t t = std::chrono::system_clock::to_time_t(vnow());
     if (tmp == "ingame") {
-        lua_pushinteger(L, std::chrono::duration_cast<std::chrono::minutes>(vnow() - get_comp(L)->system_start).count() / 20 + 1);
+        lua_pushinteger(L, std::chrono::duration_cast<std::chrono::minutes>(vnow() - simclock::worldStart(get_comp(L))).count() / 20 + 1);
         return 1;
     } else if (tmp == "local") t = mktime(localtime(&t));
     else if (tmp != "utc") luaL_error(L, "Unsupported operation");
@@ -461,7 +855,7 @@ static int os_setAlarm(lua_State *L) {
     const double time = luaL_checknumber(L, 1);
     if (time < 0.0 || time >= 24.0) luaL_error(L, "Number out of range");
     Computer * computer = get_comp(L);
-    const double current_time = floor((double)((std::chrono::duration_cast<std::chrono::milliseconds>(vnow() - computer->system_start).count() + 300000LL) % 1200000LL) / 50.0) / 1000.0;
+    const double current_time = floor((double)((std::chrono::duration_cast<std::chrono::milliseconds>(vnow() - simclock::worldStart(computer)).count() + 300000LL) % 1200000LL) / 50.0) / 1000.0;
     double delta_time;
     if (time >= current_time) delta_time = time - current_time;
     else delta_time = (time + 24.0) - current_time;
@@ -577,6 +971,7 @@ static luaL_Reg os_reg[] = {
     {"reboot", os_reboot},
     {"about", os_about},
     {"__ccsimAdvance", os_advance},
+    {"__ccsimJump", os_jump},
     {"__ccsimNative", os_native},
     {"__ccsimServerWork", os_serverWork},
     {NULL, NULL}

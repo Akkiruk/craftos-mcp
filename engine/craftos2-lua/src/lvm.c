@@ -34,7 +34,7 @@
 
 
 #define resolverope(L, o) {if (ttisrope(o)) setsvalue(L, o, luaS_build(L, rawtrvalue(o)));}
-#define resolvesubstr(L, o) {if (ttissubstr(o)) setsvalue(L, o, luaS_newlstr(L, getstr(ssvalue(o)->str) + ssvalue(o)->offset, ssvalue(o)->len));}
+#define resolvesubstr(L, o) {if (ttissubstr(o)) setsvalue(L, o, luaS_resolvesub(L, rawssvalue(o)));}
 
 
 const TValue *luaV_tonumber (lua_State *L, const TValue *obj, TValue *n) {

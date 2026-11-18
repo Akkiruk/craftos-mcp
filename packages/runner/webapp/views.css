@@ -1,0 +1,541 @@
+/* The views of the browser app (views.js): the bar that picks one, computers side by side, the blocks round a
+   turtle, a network's messages. Colours come from app.css's variables, light or dark. */
+
+:root {
+  --wireless: #4c99b2;
+  --ender: #b266e5;
+  --wired: #57a64e;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --wireless: #1f7391;
+    --ender: #8a3fc4;
+    --wired: #2f7d27;
+  }
+}
+
+/* ── the bar ── */
+.viewbar,
+.viewseg {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.viewbar {
+  margin-bottom: 10px;
+}
+.viewbtn {
+  font: 12px var(--mono);
+  color: var(--dim);
+  background: var(--panel);
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.viewbtn:last-child {
+  border-right: 0;
+}
+.viewbtn:hover {
+  color: var(--fg);
+}
+.viewbtn.on {
+  color: var(--fg);
+  background: var(--card);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.viewbtn:focus-visible,
+.vchip:focus-visible,
+.vrow:focus-visible,
+.vtile-hide:focus-visible,
+.vnode:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* side by side: the one terminal and its monitors make room for the tiles */
+.screens[data-view="tiles"] > #term-hint,
+.screens[data-view="tiles"] > #monitors-box,
+.screens[data-view="tiles"] > #pixels-box {
+  display: none;
+}
+.view-blocks,
+.view-network {
+  margin-bottom: 14px;
+}
+
+/* ── side by side ── */
+.vtiles-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.vchips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.vchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 12px var(--mono);
+  color: var(--dim);
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.vchip.on {
+  color: var(--fg);
+  background: var(--card);
+  border-style: solid;
+}
+.vchip .dot,
+.vtile .dot {
+  width: 8px;
+  height: 8px;
+  background: var(--lime);
+  display: inline-block;
+  flex: none;
+}
+.vchip.off .dot,
+.vtile.off .dot {
+  background: var(--red);
+}
+.vchip:not(.on) .dot {
+  opacity: 0.4;
+}
+.vchip .net {
+  color: var(--cyan);
+  font-size: 11px;
+}
+.vtiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+.vtile {
+  position: relative;
+  max-width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 12px 10px 8px;
+}
+.vtile.focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.vtile > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font: 13px var(--mono);
+  min-width: 0;
+}
+.vtile > header b {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vtile > header .sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vtile-hide {
+  font: 14px/1 var(--mono);
+  color: var(--dim);
+  background: transparent;
+  border: 0;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.vtile-hide:hover {
+  color: var(--fg);
+}
+.vtile:not(.focus) .bezel canvas {
+  cursor: pointer;
+}
+.vtile-body {
+  min-width: 0;
+}
+.vtile-mons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vtile-mons:not(:empty) {
+  margin-top: 8px;
+}
+.vtile-grip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.vtile-grip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 3px;
+  height: 28px;
+  margin-top: -14px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.vtile-grip:hover::after {
+  border-color: var(--accent);
+}
+
+/* ── blocks ── */
+.vblocks-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.vblocks-three,
+.vblocks-layers {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.vblocks-layer {
+  font: 12px var(--mono);
+  min-width: 7.5em;
+  text-align: center;
+}
+.vblocks-stage {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+.vblocks-canvas {
+  display: block;
+  width: 100%;
+  height: clamp(260px, 52vh, 620px);
+  outline: none;
+  cursor: grab;
+  touch-action: none;
+}
+.vblocks-canvas:active {
+  cursor: grabbing;
+}
+.vblocks-canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.vblocks-hover {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  font: 12px var(--mono);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  padding: 2px 6px;
+  pointer-events: none;
+}
+.vblocks-slow {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  max-width: 50%;
+  font:
+    12px system-ui,
+    sans-serif;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  border-left: 3px solid var(--accent);
+  padding: 3px 8px;
+  pointer-events: none;
+}
+.vblocks-hover:empty {
+  display: none;
+}
+.vblocks-legend {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 11px var(--mono);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  padding: 4px 8px;
+  pointer-events: none;
+  max-width: 45%;
+}
+.vblocks-legend:empty {
+  display: none;
+}
+.vblocks-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vblocks-legend i {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 1px solid var(--line);
+}
+.vblocks-info {
+  font: 12px var(--mono);
+  color: var(--dim);
+  margin-top: 6px;
+}
+
+/* ── network ── */
+.vnet-graph-box {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.vnet-graph {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+}
+.vnet-legend {
+  position: absolute;
+  left: 8px;
+  bottom: 6px;
+  display: flex;
+  gap: 12px;
+  font: 11px var(--mono);
+  color: var(--dim);
+}
+.vkind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.vkind i {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed var(--wireless);
+}
+.vkind.ender i {
+  border-top: 2px dotted var(--ender);
+}
+.vkind.wired i {
+  border-top: 2px solid var(--wired);
+}
+.vlink {
+  fill: none;
+  stroke: var(--wireless);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+  opacity: 0.55;
+}
+.vlink.ender {
+  stroke: var(--ender);
+  stroke-dasharray: 2 4;
+}
+.vlink.wired {
+  stroke: var(--wired);
+  stroke-dasharray: none;
+}
+.vlink.busy {
+  animation: vlink-busy 0.7s ease-out;
+}
+@keyframes vlink-busy {
+  from {
+    opacity: 1;
+    stroke-width: 3.5;
+  }
+  to {
+    opacity: 0.55;
+    stroke-width: 1.5;
+  }
+}
+.vnode {
+  cursor: pointer;
+  outline: none;
+}
+.vnode rect {
+  fill: var(--card);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+.vnode.on rect:first-of-type {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.vnode:focus-visible rect:first-of-type {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.vnode.off {
+  opacity: 0.5;
+}
+.vnode text {
+  text-anchor: middle;
+  fill: var(--fg);
+  font: 600 13px var(--mono);
+}
+.vnode text.id {
+  fill: var(--dim);
+  font: 11px var(--mono);
+}
+.vnode .badge {
+  stroke: none;
+  fill: var(--wireless);
+}
+.vnode .badge.ender {
+  fill: var(--ender);
+}
+.vnode .badge.wired {
+  fill: var(--wired);
+}
+.vnode text.badge-text {
+  fill: #fff;
+  font: 9px var(--mono);
+}
+.vdot circle {
+  fill: var(--wireless);
+  stroke: var(--panel);
+  stroke-width: 1.5;
+}
+.vdot.ender circle {
+  fill: var(--ender);
+}
+.vdot.wired circle {
+  fill: var(--wired);
+}
+.vdot text {
+  text-anchor: middle;
+  fill: var(--fg);
+  font: 10px var(--mono);
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+}
+.vring {
+  fill: none;
+  stroke: var(--wireless);
+  stroke-width: 2;
+}
+.vring.ender {
+  stroke: var(--ender);
+}
+.vring.wired {
+  stroke: var(--wired);
+}
+.vnet-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.vnet-filter {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.vnet-log {
+  height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  font: 12px var(--mono);
+}
+.vnet-empty {
+  color: var(--dim);
+  padding: 12px;
+  font:
+    12px system-ui,
+    sans-serif;
+}
+.vrow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.vrow:hover,
+.vrow.on {
+  background: var(--card);
+}
+.vrow.on {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.vrow.unheard .who {
+  color: var(--dim);
+}
+.vrow .t {
+  color: var(--dim);
+  flex: none;
+}
+.vrow .who {
+  flex: none;
+}
+.vrow .ch {
+  color: var(--dim);
+  flex: none;
+}
+.vrow .proto {
+  color: var(--cyan);
+  flex: none;
+}
+.vrow .pre {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.vnet-detail {
+  border: 1px solid var(--line);
+  border-top: 0;
+  background: var(--card);
+  padding: 8px 10px;
+}
+.vnet-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 13px var(--mono);
+}
+.vnet-facts {
+  font: 12px var(--mono);
+  margin: 6px 0;
+}
+.vnet-facts .k {
+  color: var(--dim);
+}
+.vnet-body {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  font: 12px var(--mono);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

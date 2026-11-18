@@ -42,6 +42,7 @@
   "activationEvents": [
     "workspaceContains:**/*.test.lua",
     "workspaceContains:**/*.world.json",
+    "workspaceContains:**/craftos.json",
     "onLanguage:lua",
     "onDebugResolve:craftos"
   ],
@@ -154,6 +155,12 @@
         "command": "craftos-mcp.restartServer",
         "title": "Restart MCP Server",
         "category": "craftos-mcp"
+      },
+      {
+        "command": "craftos-mcp.watchAgents",
+        "title": "Watch the Agent's Computers",
+        "category": "craftos-mcp",
+        "icon": "$(eye)"
       },
       {
         "command": "craftos-mcp.addToEditor",
@@ -331,6 +338,12 @@
           "*.world.json"
         ],
         "url": "./schemas/world.schema.json"
+      },
+      {
+        "fileMatch": [
+          "craftos.json"
+        ],
+        "url": "./schemas/craftos.schema.json"
       }
     ],
     "customEditors": [
@@ -552,15 +565,17 @@
           "default": "auto",
           "enum": [
             "auto",
+            "everywhere",
             "always",
             "never"
           ],
           "enumDescriptions": [
-            "Register it unless the workspace's .vscode/mcp.json already has a server with craftos in its name, command or args",
-            "Always register it, even next to a craftos server in .vscode/mcp.json (the agent sees both tool sets)",
+            "Register it in workspaces that look like ComputerCraft projects (Lua files, *.world.json, craftos.json, the CC:Tweaked Lua types in the settings), unless the workspace's .vscode/mcp.json already has a server with craftos in its name, command or args",
+            "Register it in every workspace, ComputerCraft or not, unless .vscode/mcp.json already has a craftos server",
+            "Always register it, in every workspace and even next to a craftos server in .vscode/mcp.json (the agent sees both tool sets)",
             "Never register it"
           ],
-          "markdownDescription": "Whether the extension gives VS Code its own craftos-mcp MCP server. **Run in CraftOS**, the debugger and the Testing view work either way.",
+          "markdownDescription": "Whether the extension gives VS Code its own craftos-mcp MCP server, and where. By default (`auto`) only in workspaces that look like ComputerCraft projects, so the agent in your other projects doesn't carry the emulator's tools; `everywhere` turns it on in all of them. **Run in CraftOS**, the debugger and the Testing view work either way.",
           "order": 9
         },
         "craftos-mcp.command": {

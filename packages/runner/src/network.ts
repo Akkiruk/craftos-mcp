@@ -37,6 +37,8 @@ export interface LinkedComputerSpec {
   readonly timeScale?: number;
   /** Folder copied onto this computer. Default the configured workspace. */
   readonly workspaceDir?: string;
+  /** The computer's files are this folder itself, live, instead of a copy (StartOptions.liveDir). */
+  readonly liveDir?: string;
 }
 
 /** Several computers in one world, their modems really connected. */
@@ -250,6 +252,24 @@ export class ComputerNetwork {
     return new Map(this.members.map((m) => [m.name, m.handle]));
   }
 
+  /** A viewer's tap (webapp-views.ts): called with every packet a computer sends, as its modem wrote it. */
+  onPacket: ((from: string, packet: string) => void) | undefined;
+
+  /** Every computer on the network with the world it has now, for viewers. */
+  computers(): {
+    name: string;
+    handle: EngineHandle;
+    world: WorldConfig;
+    running: boolean;
+  }[] {
+    return this.members.map((m) => ({
+      name: m.name,
+      handle: m.handle,
+      world: m.world,
+      running: m.running,
+    }));
+  }
+
   private control(line: string): void {
     const parsed = JSON.parse(line) as {
       op: string;
@@ -327,6 +347,7 @@ export class ComputerNetwork {
           this.control(line.slice(1));
         } else if (line.startsWith("W")) worldLines.push(line.slice(1));
         else if (line.startsWith("P")) {
+          this.onPacket?.(from.name, line.slice(1));
           for (const to of live) {
             if (to === from) continue;
             const batch = outgoing.get(to) ?? [];

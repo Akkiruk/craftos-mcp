@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.1 (unreleased)
+
+- New command: Watch the Agent's Computers. It opens the MCP server's viewer in a panel, so you can see every
+  computer the agent made while it works, and type or click monitors yourself
+- If port 7878 is taken (two VS Code windows, say) the server's viewer just picks another port. Before, the second
+  one had no viewer at all
+- A `craftos.json` in your project fills in the Minecraft version, addons and workspace when you haven't set them
+  yourself. Your own settings still win. `npx craftos-mcp init` writes one, and it gets checked as you type
+- The terminal side got `craftos-mcp doctor` (tells you what's broken and how to fix it), `test --watch` and
+  `cache prune`, which clears out old versions piling up in the cache folder
+- The extension fetches its own copy of craftos-mcp from npm the first time, into its storage folder, and checks
+  every file against npm's hashes. After that it starts with plain `node`, no npx in the way. If the download fails
+  it just goes through npx like before
+- The MCP server only turns up in workspaces that look like ComputerCraft projects now: Lua files, world files, a
+  `craftos.json` or the Lua types in your settings. Your other projects' agents don't get 30 emulator tools they'll
+  never use. Set `craftos-mcp.registerServer` to `everywhere` if you want it in all of them
+- Add your first Lua file to a folder and the server shows up, no reload
+
 ## 0.4.0
 
 Big one. You can debug a ComputerCraft program now: breakpoints, stepping, the lot. World files got a real editor, and

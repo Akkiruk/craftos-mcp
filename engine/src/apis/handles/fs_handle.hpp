@@ -29,6 +29,10 @@ extern std::string decodeTextFile(const std::string& raw);
 extern std::string encodeTextString(const char * str, size_t len);
 /** Number formatting of Java's Double.toString, which CC uses when a number is written to a file. */
 extern std::string javaDoubleToString(double d);
+/* craftos-agent: writes to a floppy count against its 125000 bytes (apis/fs.cpp) */
+extern bool floppyTracked(const void * handle);
+extern bool floppyMayWrite(const void * handle, long long position, size_t n);
+extern void floppyForget(const void * handle);
 #endif
 extern int fs_handle_writeString(lua_State *L);
 extern int fs_handle_writeLine(lua_State *L);

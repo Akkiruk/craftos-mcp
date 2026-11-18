@@ -50,6 +50,33 @@ describe.skipIf(!ready)("run results", () => {
   }, 40000);
 
   it.each(versions)(
+    "leaves printError the bios function while the program runs, and still finds its error (%s)",
+    async (version) => {
+      // row 128: the run wrapped _G.printError to remember the message, so printError == oldPrintError was false
+      put(
+        "identity.lua",
+        [
+          'local same = debug.getinfo(printError, "S").source == debug.getinfo(print, "S").source',
+          'print("printError is the bios one: " .. tostring(same))',
+          'error("after the check")',
+        ].join("\n"),
+      );
+      const r = await runProgram(config, {
+        program: "identity.lua",
+        world: { version },
+      });
+      expect(r.screens[0]!.lines).toContain("printError is the bios one: true");
+      expect(r.error).toEqual({
+        kind: "runtime",
+        message: "after the check",
+        file: "identity.lua",
+        line: 3,
+      });
+    },
+    40000,
+  );
+
+  it.each(versions)(
     "says a syntax error is one, with its line (%s)",
     async (version) => {
       put("syntax.lua", "local x = 1\nlocal y = = 2\n");

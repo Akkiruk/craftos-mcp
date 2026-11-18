@@ -162,7 +162,7 @@ path_t fixpath_mkdir(Computer * comp, const std::string& path, bool md, std::str
     std::list<std::string> components;
     for (std::string s : split_list(path, "/\\")) {
         // the parts as fixpath reads them, so the folders made are trimmed and have no "." or ".." in them
-        s.erase(std::remove_if(s.begin(), s.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), s.end());
+        s.erase(std::remove_if(s.begin(), s.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || (unsigned char)c < 32; }), s.end());
         if (!ccPathPart(comp, s)) continue;
         if (s == "..") { if (components.empty()) return path_t(); components.pop_back(); }
         else components.push_back(s);
@@ -178,7 +178,7 @@ path_t fixpath_mkdir(Computer * comp, const std::string& path, bool md, std::str
         maxPath = fixpath(comp, concat(components, '/'), false, true, mountPath);
     }
     if (!md) return maxPath;
-    for (const std::string& s : append) maxPath /= s;
+    for (const std::string& s : append) maxPath /= ccPathName(s);
     std::error_code e;
     fs::create_directories(maxPath, e);
     if (e) return path_t();
@@ -212,7 +212,7 @@ bool ccPathPart(const Computer * comp, std::string& s) {
 }
 
 path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt, std::string * mountPath, bool * isRoot) {
-    path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), path.end());
+    path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || (unsigned char)c < 32; }), path.end());
     std::vector<std::string> elems = split(path, "/\\");
     std::list<std::string> pathc;
     for (std::string s : elems) {
@@ -258,7 +258,7 @@ path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt, std::
             bool found = false;
             for (const _path_t& p : max_path.second) {
                 path_t sstmp = p;
-                for (const std::string& s : pathc) sstmp /= s;
+                for (const std::string& s : pathc) sstmp /= ccPathName(s);
                 e.clear();
                 if ((isVFSPath(p) && nothrow(comp->virtualMounts[(unsigned)std::stoul(p.substr(0, p.size()-1))]->path(sstmp))) || (fs::exists(sstmp, e))) {
                     ss /= sstmp;
@@ -276,15 +276,15 @@ path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt, std::
                 pathc.pop_back();
                 for (const _path_t& p : max_path.second) {
                     path_t sstmp = p;
-                    for (const std::string& s : pathc) sstmp /= s;
+                    for (const std::string& s : pathc) sstmp /= ccPathName(s);
                     e.clear();
                     if (
                         (isVFSPath(p) && (nothrow(comp->virtualMounts[(unsigned)std::stoul(p.substr(0, p.size()-1))]->path(ss/back)) ||
                         (nothrow(comp->virtualMounts[(unsigned)std::stoul(p.substr(0, p.size()-1))]->path(sstmp)) && comp->virtualMounts[(unsigned)std::stoul(p.substr(0, p.size()-1))]->path(sstmp).isDir))) ||
                         (fs::exists(sstmp/back, e)) || (fs::is_directory(sstmp, e))) {
-                        ss /= sstmp/back;
+                        ss /= sstmp/ccPathName(back);
                         while (!oldback.empty()) {
-                            ss /= oldback.top();
+                            ss /= ccPathName(oldback.top());
                             oldback.pop();
                         }
                         found = true;
@@ -296,7 +296,7 @@ path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt, std::
             if (!found) return path_t();
         } else {
             ss /= max_path.second.front();
-            for (const std::string& s : pathc) ss /= s;
+            for (const std::string& s : pathc) ss /= ccPathName(s);
         }
         if (mountPath != NULL) {
             if (mount_list == NULL) *mountPath = "hdd";
@@ -319,7 +319,7 @@ path_t fixpath(Computer *comp, std::string path, bool exists, bool addExt, std::
 }
 
 bool fixpath_ro(Computer *comp, std::string path) {
-    path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), path.end());
+    path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || (unsigned char)c < 32; }), path.end());
     std::vector<std::string> elems = split(path, "/\\");
     std::list<std::string> pathc;
     for (std::string s : elems) {
@@ -342,7 +342,7 @@ bool fixpath_ro(Computer *comp, std::string path) {
 }
 
 std::set<std::string> getMounts(Computer * computer, std::string comp_path) {
-    comp_path.erase(std::remove_if(comp_path.begin(), comp_path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), comp_path.end());
+    comp_path.erase(std::remove_if(comp_path.begin(), comp_path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || (unsigned char)c < 32; }), comp_path.end());
     std::vector<std::string> elems = split(comp_path, "/\\");
     std::list<std::string> pathc;
     std::set<std::string> retval;

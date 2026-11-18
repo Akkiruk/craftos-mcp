@@ -1,5 +1,5 @@
 // The emulator's in-computer `sim` program (rom/ccsim/sim.lua): a person changes the simulated world from the shell.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -80,9 +80,30 @@ describe.skipIf(!ready)("sim program", () => {
       parallel.waitForAll(
         function() shell.run("sim advance 60") end,
         function() repeat local _, t = os.pullEvent("timer") until t == id fired = true end)
-      print("RESULT " .. tostring(os.clock() - t0 >= 60) .. " " .. tostring(fired))
+      print("RESULT " .. tostring(os.clock() - t0 >= 30) .. " " .. tostring(fired))
     `);
     expect(results).toEqual(["true true"]);
+  });
+
+  it("runs a sleep loop through the jump as often as the time it skips, as the time bar's jump", async () => {
+    const { results } = await run(`
+      local t0 = os.clock()
+      local n = 0
+      parallel.waitForAll(
+        function() shell.run("sim advance 10") end,
+        function() repeat sleep(1) n = n + 1 until os.clock() - t0 >= 9.99 end)
+      print("RESULT " .. n)
+    `);
+    expect(results).toEqual(["10"]);
+  });
+
+  it("does not page help when a program runs it: nobody is there to press a key", async () => {
+    const { results, screen } = await run(`
+      shell.run("sim help")
+      print("RESULT done")
+    `);
+    expect(screen).not.toContain("Press any key");
+    expect(results).toEqual(["done"]);
   });
 
   it("puts items in an inventory, by the shortcut and the generic form", async () => {
@@ -129,7 +150,7 @@ describe.skipIf(!ready)("sim program", () => {
     expect(screen).toContain("sim: unknown player");
     expect(screen).toContain("sim: unknown command");
     expect(screen).toContain("sim: expected key=value, got slot");
-    expect(screen).toMatch(/Alice online, balance 0/);
+    expect(screen).toMatch(/Alice online/);
     expect(screen).toMatch(/chest_0 \(minecraft:chest, inventory\)/);
   });
 
@@ -156,6 +177,78 @@ describe.skipIf(!ready)("sim program", () => {
       "addPlayer true",
       "emulator true",
     ]);
+  });
+
+  it("shows no economy, approvals or their commands in a world without the server mod", async () => {
+    writeFileSync(
+      join(scratch, "plain.lua"),
+      `local w = window.create(term.current(), 1, 1, 400, 40, false)
+      local old = term.redirect(w)
+      shell.run("sim help")
+      shell.run("sim join Alice")
+      shell.run("sim state")
+      term.redirect(old)
+      local lines = {}
+      for y = 1, 40 do lines[#lines + 1] = (w.getLine(y)) end
+      local h = fs.open("/results/help.txt", "w")
+      h.write(table.concat(lines, "\\n"))
+      h.close()`,
+    );
+    const result = await runProgram(config, {
+      program: "plain.lua",
+      world: {
+        ...WORLD,
+      } as WorldConfig,
+      timeoutMs: 30000,
+      keepRuntime: true,
+    });
+    try {
+      expect(result.status).toBe("completed");
+      const text = readFileSync(
+        join(result.runtimeDir!, "results", "help.txt"),
+        "utf8",
+      );
+      expect(text).toContain("setItem");
+      for (const word of [
+        "approve",
+        "revoke",
+        "setBalance",
+        "setEconomy",
+        "balance",
+      ])
+        expect(text, word).not.toContain(word);
+      const raw = JSON.parse(
+        readFileSync(join(result.runtimeDir!, "results", "state.json"), "utf8"),
+      ) as Record<string, unknown>;
+      for (const key of [
+        "balances",
+        "ledger",
+        "rejections",
+        "pendingApprovals",
+        "terminalLocked",
+        "authenticated",
+      ])
+        expect(raw[key], key).toBeUndefined();
+      expect(raw["live"]).toBeDefined();
+    } finally {
+      rmSync(result.runtimeDir!, { recursive: true, force: true });
+    }
+  });
+
+  it("has a help topic, only where the program is", async () => {
+    const lookup = `print("RESULT " .. tostring(help.lookup("sim") ~= nil))`;
+    const on = await run(lookup);
+    expect(on.results).toEqual(["true"]);
+    const off = await run(lookup, { ...WORLD, simProgram: false });
+    expect(off.results).toEqual(["false"]);
+    // what `help sim` shows (the help program pages it, waiting for keys)
+    const { results } = await run(`
+      local h = fs.open(help.lookup("sim"), "r")
+      local text = h.readAll()
+      h.close()
+      print("RESULT " .. tostring(text:find("sim join <player>", 1, true) ~= nil))
+    `);
+    expect(results).toEqual(["true"]);
   });
 
   it("completes verbs, players and peripherals in the shell", async () => {

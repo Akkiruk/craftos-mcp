@@ -86,7 +86,7 @@ T("argument errors", function()
   eq(err(deck.read, 1, 1), "bad argument #2 (boolean expected, got number)")
   eq(err(deck.write), "bad argument #1 (string expected, got nil)")
   eq(err(deck.seek), "bad argument #1 (number expected, got nil)")
-  eq(err(reel.seekAbs, 1.5), "bad argument #1 (number has no integer representation)")
+  eq(err(reel.seekAbs, 0 / 0), "bad argument #1 (number expected, got nan)") -- 1.5 would be 1: CC truncates
   eq(err(reel.lock, "y"), "bad argument #1 (boolean expected, got string)")
   eq(err(writer.writeCard), "bad argument #1 (string expected, got nil)")
 end)

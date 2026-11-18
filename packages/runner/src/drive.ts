@@ -858,6 +858,32 @@ export async function holdKey(
 }
 
 /**
+ * Reboot or shut down a computer as holding Ctrl+R / Ctrl+S does. The sim reboots before it can acknowledge the
+ * command, so it is sent once the program waits for an event: that event is the command, applied at once. A program
+ * that never waits (a busy loop) has its engine stopped instead, and started again for a reboot. A computer that is
+ * off starts for a reboot.
+ */
+export async function powerCycle(
+  handle: EngineHandle,
+  how: "reboot" | "shutdown",
+): Promise<void> {
+  if (!handle.session.running) {
+    if (how === "reboot") handle.restart();
+    return;
+  }
+  const start = Date.now();
+  while (Date.now() - start < 3000) {
+    if (readWaiting(handle)?.blocked) {
+      handle.sendCommand({ cmd: how });
+      return;
+    }
+    await sleep(25);
+  }
+  await handle.session.stop();
+  if (how === "reboot") handle.restart();
+}
+
+/**
  * Touch a monitor cell, optionally as a named player: each touch carries its own player, so two players' touches
  * close together keep their own names. A name the world does not hold is an error, not a touch by someone else.
  */
@@ -869,12 +895,13 @@ export function touchMonitorAs(
   player?: string,
 ): void {
   if (player !== undefined) {
-    const balances = handle.readState()?.balances;
-    const known =
-      balances &&
-      Object.keys(balances).some(
-        (n) => n.toLowerCase() === player.toLowerCase(),
-      );
+    // the world's players as they stand (a world without the server mod has no balances to read them from)
+    const state = handle.readState();
+    const names = [
+      ...Object.keys(state?.balances ?? {}),
+      ...(state?.live?.players ?? []).map((p) => String(p?.name ?? "")),
+    ];
+    const known = names.some((n) => n.toLowerCase() === player.toLowerCase());
     if (!known)
       throw new Error(
         `unknown player "${player}": add them first (world players or the addPlayer sim command)`,

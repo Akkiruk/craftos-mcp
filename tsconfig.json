@@ -8,6 +8,9 @@
       "path": "./packages/rawterm"
     },
     {
+      "path": "./packages/world-editor"
+    },
+    {
       "path": "./packages/runner"
     },
     {

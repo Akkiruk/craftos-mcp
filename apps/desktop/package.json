@@ -1,0 +1,24 @@
+{
+  "name": "craftos-desktop",
+  "productName": "CraftOS",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CraftOS: the CC:Tweaked emulator as a desktop app. Pick a folder, press Run.",
+  "author": "craftos-mcp contributors",
+  "license": "MIT",
+  "homepage": "https://github.com/Akkiruk/craftos-mcp",
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "node scripts/build.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
+  },
+  "devDependencies": {
+    "electron": "45.3.4",
+    "electron-builder": "26.18.0"
+  },
+  "desktopName": "craftos-desktop.desktop"
+}

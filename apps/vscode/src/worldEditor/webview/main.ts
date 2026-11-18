@@ -1,11 +1,46 @@
 // The World Editor webview: the computer with its six sides, the blocks on its network, a map from above, the other
 // computers in the folder, and a form for whatever is selected. Every change goes to the extension as edit ops on
 // paths; the extension edits the text and sends the new world back, so the text document is the only state.
+// The model, the forms, the Add list and the edits are packages/world-editor's, shared with the browser app.
 import "./worldEditor.css";
-import type { EditOp, JsonPath } from "../jsonDoc.ts";
+import {
+  STORAGE,
+  type TypeEntry,
+  typeCatalog,
+} from "../../../../../packages/world-editor/src/catalog.ts";
+import {
+  h,
+  icon,
+  iconKind,
+} from "../../../../../packages/world-editor/src/dom.ts";
+import {
+  addOps,
+  computerTitle,
+  duplicateOps,
+  monitorChars,
+  moveToSide as moveOps,
+  thingTitle as titleOf,
+  toNetwork as networkOps,
+  valueAt as valueIn,
+} from "../../../../../packages/world-editor/src/edits.ts";
+import {
+  restoreFocus as restoreSnapshot,
+  snapshotFocus as snapshot,
+} from "../../../../../packages/world-editor/src/focus.ts";
+import {
+  type FormContext,
+  firstSentence,
+  keyOf,
+  renderField,
+  renderItems,
+  renderObject,
+} from "../../../../../packages/world-editor/src/form.ts";
+import type {
+  EditOp,
+  JsonPath,
+} from "../../../../../packages/world-editor/src/jsonDoc.ts";
 import {
   type AddonCatalog,
-  type ComputerFacts,
   type Neighbour,
   type Thing,
   type World,
@@ -13,13 +48,15 @@ import {
   addonsOn,
   bySide,
   computerOf,
-  freeName,
-  freeSide,
   linkBetween,
   mcOf,
   neighbourOf,
   thingsOf,
-} from "../model.ts";
+} from "../../../../../packages/world-editor/src/model.ts";
+import {
+  type PickerState,
+  renderPicker,
+} from "../../../../../packages/world-editor/src/picker.ts";
 import {
   type Field,
   type Problem,
@@ -30,15 +67,7 @@ import {
   fieldsOf,
   isSide,
   peripheralTypes,
-} from "../schema.ts";
-import { h, icon, iconKind } from "./dom.ts";
-import {
-  type FormContext,
-  firstSentence,
-  keyOf,
-  renderField,
-  renderObject,
-} from "./form.ts";
+} from "../../../../../packages/world-editor/src/schema.ts";
 import { mapItems, renderMap } from "./map.ts";
 
 declare function acquireVsCodeApi(): {
@@ -66,7 +95,7 @@ interface State {
   neighbours: readonly Neighbour[];
   selected: string;
   showProblems: boolean;
-  adding?: { side?: Side; filter: string; active: number };
+  adding?: PickerState;
 }
 
 const saved = (vscode.getState() ?? {}) as { selected?: string };
@@ -124,186 +153,32 @@ function keyExists(key: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Peripheral types: grouped for the Add list
-
-interface TypeEntry {
-  readonly label: string;
-  readonly type: string;
-  readonly group: string;
-  readonly description: string;
-  /** Fields a new one starts with besides name and type. */
-  readonly preset?: Record<string, unknown>;
-  readonly addon?: string;
-  readonly target: "monitor" | "player" | "peripheral";
-}
+// Peripheral types: grouped for the Add list (packages/world-editor/src/catalog.ts)
 
 let typeIndex: TypeEntry[] | undefined;
 
-const STORAGE = new Set([
-  "minecraft:chest",
-  "minecraft:trapped_chest",
-  "minecraft:barrel",
-  "minecraft:hopper",
-  "minecraft:dispenser",
-  "minecraft:dropper",
-  "minecraft:shulker_box",
-  "minecraft:furnace",
-  "inventory",
-  "fluid_storage",
-  "energy_storage",
-]);
-
 function types(): TypeEntry[] {
-  if (typeIndex) return typeIndex;
-  const all = state.schema ? peripheralTypes(state.schema) : [];
-  const describe = (t: string): string =>
-    all.find((x) => x.type === t)?.description ?? "";
-  const cc = "CC:Tweaked";
-  const out: TypeEntry[] = [
-    {
-      label: "Monitor",
-      type: "monitor",
-      group: cc,
-      description: "A monitor wall: 1x1 up to 8x6 blocks.",
-      target: "monitor",
-    },
-    {
-      label: "Wireless modem",
-      type: "modem",
-      group: cc,
-      description: "Reaches wireless modems within 64 blocks (384 high up).",
-      target: "peripheral",
-    },
-    {
-      label: "Ender modem",
-      type: "modem",
-      group: cc,
-      description: "Reaches every wireless modem, any distance, any dimension.",
-      preset: { kind: "ender" },
-      target: "peripheral",
-    },
-    {
-      label: "Wired modem",
-      type: "modem",
-      group: cc,
-      description:
-        "Joins a wired network by its id, or through cables at `block`.",
-      preset: { kind: "wired", network: "main" },
-      target: "peripheral",
-    },
-    {
-      label: "Speaker",
-      type: "speaker",
-      group: cc,
-      description: describe("speaker"),
-      target: "peripheral",
-    },
-    {
-      label: "Disk drive",
-      type: "drive",
-      group: cc,
-      description: describe("drive"),
-      target: "peripheral",
-    },
-    {
-      label: "Redstone relay",
-      type: "redstone_relay",
-      group: cc,
-      description: describe("redstone_relay"),
-      target: "peripheral",
-    },
-    {
-      label: "Player",
-      type: "player",
-      group: cc,
-      description:
-        "Someone on the server: detectors, chat boxes and inventory managers see them.",
-      target: "player",
-    },
-  ];
-  for (const t of STORAGE)
-    out.push({
-      label: t,
-      type: t,
-      group: "Storage (any mod's blocks)",
-      description: describe(t),
-      target: "peripheral",
-    });
-  const taken = new Set([
-    "modem",
-    "speaker",
-    "drive",
-    "redstone_relay",
-    ...STORAGE,
-  ]);
-  for (const a of state.catalog.addons)
-    for (const t of a.types) {
-      if (taken.has(t)) continue;
-      taken.add(t);
-      out.push({
-        label: t,
-        type: t,
-        group: a.name,
-        addon: a.id,
-        description: describe(t),
-        target: "peripheral",
-      });
-    }
-  for (const t of all)
-    if (!taken.has(t.type))
-      out.push({
-        label: t.type,
-        type: t.type,
-        group: "Other types",
-        description: t.description,
-        target: "peripheral",
-      });
-  typeIndex = out;
-  return out;
+  typeIndex ??= typeCatalog(state.schema, state.catalog);
+  return typeIndex;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Edits
+// Edits (packages/world-editor/src/edits.ts)
 
 function thingAt(key: string): Thing | undefined {
   return thingsOf(state.world ?? {}).find((t) => keyOf(t.path) === key);
 }
 
 function valueAt(path: JsonPath): unknown {
-  let v: unknown = state.world;
-  for (const seg of path)
-    v =
-      v && typeof v === "object"
-        ? (v as Record<string | number, unknown>)[seg]
-        : undefined;
-  return v;
+  return valueIn(state.world, path);
 }
 
-/** Ops that put `thing` on `side`; whatever was there takes the thing's old place. */
 function moveToSide(thing: Thing, side: Side): EditOp[] {
-  const world = state.world ?? {};
-  const occupant = bySide(thingsOf(world))[side].find(
-    (t) => t.kind !== "player" && keyOf(t.path) !== keyOf(thing.path),
-  );
-  const ops: EditOp[] = [
-    { op: "set", path: [...thing.path, "name"], value: side },
-  ];
-  if (occupant) {
-    const back = thing.side ?? freeName(world, occupant.type);
-    ops.push({ op: "set", path: [...occupant.path, "name"], value: back });
-  }
-  return ops;
+  return moveOps(state.world ?? {}, thing, side, keyOf);
 }
 
 function toNetwork(thing: Thing): EditOp[] {
-  if (!thing.side) return [];
-  return [
-    {
-      op: "set",
-      path: [...thing.path, "name"],
-      value: freeName(state.world ?? {}, thing.type),
-    },
-  ];
+  return networkOps(state.world ?? {}, thing);
 }
 
 function remove(thing: Thing): void {
@@ -312,84 +187,16 @@ function remove(thing: Thing): void {
 }
 
 function duplicate(thing: Thing): void {
-  const world = state.world ?? {};
-  const copy = JSON.parse(JSON.stringify(valueAt(thing.path))) as Record<
-    string,
-    unknown
-  >;
-  const list = thing.path[0] as string;
-  if (thing.kind === "player") copy["name"] = `${thing.name} 2`;
-  else copy["name"] = freeName(world, thing.type);
-  const index = (Array.isArray(world[list]) ? (world[list] as unknown[]) : [])
-    .length;
-  edit([{ op: "push", path: [list], value: copy }]);
-  select(keyOf([list, index]), false);
+  const { ops, path } = duplicateOps(state.world ?? {}, thing);
+  edit(ops);
+  select(keyOf(path), false);
 }
 
 function add(entry: TypeEntry, side?: Side): void {
-  const world = state.world ?? {};
-  const comp = computerOf(world);
-  const ops: EditOp[] = [];
-  const count = (key: string): number =>
-    Array.isArray(world[key]) ? (world[key] as unknown[]).length : 0;
-  let newKey: string;
-  if (entry.target === "player") {
-    const n = count("players");
-    ops.push({
-      op: "push",
-      path: ["players"],
-      value: {
-        name: n ? `Player${n + 1}` : "Alice",
-        x: comp.x + 2,
-        y: comp.y,
-        z: comp.z,
-      },
-    });
-    newKey = keyOf(["players", n]);
-  } else if (entry.target === "monitor") {
-    const name = side ?? freeSide(world) ?? freeName(world, "monitor");
-    ops.push({
-      op: "push",
-      path: ["monitors"],
-      value: { name, blocksWide: 3, blocksHigh: 2 },
-    });
-    newKey = keyOf(["monitors", count("monitors")]);
-    if (side) ops.unshift(...clear(side));
-  } else {
-    const name =
-      side ??
-      (entry.type === "modem" ? freeSide(world) : undefined) ??
-      freeName(world, entry.type);
-    ops.push({
-      op: "push",
-      path: ["peripherals"],
-      value: { name, type: entry.type, ...(entry.preset ?? {}) },
-    });
-    newKey = keyOf(["peripherals", count("peripherals")]);
-    if (side) ops.unshift(...clear(side));
-    // switch the addon on when the world lists its addons
-    if (
-      entry.addon &&
-      Array.isArray(world["addons"]) &&
-      !(world["addons"] as unknown[]).includes(entry.addon)
-    ) {
-      const a = state.catalog.addons.find((x) => x.id === entry.addon);
-      ops.push({ op: "push", path: ["addons"], value: entry.addon });
-      for (const need of a?.requires ?? [])
-        if (!(world["addons"] as unknown[]).includes(need))
-          ops.push({ op: "push", path: ["addons"], value: need });
-    }
-  }
+  const { ops, path } = addOps(state.world ?? {}, entry, state.catalog, side);
   state.adding = undefined;
-  select(newKey, false);
+  select(keyOf(path), false);
   edit(ops);
-}
-
-/** Whatever is on `side` moves to the network, to make room. */
-function clear(side: Side): EditOp[] {
-  return bySide(thingsOf(state.world ?? {}))
-    [side].filter((t) => t.kind !== "player")
-    .flatMap(toNetwork);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -424,23 +231,8 @@ function ownerOf(p: Problem): string {
   return "computer";
 }
 
-function computerTitle(c: ComputerFacts): string {
-  const adv = c.advanced ? "Advanced " : "";
-  if (c.kind === "turtle") return `${adv}Turtle`;
-  if (c.kind === "pocket") return `${adv}Pocket Computer`;
-  if (c.kind === "android") return "Android";
-  if (c.kind === "drone") return "Drone";
-  return `${adv}Computer`;
-}
-
 function thingTitle(t: Thing): string {
-  if (t.kind === "monitor") {
-    const m = (valueAt(t.path) ?? {}) as Record<string, unknown>;
-    return `Monitor ${m["blocksWide"] ?? 1}×${m["blocksHigh"] ?? 1}`;
-  }
-  if (t.kind === "player") return t.name || "Player";
-  if (t.modem) return `${t.modem[0]!.toUpperCase()}${t.modem.slice(1)} modem`;
-  return t.type || "(no type)";
+  return titleOf(state.world ?? {}, t);
 }
 
 function render(): void {
@@ -1073,7 +865,19 @@ function inspector(): Node[] {
     });
   } else {
     form = renderObject(ctx, t.path, root.definitions?.["Peripheral"], value, {
-      custom: { name: nameField(t), type: typeField(t) },
+      custom: {
+        name: nameField(t),
+        type: typeField(t),
+        items: (p, v, f) =>
+          renderItems(
+            ctx,
+            p,
+            v,
+            f,
+            Number((value as Record<string, unknown> | undefined)?.["size"]) ||
+              undefined,
+          ),
+      },
       showAllUpTo: 16,
     });
   }
@@ -1084,9 +888,7 @@ function monitorPreview(m: Record<string, unknown>): HTMLElement {
   const w = Number(m["blocksWide"] ?? 1) || 1;
   const hh = Number(m["blocksHigh"] ?? 1) || 1;
   const scale = Number(m["textScale"] ?? 1) || 1;
-  // CC:Tweaked's MonitorBlockEntity: (64 * blocks - 20) / (6 or 9 * scale) characters
-  const cols = Math.max(1, Math.round((64 * w - 20) / (6 * scale)));
-  const rows = Math.max(1, Math.round((64 * hh - 20) / (9 * scale)));
+  const { cols, rows } = monitorChars(w, hh, scale);
   const screen = h("div", { class: "monitor-screen", "aria-hidden": "true" });
   const unit = Math.min(200 / Math.max(w, 1), 90 / Math.max(hh, 1), 40);
   screen.style.setProperty("width", `${unit * w}px`);
@@ -1673,276 +1475,40 @@ function openAdd(side?: Side): void {
   render();
 }
 
-function matches(): TypeEntry[] {
-  const f = state.adding!.filter.trim().toLowerCase();
-  let list = types();
-  if (state.adding?.side) list = list.filter((t) => t.target !== "player");
-  if (!f) return list;
-  return list.filter((t) =>
-    `${t.label} ${t.type} ${t.group} ${t.description}`
-      .toLowerCase()
-      .includes(f),
-  );
-}
-
 function addDialog(): HTMLElement {
   const a = state.adding!;
-  const list = matches();
   const world = state.world!;
-  const on = addonsOn(
-    world,
-    state.catalog,
-    mcOf(world, state.defaults.mc),
-    state.defaults.addons,
-  );
-  const custom =
-    a.filter.trim() && !list.some((t) => t.type === a.filter.trim())
-      ? a.filter.trim()
-      : undefined;
-  const entries: TypeEntry[] = custom
-    ? [
-        ...list,
-        {
-          label: `${custom} (a block of your own naming)`,
-          type: custom,
-          group: "Your own",
-          description: "A generic block: give it size/items, tanks or energy.",
-          target: "peripheral",
-          preset: { size: 9 },
-        },
-      ]
-    : list;
-  a.active = Math.max(0, Math.min(a.active, entries.length - 1));
-  const close = (): void => {
-    state.adding = undefined;
-    pendingFocus = a.side ? `tile:${a.side}` : "tb:add";
-    render();
-  };
-  const search = h("input", {
-    type: "search",
-    placeholder:
-      "Search 260+ block types: chest, modem, playerDetector, mekanism...",
-    value: a.filter,
-    "data-key": "add:search",
-    "aria-label": "Search block types",
-    "aria-controls": "add-list",
-    "aria-activedescendant": entries.length ? `add-${a.active}` : undefined,
-    role: "combobox",
-    "aria-expanded": "true",
-  });
-  search.addEventListener("input", () => {
-    a.filter = search.value;
-    a.active = 0;
-    render();
-  });
-  search.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      a.active = Math.max(
-        0,
-        Math.min(
-          entries.length - 1,
-          a.active + (e.key === "ArrowDown" ? 1 : -1),
-        ),
-      );
-      render();
-      document
-        .getElementById(`add-${a.active}`)
-        ?.scrollIntoView({ block: "nearest" });
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const pick = entries[a.active];
-      if (pick) add(pick, a.side);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-    }
-  });
-  let group = "";
-  const items: HTMLElement[] = [];
-  entries.forEach((t, k) => {
-    if (t.group !== group) {
-      group = t.group;
-      const addonOff = t.addon && !on.has(t.addon);
-      items.push(
-        h(
-          "li",
-          { class: "group-head", role: "presentation" },
-          group,
-          addonOff
-            ? h("span", { class: "badge off" }, "off in this world")
-            : null,
-        ),
-      );
-    }
-    items.push(
-      h(
-        "li",
-        {
-          id: `add-${k}`,
-          role: "option",
-          class: `option${k === a.active ? " active" : ""}`,
-          "aria-selected": k === a.active ? "true" : "false",
-          onclick: () => add(t, a.side),
-          onmousemove: () => {
-            if (a.active !== k) {
-              a.active = k;
-              for (const el of Array.from(
-                document.querySelectorAll(".option.active"),
-              ))
-                el.classList.remove("active");
-              document.getElementById(`add-${k}`)?.classList.add("active");
-            }
-          },
-        },
-        t.target === "monitor"
-          ? icon("monitor")
-          : icon(
-              iconKind(
-                t.type,
-                (t.preset?.["kind"] as string | undefined) ??
-                  (t.type === "modem" ? "wireless" : undefined),
-              ),
-            ),
-        h(
-          "span",
-          { class: "option-main" },
-          h("span", { class: "option-label" }, t.label),
-          t.description
-            ? h("span", { class: "option-desc" }, firstSentence(t.description))
-            : null,
-        ),
-      ),
-    );
-  });
-  return h(
-    "div",
-    {
-      class: "overlay",
-      onclick: (e: Event) => {
-        if (e.target === e.currentTarget) close();
-      },
-    },
-    h(
-      "div",
-      {
-        class: "dialog",
-        role: "dialog",
-        "aria-modal": "true",
-        "aria-label": a.side ? `Add on the ${a.side} side` : "Add a block",
-        // Tab stays in the dialog: the search box and the close button
-        onkeydown: (e: Event) => {
-          const k = e as KeyboardEvent;
-          if (k.key !== "Tab") return;
-          const stops = Array.from(
-            document.querySelectorAll<HTMLElement>(
-              ".dialog input, .dialog button",
-            ),
-          );
-          const i = stops.indexOf(document.activeElement as HTMLElement);
-          k.preventDefault();
-          stops[
-            (i + (k.shiftKey ? -1 : 1) + stops.length) % stops.length
-          ]?.focus();
-        },
-      },
-      h(
-        "div",
-        { class: "dialog-head" },
-        h(
-          "h2",
-          {},
-          a.side
-            ? `Put on the ${a.side} side`
-            : "Add a block, monitor or player",
-        ),
-        h(
-          "button",
-          { class: "icon-button", "aria-label": "Close", onclick: close },
-          "×",
-        ),
-      ),
-      search,
-      h(
-        "ul",
-        {
-          id: "add-list",
-          class: "options",
-          role: "listbox",
-          "aria-label": "Block types",
-        },
-        items.length ? items : h("li", { class: "hint" }, "Nothing matches."),
-      ),
-      h(
-        "p",
-        { class: "hint" },
-        a.side
-          ? "It goes on that side; whatever was there moves to the network."
-          : "Monitors and modems take a free side; other blocks go on the network, named like minecraft:chest_0.",
-      ),
+  return renderPicker({
+    state: a,
+    types: types(),
+    addonsOn: addonsOn(
+      world,
+      state.catalog,
+      mcOf(world, state.defaults.mc),
+      state.defaults.addons,
     ),
-  );
+    pick: (entry, side) => add(entry, side),
+    close: () => {
+      state.adding = undefined;
+      pendingFocus = a.side ? `tile:${a.side}` : "tb:add";
+      render();
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Focus and scroll survive a redraw
+// Focus and scroll survive a redraw (packages/world-editor/src/focus.ts)
 
-interface Snapshot {
-  key?: string;
-  start?: number | null;
-  end?: number | null;
-  value?: string;
-  dirty?: boolean;
-  scroll: Record<string, number>;
-}
+type Snapshot = ReturnType<typeof snapshot>;
 
 function snapshotFocus(): Snapshot {
-  const el = document.activeElement as HTMLElement | null;
-  const scroll: Record<string, number> = {};
-  for (const sel of [".scene", ".inspector", ".options"]) {
-    const s = document.querySelector(sel);
-    if (s) scroll[sel] = s.scrollTop;
-  }
-  const key = el?.getAttribute?.("data-key") ?? undefined;
-  const out: Snapshot = { key, scroll };
-  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-    try {
-      out.start = el.selectionStart;
-      out.end = el.selectionEnd;
-    } catch {
-      // number inputs have no selection
-    }
-    out.value = el.value;
-    out.dirty = el.value !== el.defaultValue && el.type !== "search";
-  }
-  return out;
+  return snapshot([".scene", ".inspector", ".options"]);
 }
 
 function restoreFocus(s: Snapshot): void {
-  for (const [sel, top] of Object.entries(s.scroll)) {
-    const el = document.querySelector(sel);
-    if (el) el.scrollTop = top;
-  }
   const want = pendingFocus ?? s.key;
   pendingFocus = undefined;
-  if (!want) return;
-  const el = Array.from(
-    document.querySelectorAll<HTMLElement>("[data-key]"),
-  ).find((e) => e.getAttribute("data-key") === want);
-  if (!el) return;
-  el.focus({ preventScroll: want !== s.key });
-  if (want !== s.key) el.scrollIntoView({ block: "nearest" });
-  if (
-    want === s.key &&
-    (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)
-  ) {
-    if (s.dirty && s.value !== undefined) el.value = s.value;
-    try {
-      if (s.start != null) el.setSelectionRange(s.start, s.end ?? s.start);
-    } catch {
-      // number inputs
-    }
-  }
+  restoreSnapshot(s, want);
 }
 
 document.addEventListener("keydown", (e) => {

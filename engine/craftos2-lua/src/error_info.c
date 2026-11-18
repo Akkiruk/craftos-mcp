@@ -31,7 +31,7 @@
 
 
 #define resolverope(L, o) {if (ttisrope(o)) setsvalue(L, o, luaS_build(L, rawtrvalue(o)));}
-#define resolvesubstr(L, o) {if (ttissubstr(o)) setsvalue(L, o, luaS_newlstr(L, getstr(ssvalue(o)->str) + ssvalue(o)->offset, ssvalue(o)->len));}
+#define resolvesubstr(L, o) {if (ttissubstr(o)) setsvalue(L, o, luaS_resolvesub(L, rawssvalue(o)));}
 
 static int gettableSafe (lua_State *L, const TValue *t, TValue *key, StkId val) {
     int loop;

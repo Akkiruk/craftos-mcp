@@ -50,7 +50,7 @@ sessions and the last run.
 
 ## MCP surface
 
-30 tools, all named `craftos_*` (`apps/mcp-server/src/index.ts`).
+32 tools, all named `craftos_*` (`apps/mcp-server/src/index.ts`).
 `CRAFTOS_TOOLS=core` offers 17 of them. `craftos_info` reports the server,
 the engine, the Minecraft versions and the addons; `craftos_help` explains the
 rest.

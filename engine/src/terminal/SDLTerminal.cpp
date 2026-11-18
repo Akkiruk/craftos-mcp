@@ -16,6 +16,7 @@
 #include "../gif.hpp"
 #include "../main.hpp"
 #include "../runtime.hpp"
+#include "../simclock.hpp"
 #include "../termsupport.hpp"
 #ifndef NO_WEBP
 #include <webp/mux.h>
@@ -32,6 +33,7 @@
 #define EMSCRIPTEN_ENABLED 0
 #endif
 #define rgb(color) (((color).r << 16) | ((color).g << 8) | (color).b)
+static void sayWhere(const char * what, const path_t& path);
 
 extern "C" {
     struct font_image {
@@ -384,6 +386,7 @@ void SDLTerminal::render() {
 #ifndef NO_WEBP
             }
 #endif
+            sayWhere("screenshot", screenshotPath);
         }
         SDL_FreeSurface(temp);
 #ifdef __EMSCRIPTEN__
@@ -496,12 +499,30 @@ bool SDLTerminal::resizeWholeWindow(int w, int h) {
     return r;
 }
 
+// craftos-agent: CRAFTOS_SCREENSHOT_DIR puts F2 screenshots and F3 recordings in a folder the person keeps (the
+// emulator's own data folder is a scratch one, gone when the window closes), and says where each one went.
+static path_t screenshotDir() {
+#ifdef _WIN32
+    const wchar_t * dir = _wgetenv(L"CRAFTOS_SCREENSHOT_DIR");
+#else
+    const char * dir = getenv("CRAFTOS_SCREENSHOT_DIR");
+#endif
+    if (dir != NULL && *dir) return path_t(dir);
+    return getBasePath() / "screenshots";
+}
+
+static void sayWhere(const char * what, const path_t& path) {
+    if (getenv("CRAFTOS_SCREENSHOT_DIR") == NULL) return;
+    fprintf(stderr, "%s saved: %s\n", what, path.u8string().c_str());
+    fflush(stderr);
+}
+
 void SDLTerminal::screenshot(std::string path) {
     if (!path.empty()) screenshotPath = path_t(path, path == "clipboard" ? path_t::format::generic_format : path_t::format::auto_format);
     else {
         time_t now = time(0);
         struct tm * nowt = localtime(&now);
-        screenshotPath = getBasePath() / "screenshots";
+        screenshotPath = screenshotDir();
         std::error_code e;
         fs::create_directories(screenshotPath, e);
         if (e) return;
@@ -528,7 +549,7 @@ void SDLTerminal::record(std::string path) {
     else {
         time_t now = time(0);
         struct tm * nowt = localtime(&now);
-        recordingPath = getBasePath() / "screenshots";
+        recordingPath = screenshotDir();
         std::error_code e;
         fs::create_directories(recordingPath, e);
         if (e) return;
@@ -565,6 +586,7 @@ void SDLTerminal::stopRecording() {
     }
 #endif
     recorderHandle = NULL;
+    sayWhere("recording", recordingPath);
 #ifdef __EMSCRIPTEN__
     queueTask([](void*)->void*{emsyncfs(); return NULL;}, NULL, true);
 #endif
@@ -731,6 +753,18 @@ bool SDLTerminal::pollEvents() {
                 }
             }
         } else {
+            // craftos-agent: the clock's keys (simclock.hpp) belong to the window, not the computer; closing the window
+            // runs a paused clock again, so the computer sees it close
+            if (!rawClient && e.type == SDL_KEYDOWN && !config.ignoreHotkeys && simclock::hotkey(e.key.keysym.sym, e.key.keysym.mod)) {
+                const std::string tag = simclock::tag();
+                std::lock_guard<std::mutex> lock(renderTargetsLock);
+                for (Terminal * term : renderTargets) {
+                    SDLTerminal * sdlterm = dynamic_cast<SDLTerminal*>(term);
+                    if (sdlterm != NULL && sdlterm->win != NULL) SDL_SetWindowTitle(sdlterm->win, (tag + sdlterm->title).c_str());
+                }
+                return false;
+            }
+            if (e.type == SDL_QUIT || (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_CLOSE)) simclock::command("resume");
             if (rawClient) {
                 sendRawEvent(e);
             } else if (!computers.locked()) {

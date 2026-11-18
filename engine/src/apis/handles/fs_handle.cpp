@@ -38,11 +38,24 @@ EM_JS(void, emsyncfs, (), {
 })
 #endif
 
+/**
+ * craftos-agent: whether a write of n bytes would go past what the floppy the file is on has left. CC's counting
+ * channel refuses such a write whole, before any of it is written, and the handle raises "Out of space". Files on
+ * the computer's own drive (or a disk with room) are not refused. CC:Tweaked 1.101.3's text handles buffer 8 KiB
+ * first, so there the error comes later than here (docs/conformance/emulator-vs-real-deviations.md).
+ */
+static bool outOfSpace(std::iostream * fp, size_t n) {
+    if (!floppyTracked(fp)) return false;
+    const std::streampos pos = fp->rdbuf()->pubseekoff(0, std::ios::cur, std::ios::out);
+    return !floppyMayWrite(fp, pos == std::streampos(-1) ? 0 : (long long)pos, n);
+}
+
 int fs_handle_close(lua_State *L) {
     lastCFunction = __func__;
     std::iostream ** fp = (std::iostream**)lua_touserdata(L, lua_upvalueindex(1));
     if (*fp == NULL)
         return luaL_error(L, "attempt to use a closed file");
+    floppyForget(*fp);
     if (dynamic_cast<std::fstream*>(*fp) != NULL) delete (std::fstream*)*fp;
     else if (dynamic_cast<std::stringstream*>(*fp) != NULL) delete (std::stringstream*)*fp;
     else delete *fp;
@@ -59,6 +72,7 @@ int fs_handle_gc(lua_State *L) {
     std::iostream ** fp = (std::iostream**)lua_touserdata(L, lua_upvalueindex(1));
     if (*fp == NULL)
         return 0;
+    floppyForget(*fp);
     if (dynamic_cast<std::fstream*>(*fp) != NULL) delete (std::fstream*)*fp;
     else if (dynamic_cast<std::stringstream*>(*fp) != NULL) delete (std::stringstream*)*fp;
     else delete *fp;
@@ -317,12 +331,14 @@ int fs_handle_writeString(lua_State *L) {
     if (!fp->good()) return luaL_error(L, "Could not write file");
     if (lua_type(L, 1) == LUA_TNUMBER) {
         const std::string text = javaDoubleToString(lua_tonumber(L, 1));
+        if (outOfSpace(fp, text.length())) return luaL_error(L, "Out of space");
         fp->write(text.c_str(), text.length());
         return 0;
     }
     size_t sz = 0;
     const char * str = lua_tolstring(L, 1, &sz);
     const std::string encoded = encodeTextString(str, sz);
+    if (outOfSpace(fp, encoded.length())) return luaL_error(L, "Out of space");
     fp->write(encoded.c_str(), encoded.length());
     return 0;
 }
@@ -340,12 +356,14 @@ int fs_handle_writeLine(lua_State *L) {
     if (!fp->good()) return luaL_error(L, "Could not write file");
     if (lua_type(L, 1) == LUA_TNUMBER) {
         const std::string text = javaDoubleToString(lua_tonumber(L, 1)) + "\n";
+        if (outOfSpace(fp, text.length())) return luaL_error(L, "Out of space");
         fp->write(text.c_str(), text.length());
         return 0;
     }
     size_t sz = 0;
     const char * str = lua_tolstring(L, 1, &sz);
     const std::string encoded = encodeTextString(str, sz);
+    if (outOfSpace(fp, encoded.length() + 1)) return luaL_error(L, "Out of space");
     fp->write(encoded.c_str(), encoded.length());
     fp->put('\n');
     return 0;
@@ -362,11 +380,13 @@ int fs_handle_writeByte(lua_State *L) {
     if (!fp->good()) return luaL_error(L, "Could not write file");
     if (lua_type(L, 1) == LUA_TNUMBER) {
         const char b = (unsigned char)(lua_tointeger(L, 1) & 0xFF);
+        if (outOfSpace(fp, 1)) return luaL_error(L, "Out of space");
         fp->put(b);
     } else if (lua_isstring(L, 1)) {
         size_t sz = 0;
         const char * str = lua_tolstring(L, 1, &sz);
         if (sz == 0) return 0;
+        if (outOfSpace(fp, sz)) return luaL_error(L, "Out of space");
         fp->write(str, sz);
     } else return luaL_error(L, "bad argument #1 (number or string expected, got %s)", lua_typename(L, lua_type(L, 1)));
     return 0;
@@ -499,11 +519,13 @@ static int writeRaw(lua_State *L, bool binary, bool newline) {
     std::iostream * fp = rawHandle(L);
     std::streambuf * buf = fp->rdbuf();
     if (binary && !newline && lua_type(L, 1) == LUA_TNUMBER) {
+        if (outOfSpace(fp, 1)) return luaL_error(L, "Out of space");
         if (buf->sputc((char)(unsigned char)(lua_tointeger(L, 1) & 0xFF)) == EOF) return luaL_error(L, "Could not write file");
         return 0;
     }
     std::string text = coercedBytes(L, 1);
     if (newline) text += '\n';
+    if (outOfSpace(fp, text.size())) return luaL_error(L, "Out of space");
     if (buf->sputn(text.c_str(), (std::streamsize)text.size()) != (std::streamsize)text.size()) return luaL_error(L, "Could not write file");
     return 0;
 }

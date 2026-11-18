@@ -1,7 +1,12 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ADDONS,
+  type ResolvedVersion,
+  ensureRom,
+  setRomBuilder,
   DEFAULT_MC,
   NEWEST_MC,
   VERSIONS,
@@ -255,5 +260,48 @@ describe("addons per Minecraft version", () => {
         (a) => a.id === "advanced-peripherals",
       )!.version,
     ).toBe("0.7.31r");
+  });
+});
+
+describe("a ROM built on demand (an installed package's ensureRom)", () => {
+  const roms = mkdtempSync(join(tmpdir(), "roms-"));
+  const config = {
+    romDir: join(roms, versionInfo(DEFAULT_MC)!.romDir),
+    romsDir: roms,
+  } as RunnerConfig;
+  const other = VERSIONS.find(
+    (v) => v.romDir !== versionInfo(DEFAULT_MC)!.romDir,
+  )!;
+
+  it("asks the builder for a missing ROM, once it is there no more, and never without a builder", async () => {
+    const asked: [string, ResolvedVersion][] = [];
+    await ensureRom(config, other.mc); // no builder: nothing, startEngine says what is missing
+    setRomBuilder(async (dir, version) => {
+      asked.push([dir, version]);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "bios.lua"), "");
+    });
+    try {
+      await ensureRom(config, other.mc);
+      await ensureRom(config, other.mc);
+      expect(asked).toHaveLength(1);
+      expect(asked[0]![0]).toBe(join(roms, other.romDir));
+      expect(asked[0]![1].mc).toBe(other.mc);
+      // no world version: CRAFTOS_VERSION, else the default
+      await ensureRom(config, undefined, { CRAFTOS_VERSION: other.mc });
+      expect(asked).toHaveLength(1);
+      await ensureRom(config, undefined, {});
+      expect(asked.map(([d]) => d)).toEqual([
+        join(roms, other.romDir),
+        config.romDir,
+      ]);
+      // CRAFTOS_ROM (no romsDir) is the user's own ROM, and an unknown version is startEngine's to refuse
+      await ensureRom({ romDir: join(roms, "mine") } as RunnerConfig, other.mc);
+      await ensureRom(config, "9.9.9");
+      expect(asked).toHaveLength(2);
+    } finally {
+      setRomBuilder(undefined);
+      rmSync(roms, { recursive: true, force: true });
+    }
   });
 });

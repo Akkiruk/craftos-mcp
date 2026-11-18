@@ -77,3 +77,15 @@ Later, the schema can go into the [SchemaStore](https://www.schemastore.org) cat
 SchemaStore/schemastore adding a `catalog.json` entry with the address above and `"fileMatch": ["*.world.json"]`).
 Every editor that reads the catalog then picks it up with no setup. SchemaStore may ask for a narrower match than
 `*.world.json`, since the name is generic.
+
+## craftos.json
+
+`craftos.schema.json` is the schema of `craftos.json`, a project's settings (workspace, Minecraft version, addons,
+test globs, world). It is generated from `projectSchema()` in `packages/runner/src/project.ts`;
+`packages/runner/src/project.test.ts` fails when the file here is out of date:
+
+```sh
+npx vitest run packages/runner/src/project.test.ts -u
+```
+
+The VS Code extension registers it for `craftos.json`; `craftos-mcp init` writes the public URL into `$schema`.

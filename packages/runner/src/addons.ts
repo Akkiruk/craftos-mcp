@@ -15,10 +15,12 @@
  * types and docs are listed here.
  *
  * Each addon names its mod version per Minecraft version (versions.ts). A world on a Minecraft version the mod has
- * no release for cannot switch it on (Bigger Reactors on 1.21.1); "all" and the default leave it out. The Lua side
- * simulates one release of each mod, usually its 1.18.2 one; a mod with no 1.18.2 release (Metaphysics, the drone mods)
- * follows the release its versions entry names. The docs of each addon say which.
+ * no release for cannot switch it on (Bigger Reactors on 1.21.1); "all" and the default leave it out. Most addons act
+ * as the release their versions entry names for the world's Minecraft version (a few pick between two releases by
+ * version). The big ones written from their 1.18.2 release (Advanced Peripherals, Mekanism, Create, ...) act as that
+ * release on every version: their `simulates` says which. The docs of each addon say which.
  */
+import { didYouMean } from "./did-you-mean.js";
 import { DEFAULT_MC } from "./versions.js";
 
 export interface AddonInfo {
@@ -28,6 +30,11 @@ export interface AddonInfo {
   readonly name: string;
   /** Minecraft version -> the mod version for it. A Minecraft version missing here has no release of the mod. */
   readonly versions: Readonly<Record<string, string>>;
+  /**
+   * The one release the Lua side follows on every Minecraft version, when it does not follow the version's own
+   * release (a mod written from its 1.18.2 release). Unset: it acts as `versions[mc]`.
+   */
+  readonly simulates?: string;
   /** Peripheral types (`world.peripherals[].type`) that belong to it. */
   readonly types: readonly string[];
   /** Top-level world keys that configure it. */
@@ -49,6 +56,7 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "advanced-peripherals",
     name: "Advanced Peripherals",
     versions: { "1.18.2": "0.7.31r", "1.20.1": "0.7.48r", "1.21.1": "0.7.62b" },
+    simulates: "0.7.31r",
     types: [
       "playerDetector",
       "chatBox",
@@ -74,6 +82,7 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "mekanism",
     name: "Mekanism",
     versions: { "1.18.2": "10.2.5", "1.20.1": "10.4.16", "1.21.1": "10.7.19" },
+    simulates: "10.2.5",
     types: [
       "qioDriveArray",
       "qioDashboard",
@@ -161,6 +170,7 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "mekanism-generators",
     name: "Mekanism Generators",
     versions: { "1.18.2": "10.2.5", "1.20.1": "10.4.16", "1.21.1": "10.7.19" },
+    simulates: "10.2.5",
     types: [
       "fissionReactorLogicAdapter",
       "fissionReactorPort",
@@ -183,6 +193,7 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "create",
     name: "Create",
     versions: { "1.18.2": "0.5.1.i", "1.20.1": "6.0.8", "1.21.1": "6.0.10" },
+    simulates: "0.5.1.i",
     types: [
       "Create_DisplayLink",
       "Create_Speedometer",
@@ -202,6 +213,7 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "create-additions",
     name: "Create Crafts & Additions",
     versions: { "1.18.2": "1.0.0", "1.20.1": "1.3.3", "1.21.1": "1.7.2" },
+    simulates: "1.0.0",
     types: [
       "electric_motor",
       "modular_accumulator",
@@ -224,6 +236,7 @@ export const ADDONS: readonly AddonInfo[] = [
       "1.20.1": "1.20.1-1.3.1",
       "1.21.1": "1.21.1-1.3.1",
     },
+    simulates: "1.18.2-1.2.1",
     types: ["tm_gpu", "tm_keyboard", "tm_rsPort", "tm_wdt"],
     worldKeys: ["tomsPeripherals"],
     docs: "docs/toms-peripherals.md",
@@ -238,6 +251,7 @@ export const ADDONS: readonly AddonInfo[] = [
       "1.18.2": "1.18.2-0.6.0-beta.1.4 (Phosphophyllite 1.18.2-0.6.0-beta.1.6)",
       "1.20.1": "1.20.1-0.6.0-beta.10.5",
     },
+    simulates: "1.18.2-0.6.0-beta.1.4",
     types: ["BiggerReactors_Reactor", "BiggerReactors_Turbine"],
     worldKeys: ["biggerReactors"],
     docs: "docs/bigger-reactors.md",
@@ -252,6 +266,7 @@ export const ADDONS: readonly AddonInfo[] = [
       "1.20.1": "1.20.1-2.0.97",
       "1.21.1": "1.21.1-2.4.28",
     },
+    simulates: "1.18.2-2.0.71",
     types: ["BigReactors-Reactor", "BigReactors-Turbine"],
     worldKeys: ["extremeReactors"],
     docs: "docs/extreme-reactors.md",
@@ -671,6 +686,47 @@ export function addonVersion(
 }
 
 /**
+ * The release the emulator's version of an addon acts as on a Minecraft version: `simulates` (a mod written from its
+ * 1.18.2 release acts as that one everywhere), else the version's own release. Undefined when the mod has none there.
+ */
+export function addonActsAs(
+  addon: AddonInfo,
+  mc: string = DEFAULT_MC,
+): string | undefined {
+  const version = addonVersion(addon, mc);
+  if (version === undefined) return undefined;
+  // "1.18.2-2.0.71 (ZeroCore2 ...)" is the release "1.18.2-2.0.71" names
+  return !addon.simulates || version.split(" ")[0] === addon.simulates
+    ? version
+    : addon.simulates;
+}
+
+/**
+ * Set by projectEnv when craftos.json filled in CRAFTOS_ADDONS: the craftos.json file, so a message about the mods
+ * names it instead of a variable the person never set.
+ */
+export const ADDONS_FROM_ENV = "CRAFTOS_ADDONS_FROM";
+
+/** Where a world's mods were picked: its own addons, craftos.json, CRAFTOS_ADDONS, or the default (all). */
+export function addonSource(
+  worldAddons: string | readonly string[] | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (worldAddons !== undefined) return "world.addons";
+  const spec = env["CRAFTOS_ADDONS"];
+  if (spec === undefined) return "the default (all)";
+  const from = env[ADDONS_FROM_ENV];
+  return from ? `"addons" in ${from}` : "CRAFTOS_ADDONS";
+}
+
+/** Where to switch a mod on, for a message: the place the mods came from, or every place there is. */
+function switchOnAt(source: string | undefined): string {
+  return source && source !== "the default (all)"
+    ? source
+    : 'world.addons, "addons" in craftos.json or CRAFTOS_ADDONS';
+}
+
+/**
  * Why an addon cannot be on for a Minecraft version, and what to do: the versions the mod has a release for, and the
  * three ways to pick one. Every addon without a release somewhere says it the same way.
  */
@@ -691,7 +747,31 @@ export function addonsFor(mc: string = DEFAULT_MC): AddonInfo[] {
   return ADDONS.filter((a) => addonVersion(a, mc) !== undefined);
 }
 
-function parseList(spec: string | readonly string[], mc: string): string[] {
+/** The one id that starts the way a longer slip does ("advanced-perifs": advanced-peripherals), if there is one. */
+function samePrefix(word: string): string | undefined {
+  const common = (id: string): number => {
+    let n = 0;
+    while (n < id.length && n < word.length && id[n] === word[n]) n++;
+    return n;
+  };
+  let best: string | undefined;
+  let bestLength = 0;
+  let tie = false;
+  for (const id of BY_ID.keys()) {
+    const n = common(id);
+    if (n > bestLength) [best, bestLength, tie] = [id, n, false];
+    else if (n === bestLength) tie = true;
+  }
+  return !tie && bestLength >= 5 && bestLength >= word.length * 0.6
+    ? best
+    : undefined;
+}
+
+function parseList(
+  spec: string | readonly string[],
+  mc: string,
+  source: string,
+): string[] {
   const list = typeof spec === "string" ? spec.split(",") : [...spec];
   const trimmed = list.map((s) => s.trim()).filter((s) => s !== "");
   if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "all")
@@ -700,8 +780,18 @@ function parseList(spec: string | readonly string[], mc: string): string[] {
   const ids = trimmed.map(normalise);
   const unknown = ids.filter((id) => !BY_ID.has(id));
   if (unknown.length > 0) {
+    const hints = unknown
+      .map((u) => [u, didYouMean(u, BY_ID.keys()) ?? samePrefix(u)] as const)
+      .filter((pair): pair is readonly [string, string] => !!pair[1])
+      .map(([u, hint]) =>
+        unknown.length === 1
+          ? ` Did you mean ${JSON.stringify(hint)}?`
+          : ` ${JSON.stringify(u)}: did you mean ${JSON.stringify(hint)}?`,
+      )
+      .join("");
     throw new Error(
-      `unknown addon ${unknown.map((u) => JSON.stringify(u)).join(", ")}; known: ${ADDONS.map((a) => a.id).join(", ")}`,
+      `unknown addon ${unknown.map((u) => JSON.stringify(u)).join(", ")} in ${source}.${hints} ` +
+        `Known: ${ADDONS.map((a) => a.id).join(", ")}`,
     );
   }
   const missing = ids.filter(
@@ -720,25 +810,29 @@ function parseList(spec: string | readonly string[], mc: string): string[] {
   return ids;
 }
 
-/** The addons a world runs with, in ADDONS order. `mc`: the world's Minecraft version (versions.ts). */
+/**
+ * The addons a world runs with, in ADDONS order. `mc`: the world's Minecraft version (versions.ts). `source`: where
+ * the list came from, for messages (default: addonSource).
+ */
 export function resolveAddons(
   worldAddons: string | readonly string[] | undefined,
   env: NodeJS.ProcessEnv = process.env,
   mc: string = DEFAULT_MC,
+  source: string = addonSource(worldAddons, env),
 ): string[] {
   const envSpec = env["CRAFTOS_ADDONS"];
   const ids =
     worldAddons !== undefined
-      ? parseList(worldAddons, mc)
+      ? parseList(worldAddons, mc, source)
       : envSpec !== undefined
-        ? parseList(envSpec, mc)
+        ? parseList(envSpec, mc, source)
         : addonsFor(mc).map((a) => a.id);
   const on = new Set(ids);
   for (const id of on) {
     for (const need of BY_ID.get(id)?.requires ?? []) {
       if (!on.has(need)) {
         throw new Error(
-          `addon ${id} needs ${need}: switch it on too (world.addons or CRAFTOS_ADDONS)`,
+          `addon ${id} needs ${need}: add ${need} to ${switchOnAt(source)} too`,
         );
       }
     }
@@ -759,6 +853,8 @@ export function checkWorldAddons(
   },
   enabled: readonly string[],
   mc: string = DEFAULT_MC,
+  /** Where `enabled` came from (addonSource), so the message says where to add a mod. */
+  source?: string,
 ): void {
   const on = new Set(enabled);
   const problems: string[] = [];
@@ -805,7 +901,9 @@ export function checkWorldAddons(
   if (problems.length > 0) {
     throw new Error(
       `${problems.join("; ")}, which is switched off. Enabled addons: ${enabled.length > 0 ? enabled.join(", ") : "none"}. ` +
-        `Add it to world.addons or CRAFTOS_ADDONS, or leave the peripheral out.`,
+        (source && source !== "the default (all)"
+          ? `The mods come from ${source}: add it there, or leave the peripheral out.`
+          : `Add it to ${switchOnAt(source)}, or leave the peripheral out.`),
     );
   }
 }
@@ -819,19 +917,29 @@ export function addonReport(
   mc: string = DEFAULT_MC,
 ): {
   source: string;
-  addons: { id: string; name: string; version: string; on: boolean }[];
+  addons: {
+    id: string;
+    name: string;
+    version: string;
+    /** The release the emulator acts as (addonActsAs): differs from version for a mod written from its 1.18.2 one. */
+    actsAs: string;
+    on: boolean;
+  }[];
 } {
   let enabled: string[];
   let source: string;
   try {
     enabled = resolveAddons(undefined, env, mc);
+    const from = addonSource(undefined, env);
     source =
-      env["CRAFTOS_ADDONS"] !== undefined
-        ? `CRAFTOS_ADDONS=${env["CRAFTOS_ADDONS"]}`
-        : "default: all (set CRAFTOS_ADDONS to the mods in your pack)";
+      env["CRAFTOS_ADDONS"] === undefined
+        ? "default: all (set CRAFTOS_ADDONS or craftos.json's addons to the mods in your pack)"
+        : from === "CRAFTOS_ADDONS"
+          ? `CRAFTOS_ADDONS=${env["CRAFTOS_ADDONS"]}`
+          : `${from}: ${env["CRAFTOS_ADDONS"]}`;
   } catch (error) {
     enabled = [];
-    source = `CRAFTOS_ADDONS is invalid: ${(error as Error).message}`;
+    source = `${addonSource(undefined, env)} is invalid: ${(error as Error).message}`;
   }
   return {
     source,
@@ -839,6 +947,7 @@ export function addonReport(
       id: a.id,
       name: a.name,
       version: addonVersion(a, mc) ?? "none",
+      actsAs: addonActsAs(a, mc) ?? "none",
       on: enabled.includes(a.id),
     })),
   };

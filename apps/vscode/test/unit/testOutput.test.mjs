@@ -85,6 +85,24 @@ test("reads every file, test, error and terminal", () => {
   assert.equal(report.files[1].terminal.length, 7);
 });
 
+test("reads the summary of a run with skipped tests, and 1 test", () => {
+  const report = parseTestReport(
+    [
+      "PASS a.test.lua (1 test, 5 ms)",
+      "  ok   t",
+      "",
+      "1 file, 2 tests: 1 passed, 0 failed, 1 skipped",
+    ].join("\n"),
+  );
+  assert.equal(report.files.length, 1);
+  assert.deepEqual(report.summary, {
+    files: 1,
+    tests: 2,
+    passed: 1,
+    failed: 0,
+  });
+});
+
 test("a test name that looks like report text stays a name", () => {
   const report = parseTestReport(
     "FAIL x.test.lua (2 tests, 1 ms)\n  FAIL the file did not finish\n         x.test.lua:1: no\n  ok   terminal:\n",

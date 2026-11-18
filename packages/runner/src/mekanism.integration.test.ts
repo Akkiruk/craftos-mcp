@@ -957,9 +957,12 @@ ccunit.test("save", function()
   local a = peripheral.wrap("array")
   local d = a.getDrive(0)
   ccunit.eq(d.nbt, nil) -- an empty drive has no NBT at all
-  -- the importer stores 64; game time passes 6000: the autosave writes the drive. The clock jumps there (the sim
-  -- catches up tick by tick): it runs while the computer boots, and starting just short of 6000 let a busy host's
-  -- boot run past the autosave before the first look
+  -- the importer stores 64; game time passes 6000: the autosave writes the drive. The importer waits for its
+  -- redstone signal: running from boot, it made the frequency dirty at once, and a dirty frequency writes its drives
+  -- on a random tick (1 in 100), so a boot of 25 ticks wrote the drive before the first look about 1 run in 4. The
+  -- clock then jumps past 6000 (the sim catches up tick by tick); starting just short of 6000 let a busy host's boot
+  -- run past the autosave before the first look
+  os.queueEvent("ccsim_cmd", nil, textutils.serializeJSON({ cmd = "qioSetPowered", block = "imp", powered = true }))
   os.queueEvent("ccsim_cmd", nil, textutils.serializeJSON({ cmd = "advance", seconds = 10.5 }))
   sleep(0.5)
   d = a.getDrive(0)
@@ -995,7 +998,7 @@ end)
             owner: "Alice",
             frequency: "Vault",
             target: "in",
-            delay: 2, // imports at 5992, before the autosave at 6000
+            redstoneMode: "high", // not before the test powers it
           },
           {
             name: "adapter",

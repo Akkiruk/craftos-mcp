@@ -44,6 +44,7 @@ LUAI_FUNC TString *luaS_newlstr (lua_State *L, const char *str, size_t l);
 LUAI_FUNC TString *luaS_new (lua_State *L, const char *str);
 LUAI_FUNC TString *luaS_concat (lua_State *L, TString *l, TString *r);
 LUAI_FUNC TString *luaS_build (lua_State *L, TString *rope);
+LUAI_FUNC TString *luaS_resolvesub (lua_State *L, TString *ss);
 
 
 #endif

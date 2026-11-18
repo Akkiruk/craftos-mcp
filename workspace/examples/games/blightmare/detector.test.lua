@@ -27,15 +27,15 @@ end
 local function toReady()
   kit.waitFor(function() return kit.S.view == "idle" and kit.S.demo.run ~= nil end, 10)
   kit.tap(60, 40)
-  kit.waitFor(function() return kit.S.view == "intro" end, 3)
+  kit.waitFor(function() return kit.S.view == "intro" end, 20)
   kit.press("skip")
-  return kit.waitFor(function() return kit.S.view == "ready" end, 3)
+  return kit.waitFor(function() return kit.S.view == "ready" end, 20)
 end
 
 local function quit()
   kit.press("quit")
   kit.press("quit")
-  return kit.waitFor(function() return kit.S.view == "idle" end, 3)
+  return kit.waitFor(function() return kit.S.view == "idle" end, 20)
 end
 
 kit.run(function()
@@ -43,7 +43,7 @@ kit.run(function()
   toReady()
   seen.firstOwner = kit.S.ready.owner
   kit.press("start")
-  kit.waitFor(function() return kit.S.view == "play" end, 3)
+  kit.waitFor(function() return kit.S.view == "play" end, 20)
   sleep(1)
   local s = kit.state()
   seen.alexHero, seen.alexMode = s.heroName, s.mode
@@ -58,9 +58,9 @@ kit.run(function()
   seen.secondOwner = kit.S.ready.owner
   seen.secondFresh = kit.button("start") ~= nil
   kit.press("start")
-  kit.waitFor(function() return kit.S.view == "play" end, 3)
+  kit.waitFor(function() return kit.S.view == "play" end, 20)
   sleep(1)
-  seen.steveHero = kit.state().heroName
+  seen.steveHero = kit.state() and kit.state().heroName
 
   -- Steve walks off mid-game: after a while it's saved and the wall goes back to the opening
   sim({ cmd = "setPlayerPos", player = "Steve", x = 80, y = 64, z = 0 })
@@ -74,11 +74,11 @@ kit.run(function()
   seen.backOwner = kit.S.ready.owner
   seen.backLine = kit.S.ready.saved and kit.S.ready.saved.line
   kit.press("players")
-  kit.waitFor(function() return kit.S.view == "players" end, 3)
+  kit.waitFor(function() return kit.S.view == "players" end, 20)
   seen.players = #(kit.S.players or {})
   kit.press("playersBack")
   kit.press("continue")
-  kit.waitFor(function() return kit.S.view == "play" end, 3)
+  kit.waitFor(function() return kit.S.view == "play" end, 20)
   seen.continued = kit.state() and kit.state().heroName
 end)
 

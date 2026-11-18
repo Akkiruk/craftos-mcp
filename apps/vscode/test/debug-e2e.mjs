@@ -641,12 +641,17 @@ try {
   }
 } finally {
   if (app) killTree(app.child);
-  rmSync(project, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 300,
-  });
+  // an engine the kill has not let go of yet can still hold the folder: say so, and still give the result
+  try {
+    rmSync(project, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 300,
+    });
+  } catch (error) {
+    console.error(`could not remove ${project}: ${error.code ?? error}`);
+  }
 }
 console.log(failed ? "debug e2e: FAILED" : "debug e2e: ok");
 process.exit(failed ? 1 : 0);

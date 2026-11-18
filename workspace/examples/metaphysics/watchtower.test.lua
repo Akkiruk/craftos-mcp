@@ -119,7 +119,7 @@ ccunit.test("coord: where the computer is and the blocks around it", function()
   -- the position is rounded up first: 9.5 is block 10, under the stone
   ccunit.eq(coord.canSeeSky(9.5, 64, 0), false)
   ccunit.eq(err(coord.getBlock, 1, 2), "bad argument #3 (number expected, got nil)")
-  ccunit.eq(err(coord.getBlock, 1.5, 2, 3), "bad argument #1 (number has no integer representation)")
+  ccunit.eq(err(coord.getBlock, 0 / 0, 2, 3), "bad argument #1 (number expected, got nan)") -- 1.5 would be 1: CC truncates
   ccunit.eq(err(coord.canSeeSky, "x", 1, 1), "bad argument #1 (number expected, got string)")
   ccunit.eq(err(coord.isBlockAir), "bad argument #1 (number expected, got nil)")
   ccunit.eq(err(coord.getBlockIsSolid, 0, 0), "bad argument #3 (number expected, got nil)")

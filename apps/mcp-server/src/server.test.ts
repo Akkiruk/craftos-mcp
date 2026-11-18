@@ -68,6 +68,20 @@ describe("what a client gets", () => {
     expect(raw).not.toContain('"taskSupport":"forbidden"');
     const run = tools.find((t) => t.name === "craftos_run")!;
     expect(JSON.stringify(run.inputSchema)).toContain("craftos_help");
+    // every tool that takes a world says what world.deploy is for
+    const takesWorld = tools.filter((t) =>
+      JSON.stringify(t.inputSchema).includes('"world":{'),
+    );
+    expect(takesWorld.map((t) => t.name)).toEqual(
+      expect.arrayContaining([
+        "craftos_run",
+        "craftos_test",
+        "craftos_session_create",
+        "craftos_network_create",
+      ]),
+    );
+    for (const t of takesWorld)
+      expect(JSON.stringify(t), t.name).toMatch(/world\.deploy/);
     // annotations let a client skip asking before tools that only look
     expect(run.annotations).toMatchObject({ destructiveHint: false });
     expect(
@@ -359,6 +373,83 @@ describe.skipIf(!ready)("results", () => {
         name: "craftos_session_destroy",
         arguments: { id: created.id },
       });
+    }
+  }, 60000);
+});
+
+describe.skipIf(!ready)("sessions are per client", () => {
+  it("lists a person's viewer computers apart, and does not stop them without force", async () => {
+    const { createServer } = await import("node:net");
+    const port = await new Promise<number>((done) => {
+      const s = createServer().listen(0, "127.0.0.1", () => {
+        const p = (s.address() as { port: number }).port;
+        s.close(() => done(p));
+      });
+    });
+    const agent = await connect({ CRAFTOS_VIEWER_PORT: String(port) });
+    const list = async () =>
+      JSON.parse(
+        textOf(
+          await agent.callTool({ name: "craftos_session_list", arguments: {} }),
+        ),
+      ) as {
+        sessions: { id: string }[];
+        others?: { id: string; owner: string; running: boolean }[];
+      };
+    try {
+      const mine = JSON.parse(
+        textOf(
+          await agent.callTool({
+            name: "craftos_session_create",
+            arguments: {},
+          }),
+        ),
+      ) as { id: string };
+      expect(await list()).toEqual({
+        sessions: [expect.objectContaining({ id: mine.id })],
+      });
+      // a person makes a computer in the viewer
+      let viewer = "";
+      for (let i = 0; i < 50 && !viewer; i++) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${port}/api/sessions`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+          });
+          viewer = ((await res.json()) as { ids: string[] }).ids[0]!;
+        } catch {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      const both = await list();
+      expect(both.sessions.map((s) => s.id)).toEqual([mine.id]);
+      expect(both.others).toEqual([
+        { id: viewer, owner: "a person in the viewer", running: true },
+      ]);
+      const refused = (await agent.callTool({
+        name: "craftos_session_destroy",
+        arguments: { id: viewer },
+      })) as Result;
+      expect(refused.isError).toBe(true);
+      expect(textOf(refused)).toMatch(
+        /belongs to a person in the viewer.*force: true/,
+      );
+      expect((await list()).others).toHaveLength(1);
+      const forced = (await agent.callTool({
+        name: "craftos_session_destroy",
+        arguments: { id: viewer, force: true },
+      })) as Result;
+      expect(forced.isError).toBeFalsy();
+      // its own sessions it stops as before
+      const own = (await agent.callTool({
+        name: "craftos_session_destroy",
+        arguments: { id: mine.id },
+      })) as Result;
+      expect(own.isError).toBeFalsy();
+      expect(await list()).toEqual({ sessions: [] });
+    } finally {
+      await agent.close();
     }
   }, 60000);
 });

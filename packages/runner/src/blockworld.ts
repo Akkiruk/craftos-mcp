@@ -23,6 +23,8 @@ export function startInBlockWorld(
     world: WorldConfig;
     /** A debugger for this computer (not for the ones it places). */
     debug?: DebugLink;
+    /** This computer's files are this folder itself, live (StartOptions.liveDir); the ones it places get their own. */
+    liveDir?: string;
   },
 ): { handle: EngineHandle; network: ComputerNetwork; host: BlockWorldHost } {
   const world = linkedWorlds([{ world: options.world }])[0]!;
@@ -40,6 +42,7 @@ export function startInBlockWorld(
     world,
     shared: host.sharedFor(),
     ...(options.debug && { debug: options.debug }),
+    ...(options.liveDir && { liveDir: options.liveDir }),
   });
   network.add("main", handle, world);
   host.setMain(handle, world.computerId ?? 0);
@@ -66,7 +69,7 @@ export function isBlockWorld(world: WorldConfig | undefined): boolean {
   );
 }
 
-interface BlockDef {
+export interface BlockDef {
   name?: string;
   state?: Record<string, string>;
   items?: Record<string, Record<string, unknown>>;
@@ -78,6 +81,10 @@ interface BlockDef {
   [extra: string]: unknown;
 }
 
+/** How many block changes, and how many steps of each turtle, the host remembers for viewers. */
+const CHANGE_LOG = 50_000;
+const TRAIL_LENGTH = 20_000;
+
 const COMPUTER = /^computercraft:computer_(normal|advanced)$/;
 const TURTLE = /^computercraft:turtle_(normal|advanced)$/;
 const MONITOR = /^computercraft:monitor_(normal|advanced)$/;
@@ -85,6 +92,21 @@ const CABLE = "computercraft:cable";
 const FULL_MODEM = "computercraft:wired_modem_full";
 const isComputer = (name: string | undefined): boolean =>
   !!name && (COMPUTER.test(name) || TURTLE.test(name));
+
+/** A block world as a world snapshot keeps it (BlockWorldHost.snapshotState): plain data, JSON as it is. */
+export interface BlockWorldSnapshot {
+  readonly blocks: [string, unknown][];
+  readonly nextId: number;
+  readonly nextDiskId: number;
+  readonly localNames: [string, string][];
+  readonly nextLocalName: number;
+  /** Where the computers that were running stand. */
+  readonly running: string[];
+  readonly screens: [
+    string,
+    Record<string, unknown> & { palette: [string, string][] },
+  ][];
+}
 
 /** A computer block's or turtle's own engine, started when it was turned on. */
 export interface PlacedComputer {
@@ -183,6 +205,8 @@ export class BlockWorldHost {
   private readonly topologySent = new Map<number, string>();
   private topologyDirty = true;
   private readonly screens = new Map<string, ScreenLog>();
+  /** Computers a snapshot's restore stops: their exit changes no block. */
+  private readonly restoring = new Set<PlacedComputer>();
 
   constructor(
     private readonly config: RunnerConfig,
@@ -268,6 +292,7 @@ export class BlockWorldHost {
       const before = this.blocks.get(key);
       const now = def && def.name ? def : false;
       this.blocks.set(key, now);
+      this.noteChange(key, now);
       relay.push(line);
       this.screenWallChanged(key, before, now);
       if (
@@ -343,6 +368,7 @@ export class BlockWorldHost {
       items: { ...def.items, "1": { ...disk, diskId: this.nextDiskId++ } },
     };
     this.blocks.set(pos, numbered);
+    this.noteChange(pos, numbered);
     return [`${pos}\t${JSON.stringify(numbered)}`];
   }
 
@@ -417,12 +443,14 @@ export class BlockWorldHost {
       blockEntity: { ...be, ComputerId: id, on: true },
     };
     this.blocks.set(pos, on);
+    this.noteChange(pos, on);
     this.topologyDirty = true;
     this.publishTopology();
     return [`${pos}\t${JSON.stringify(on)}`];
   }
 
   private onExit(computer: PlacedComputer): void {
+    if (this.restoring.delete(computer)) return;
     if (this.placed.get(computer.pos) === computer)
       this.placed.delete(computer.pos);
     this.stopped.push(computer);
@@ -440,6 +468,7 @@ export class BlockWorldHost {
         blockEntity: { ...(def.blockEntity ?? {}), on: false },
       };
       this.blocks.set(computer.pos, off);
+      this.noteChange(computer.pos, off);
       this.network.broadcastWorld([`${computer.pos}\t${JSON.stringify(off)}`]);
     }
     this.topologyDirty = true;
@@ -449,6 +478,88 @@ export class BlockWorldHost {
   /** Every computer block that has been started, running or not. */
   computers(): PlacedComputer[] {
     return [...this.placed.values(), ...this.stopped];
+  }
+
+  // ===== for viewers (webapp-views.ts): what changed, in order, and where each turtle has been =====
+
+  private changeSeq = 0;
+  /** The position of every change, oldest first: entry i is change number `changeBase + i + 1`. */
+  private changeLog: string[] = [];
+  private changeBase = 0;
+  private readonly trails = new Map<number, { seq: number; pos: string }[]>();
+
+  private noteChange(key: string, now: BlockDef | false): void {
+    this.changeSeq += 1;
+    this.changeLog.push(key);
+    if (this.changeLog.length > 2 * CHANGE_LOG) {
+      this.changeBase += this.changeLog.length - CHANGE_LOG;
+      this.changeLog = this.changeLog.slice(-CHANGE_LOG);
+    }
+    const id =
+      now && TURTLE.test(now.name ?? "")
+        ? now.blockEntity?.ComputerId
+        : undefined;
+    if (typeof id !== "number") return;
+    const trail = this.trails.get(id) ?? [];
+    this.trails.set(id, trail);
+    if (trail[trail.length - 1]?.pos === key) return;
+    trail.push({ seq: this.changeSeq, pos: key });
+    if (trail.length > 2 * TRAIL_LENGTH)
+      trail.splice(0, trail.length - TRAIL_LENGTH);
+  }
+
+  /** The number of the last change; a viewer asks for what came after the one it has seen. */
+  get changeCount(): number {
+    return this.changeSeq;
+  }
+
+  /** The world file this world started from: its `ground` and `fills` are not in `blockEntries`. */
+  get baseWorld(): WorldConfig {
+    return this.base;
+  }
+
+  /** Every block the world file listed or a computer changed: "x,y,z" -> block, or false for air. */
+  blockEntries(): IterableIterator<[string, BlockDef | false]> {
+    return this.blocks.entries();
+  }
+
+  /** The block at "x,y,z" as listed or last changed: undefined when the world file's ground or a fill decides. */
+  blockAt(key: string): BlockDef | false | undefined {
+    return this.blocks.get(key);
+  }
+
+  /**
+   * The positions changed after change number `since`, each once, with the block there now. Undefined when `since` is
+   * further back than the log reaches: the viewer then reads the whole world again.
+   */
+  changesSince(since: number): Map<string, BlockDef | false> | undefined {
+    if (since < this.changeBase || since > this.changeSeq) return undefined;
+    const out = new Map<string, BlockDef | false>();
+    for (let i = since - this.changeBase; i < this.changeLog.length; i++) {
+      const key = this.changeLog[i]!;
+      out.set(key, this.blocks.get(key) ?? false);
+    }
+    return out;
+  }
+
+  /** Where each turtle (by computer id) stood after change number `since`, oldest first. */
+  trailsSince(since: number): Map<number, string[]> {
+    const out = new Map<number, string[]>();
+    for (const [id, trail] of this.trails) {
+      let from = trail.length;
+      while (from > 0 && trail[from - 1]!.seq > since) from--;
+      if (from < trail.length)
+        out.set(
+          id,
+          trail.slice(from).map((t) => t.pos),
+        );
+    }
+    return out;
+  }
+
+  /** The id of the computer the world started with. */
+  get mainId(): number | undefined {
+    return this.main?.id;
   }
 
   // ===== wired networks (TileCable, TileWiredModemFull, WiredNetwork) =====
@@ -706,6 +817,64 @@ export class BlockWorldHost {
       const log = this.screens.get(key);
       if (log) this.fold(log);
     }
+  }
+
+  /** What a world snapshot keeps of this world (world-snapshot.ts): every block, the counters, what runs, the walls. */
+  snapshotState(): BlockWorldSnapshot {
+    return {
+      blocks: [...this.blocks],
+      nextId: this.nextId,
+      nextDiskId: this.nextDiskId,
+      localNames: [...this.localNames],
+      nextLocalName: this.nextLocalName,
+      running: [...this.placed.keys()],
+      screens: [...this.screens].map(([key, log]) => [
+        key,
+        { ...log, palette: [...log.palette] },
+      ]),
+    };
+  }
+
+  /**
+   * Put a snapshot back: every computer this world started stops, and the blocks, counters and monitor walls are the
+   * snapshot's. The shared folders are the caller's to put back; then startAgain turns on what ran.
+   */
+  async restoreState(state: BlockWorldSnapshot): Promise<void> {
+    const running = [...this.placed.values()];
+    this.placed.clear();
+    for (const c of running) this.restoring.add(c);
+    await Promise.all(
+      running.map((c) => c.handle.session.stop(0).catch(() => undefined)),
+    );
+    this.blocks.clear();
+    for (const [key, def] of state.blocks)
+      this.blocks.set(key, def as BlockDef | false);
+    this.nextId = state.nextId;
+    this.nextDiskId = state.nextDiskId;
+    this.localNames.clear();
+    for (const [k, v] of state.localNames) this.localNames.set(k, v);
+    this.nextLocalName = state.nextLocalName;
+    this.screens.clear();
+    for (const [key, log] of state.screens)
+      this.screens.set(key, {
+        ...(log as unknown as ScreenLog),
+        palette: new Map(log.palette),
+      });
+    this.topologySent.clear();
+    this.topologyDirty = true;
+  }
+
+  /** Turn on the computers a snapshot had running (restoreState). */
+  startAgain(positions: readonly string[]): void {
+    const lines: string[] = [];
+    for (const pos of positions) {
+      const def = this.blocks.get(pos);
+      // the block says it is on: boot it as a turned-off one would be
+      if (def && def.blockEntity) def.blockEntity.on = false;
+      lines.push(...this.control("turnOn", pos));
+    }
+    if (lines.length) this.network.broadcastWorld(lines);
+    this.publishTopology();
   }
 
   /** Stop every placed computer and remove the shared folders. */

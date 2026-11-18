@@ -33,6 +33,20 @@ else {
     `${JSON.stringify({ $schema: "http://json-schema.org/draft-07/schema#", title: "craftos-mcp world", type: "object" }, null, 2)}\n`,
   );
 }
+// - schemas/craftos.schema.json, the craftos.json schema (jsonValidation too), with the same kind of stand-in
+const PROJECT_SCHEMA_SOURCE = join(repo, "schemas", "craftos.schema.json");
+const projectSchema = join(here, "schemas", "craftos.schema.json");
+if (existsSync(PROJECT_SCHEMA_SOURCE))
+  cpSync(PROJECT_SCHEMA_SOURCE, projectSchema);
+else {
+  console.warn(
+    `no ${PROJECT_SCHEMA_SOURCE}: packing a stand-in craftos.json schema`,
+  );
+  writeFileSync(
+    projectSchema,
+    `${JSON.stringify({ $schema: "http://json-schema.org/draft-07/schema#", title: "craftos-mcp project", type: "object" }, null, 2)}\n`,
+  );
+}
 // types/ is where an earlier build put the library
 rmSync(join(here, "types"), { recursive: true, force: true });
 rmSync(join(here, "lua-addons"), { recursive: true, force: true });
@@ -121,6 +135,8 @@ const webCtx = await context({
   },
   inject: ["./src/web/shims/globals.ts"],
   loader: { ".lua": "text" },
+  // the mods' block types, for New World for This File (src/worldTemplate.ts)
+  define: { __CRAFTOS_PACK__: JSON.stringify(await loadPackData()) },
   sourcemap: true,
   minify: !watch,
   logLevel: "info",

@@ -7,8 +7,8 @@ terminal. A normal turtle has no colour; an advanced one does. The turtle stands
 `blocks`, `fills` and `ground`; everything else is air.
 
 The rules come from the mod's source. [turtle/cct-1.101.3-turtle-rules.md](turtle/cct-1.101.3-turtle-rules.md)
-lists each one with its Java line. Block and item data comes from the real game jars (vanilla 1.18.2 and the 262
-mods in the pack), plus the game's own block report. Known differences are in
+lists each one with its Java line. Block and item data comes from the real game jars (vanilla Minecraft, or a whole
+modpack when you extract its data: `tools/turtledata/extract.py`), plus the game's own block report. Known differences are in
 [conformance/emulator-vs-real-deviations.md](conformance/emulator-vs-real-deviations.md) (rows 61-78, 103, 110 and 111).
 
 ## A world

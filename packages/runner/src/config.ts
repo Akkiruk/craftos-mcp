@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_MC, versionInfo } from "./versions.js";
+import {
+  DEFAULT_MC,
+  resolveVersion,
+  romDirFor,
+  versionInfo,
+} from "./versions.js";
 
 /** The default version's ROM folder under rom/ (cc-1.101.3 for 1.18.2, cc-1.121.0 for 1.20.1 and 1.21.1). */
 const DEFAULT_ROM_DIR = versionInfo(DEFAULT_MC)!.romDir;
@@ -115,7 +120,7 @@ export function missingRomProblem(
 ): string | undefined {
   if (existsSync(join(romDir, "bios.lua"))) return undefined;
   if (packageVersion())
-    return `ROM for Minecraft ${mc} not found at ${romDir} (${PACKAGE_FIX})`;
+    return `ROM for Minecraft ${mc} not found at ${romDir} (craftos-mcp builds it when a world asks for it; craftos-mcp setup --all builds every version's now)`;
   return (
     `ROM for Minecraft ${mc} not found at ${romDir} (run: node scripts/build-rom.mjs --download ${mc}, ` +
     `or npm run setup -- --mc ${mc})`
@@ -128,8 +133,10 @@ export function checkConfig(config: RunnerConfig): string[] {
   if (packageVersion()) {
     if (!existsSync(config.engineExe))
       problems.push(`engine not found at ${config.engineExe} (${PACKAGE_FIX})`);
-    if (!existsSync(join(config.romDir, "bios.lua")))
-      problems.push(`ROM not found at ${config.romDir} (${PACKAGE_FIX})`);
+    // the first run builds only the ROM of the version in use (CRAFTOS_VERSION, else the default); others on demand
+    const rom = romInUse(config);
+    if (!existsSync(join(rom, "bios.lua")))
+      problems.push(`ROM not found at ${rom} (${PACKAGE_FIX})`);
     return problems;
   }
   if (!existsSync(config.engineExe)) {
@@ -144,4 +151,13 @@ export function checkConfig(config: RunnerConfig): string[] {
     );
   }
   return problems;
+}
+
+/** The ROM of the version runs use when a world names none (CRAFTOS_VERSION, else the default); invalid: the default's. */
+function romInUse(config: RunnerConfig): string {
+  try {
+    return romDirFor(config, resolveVersion(undefined));
+  } catch {
+    return config.romDir;
+  }
 }

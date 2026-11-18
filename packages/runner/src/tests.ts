@@ -11,8 +11,14 @@ import {
   luaString,
   monitorSetupLua,
 } from "./lua.js";
-import { DEFAULT_TIMEOUT_MS, parseLuaError, readResultFile } from "./run.js";
+import {
+  DEFAULT_TIMEOUT_MS,
+  UNATTENDED_LUA,
+  parseLuaError,
+  readResultFile,
+} from "./run.js";
 import type { WorldConfig } from "./world.js";
+import { ensureRom } from "./versions.js";
 import { listWorkspace } from "./workspace.js";
 
 export interface TestCase {
@@ -85,11 +91,19 @@ export function testBoot(
   monitors: readonly MonitorSpec[],
 ): string {
   return [
+    UNATTENDED_LUA,
     monitorSetupLua(monitors),
     `_G.ccunit = dofile("/ccunit/ccunit.lua")`,
     `ccunit._shell = shell`,
-    `local ok, err = pcall(shell.run, ${luaString(file)})`,
-    `if not ok then ccunit.test("load " .. ${luaString(file)}, function() error(err, 0) end) end`,
+    // shell.run only prints a syntax error and returns false: load the file first, so the report names it and its line
+    `local _, syntaxErr = loadfile(${luaString(file)}, nil, _ENV)`,
+    `if syntaxErr then`,
+    `  local msg = tostring(syntaxErr):gsub("^/", "")`,
+    `  ccunit.test("load " .. ${luaString(file)}, function() error("syntax error in " .. msg, 0) end)`,
+    `else`,
+    `  local ok, err = pcall(shell.run, ${luaString(file)})`,
+    `  if not ok then ccunit.test("load " .. ${luaString(file)}, function() error(err, 0) end) end`,
+    `end`,
     REDRAW_TERMINAL_LUA,
     `ccunit.finish()`,
   ].join("\n");
@@ -104,6 +118,8 @@ async function runTestFile(
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const boot = testBoot(file, request.monitors ?? []);
   const blockWorld = request.world && isBlockWorld(request.world);
+  // a version whose ROM an installed package has not built yet: built now, outside the test's timeout
+  await ensureRom(config, request.world?.version);
   // the copy counts against the timeout, and never blocks: other clients of the MCP server go on meanwhile
   const staged = blockWorld
     ? undefined
@@ -289,6 +305,8 @@ function readStreamed(
 /** A failure's file and line, pulled out of "file:line: message". */
 function withPosition(test: TestCase): TestCase {
   if (test.passed || !test.error || test.file) return test;
-  const { file, line } = parseLuaError(test.error);
+  const { file, line } = parseLuaError(
+    test.error.replace(/^syntax error in /, ""),
+  );
   return file ? { ...test, file, line } : test;
 }

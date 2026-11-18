@@ -104,7 +104,7 @@ inline bool isVFSPath(path_t path) {
 
 static std::vector<path_t> fixpath_multiple(Computer *comp, std::string path) {
     std::vector<path_t> retval;
-    path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || c < 32; }), path.end());
+    path.erase(std::remove_if(path.begin(), path.end(), [](char c)->bool {return c == '"' || c == '*' || c == ':' || c == '<' || c == '>' || c == '?' || c == '|' || (unsigned char)c < 32; }), path.end());
     std::vector<std::string> elems = split(path, "/\\");
     std::list<std::string> pathc;
     for (std::string s : elems) {
@@ -138,7 +138,7 @@ static std::vector<path_t> fixpath_multiple(Computer *comp, std::string path) {
     for (const _path_t& p : max_path.second) {
         path_t sstmp = p;
         std::error_code e;
-        for (const std::string& s : pathc) sstmp /= s;
+        for (const std::string& s : pathc) sstmp /= ccPathName(s);
         if (
             (isVFSPath(p) && nothrow(comp->virtualMounts[(unsigned)std::stoul(p.substr(0, p.size()-1))]->path(sstmp.string()))) ||
             (fs::exists(sstmp, e))) {
@@ -208,7 +208,7 @@ static int fs_list(lua_State *L) {
                 gotdir = true;
                 for (const auto& dir : fs::directory_iterator(path, e)) {
                     if (dir.path().filename() == ".DS_Store" || dir.path().filename() == "desktop.ini") continue;
-                    entries.insert(dir.path().filename().u8string());
+                    entries.insert(ccNameString(dir.path().filename()));
                 }
             }
         }
@@ -467,6 +467,61 @@ static long long spaceUsed(lua_State *L) {
 // engine answered with the host disk's free space and size instead, some terabytes.
 static const long long FLOPPY_SPACE_LIMIT = 125000;
 
+// Counted the way CC:Tweaked's FileMount (1.101.3) and WritableFileMount (1.121.0) count: every folder, the disk's
+// own included, is 500 bytes, and every file max(its size, 500). The mount's capacity is the limit plus 500 for the
+// root folder, so an empty disk has all 125000 free. A file open for writing counts as far as it has been written
+// (its stream holds bytes the host's disk does not have yet).
+static const long long MINIMUM_FILE_SIZE = 500;
+
+namespace {
+struct FloppyWrite {
+    path_t root;          // the disk's folder on the host
+    path_t file;          // the file being written
+    long long extent;     // how far the file reaches, written bytes included
+};
+std::mutex floppyMutex;
+std::unordered_map<const void*, FloppyWrite> floppyWrites;  // by the handle's stream
+}
+
+/** The folder of the floppy disk `real` (a host path) is on, or an empty path when it is on no floppy. */
+static path_t floppyRootOf(Computer * comp, const path_t& real) {
+    for (const auto& m : comp->mounts) {
+        const std::list<std::string>& parts = std::get<0>(m);
+        if (parts.size() != 1 || parts.front().compare(0, 4, "disk") != 0) continue;
+        const path_t& root = std::get<1>(m);
+        if (root.parent_path().filename() != path_t("disk")) continue;
+        const auto mismatch = std::mismatch(root.begin(), root.end(), real.begin(), real.end());
+        if (mismatch.first == root.end()) return root;
+    }
+    return path_t();
+}
+
+static long long ccSpaceWalk(const path_t& path, const std::unordered_map<path_t::string_type, long long>& open) {
+    std::error_code e;
+    if (fs::is_directory(path, e)) {
+        long long total = MINIMUM_FILE_SIZE;
+        for (const auto& entry : fs::directory_iterator(path, e)) total += ccSpaceWalk(entry.path(), open);
+        return total;
+    }
+    const auto it = open.find(path.native());
+    if (it != open.end()) return std::max(MINIMUM_FILE_SIZE, it->second);
+    e.clear();
+    const auto size = fs::file_size(path, e);
+    return e ? 0 : std::max(MINIMUM_FILE_SIZE, (long long)size);
+}
+
+/** What the disk in folder `root` uses as CC counts it (500 for the folder of an empty or blank disk). */
+static long long floppyUsedAt(const path_t& root) {
+    std::unordered_map<path_t::string_type, long long> open;
+    {
+        std::lock_guard<std::mutex> lock(floppyMutex);
+        for (const auto& w : floppyWrites) if (w.second.root == root) open[w.second.file.native()] = w.second.extent;
+    }
+    std::error_code e;
+    if (!fs::exists(root, e)) return MINIMUM_FILE_SIZE;
+    return ccSpaceWalk(root, open);
+}
+
 /** The bytes used on the floppy mounted at `mountPath`, or -1 when that mount is not a floppy disk. */
 static long long floppyUsed(Computer * comp, const std::string& mountPath) {
     if (mountPath.compare(0, 4, "disk") != 0) return -1;
@@ -475,11 +530,67 @@ static long long floppyUsed(Computer * comp, const std::string& mountPath) {
         if (parts.size() != 1 || parts.front() != mountPath) continue;
         const path_t& root = std::get<1>(m);
         if (root.parent_path().filename() != path_t("disk")) continue;
-        SpaceCache walk;
-        spaceWalk(walk, root);
-        return walk.total;
+        return floppyUsedAt(root) - MINIMUM_FILE_SIZE;  // the root folder's 500 is on top of the limit
     }
     return -1;
+}
+
+/** How many folders makeDirectory(dir) creates: dir and each missing one above it, up to the disk's folder. */
+static int floppyMissingDirs(const path_t& root, const path_t& dir) {
+    int n = 0;
+    std::error_code e;
+    for (path_t p = dir; !p.empty() && p != root && !fs::exists(p, e); p = p.parent_path()) {
+        n++;
+        if (p == p.parent_path()) break;
+    }
+    return n;
+}
+
+/** The disk's free space as CC's getRemainingSpace has it. */
+static long long floppyRemaining(const path_t& root) {
+    return std::max<long long>(0, FLOPPY_SPACE_LIMIT + MINIMUM_FILE_SIZE - floppyUsedAt(root));
+}
+
+/** A handle writing to a file on a floppy: its writes are counted against the disk from now on. */
+static void floppyTrack(const void * handle, const path_t& root, const path_t& file, long long extent) {
+    std::lock_guard<std::mutex> lock(floppyMutex);
+    floppyWrites[handle] = FloppyWrite{root, file, extent};
+}
+
+/** Whether the handle writes to a floppy (most never do: this is all the others pay). */
+bool floppyTracked(const void * handle) {
+    std::lock_guard<std::mutex> lock(floppyMutex);
+    return !floppyWrites.empty() && floppyWrites.find(handle) != floppyWrites.end();
+}
+
+/** The handle is closed: its file is counted from the disk again. */
+void floppyForget(const void * handle) {
+    std::lock_guard<std::mutex> lock(floppyMutex);
+    floppyWrites.erase(handle);
+}
+
+/**
+ * The CountingChannel's check before a write of n bytes at the stream's position: the bytes past the end of the file
+ * (past its first 500) must fit on the disk, or the write is refused whole with "Out of space". True when the
+ * stream is on no floppy, or the bytes fit.
+ */
+bool floppyMayWrite(const void * handle, long long position, size_t n) {
+    path_t root;
+    long long extent;
+    {
+        std::lock_guard<std::mutex> lock(floppyMutex);
+        const auto it = floppyWrites.find(handle);
+        if (it == floppyWrites.end()) return true;
+        root = it->second.root;
+        extent = it->second.extent;
+    }
+    const long long reach = std::max(extent, position + (long long)n);
+    const long long newBytes = std::max(MINIMUM_FILE_SIZE, reach) - std::max(MINIMUM_FILE_SIZE, extent);
+    if (newBytes > 0 && floppyUsedAt(root) + newBytes > FLOPPY_SPACE_LIMIT + MINIMUM_FILE_SIZE) return false;
+    std::lock_guard<std::mutex> lock(floppyMutex);
+    const auto it = floppyWrites.find(handle);
+    if (it != floppyWrites.end()) it->second.extent = reach;
+    return true;
 }
 
 static int fs_getFreeSpace(lua_State *L) {
@@ -508,6 +619,10 @@ static int fs_makeDir(lua_State *L) {
     std::error_code e;
     // A regular file in the way: CC reports "File exists" (the OS wording differs per platform).
     if (fs::exists(path, e) && !fs::is_directory(path, e)) err(L, 1, "File exists");
+    // FileMount.makeDirectory: 500 bytes for each folder it makes, or "Out of space"
+    const path_t floppyRoot = floppyRootOf(get_comp(L), path);
+    if (!floppyRoot.empty() && floppyMissingDirs(floppyRoot, path) * MINIMUM_FILE_SIZE > floppyRemaining(floppyRoot))
+        err(L, 1, "Out of space");
     e.clear();
     fs::create_directories(path, e);
     if (e) {
@@ -735,6 +850,8 @@ static int fs_open(lua_State *L) {
         }
     }
     int fpid;
+    path_t floppyRoot;  // the disk the file is on, when it is on a floppy and opened to write
+    long long floppyExtent = 0;
     if (std::regex_search((*path.begin()).native(), pathregex("^\\d+:")) || path == ":bios.lua") {
         if (computer->files_open >= config.maximumFilesOpen) err(L, 1, "Too many files already open");
         std::stringstream ** fp = (std::stringstream**)lua_newuserdata(L, sizeof(std::stringstream**));
@@ -782,6 +899,24 @@ static int fs_open(lua_State *L) {
                 lua_pushnil(L);
                 lua_pushfstring(L, "/%s: Access denied", fixpath(computer, str, false, false).string().c_str());
                 return 2;
+            }
+            // a floppy has room for so much: the missing folders first (MountWrapper.openForWrite makes them), then
+            // 500 bytes for a file that is not there yet (FileMount.openForWrite)
+            floppyRoot = floppyRootOf(computer, path);
+            if (!floppyRoot.empty()) {
+                const long long remaining = floppyRemaining(floppyRoot);
+                const long long dirs = floppyMissingDirs(floppyRoot, path.parent_path()) * MINIMUM_FILE_SIZE;
+                e.clear();
+                const bool exists = fs::exists(path, e);
+                const std::string shown = fixpath(computer, str, false, false).string();
+                if (dirs > remaining || (!exists && remaining - dirs < MINIMUM_FILE_SIZE)) {
+                    const std::string where = dirs > remaining ? path_t(shown).parent_path().generic_string() : shown;
+                    lua_pushnil(L);
+                    lua_pushfstring(L, "/%s: Out of space", where.c_str());
+                    return 2;
+                }
+                floppyExtent = 0;
+                if (exists && (mode[0] == 'a' || mode[0] == 'r')) floppyExtent = (long long)fs::file_size(path, e);
             }
             e.clear();
             fs::create_directories(path.parent_path(), e);
@@ -837,6 +972,7 @@ static int fs_open(lua_State *L) {
             }
         }
         if (writable) spaceTouched(L, path, true);
+        if (writable && !floppyRoot.empty()) floppyTrack(static_cast<std::iostream*>(*fp), floppyRoot, path, floppyExtent);
         }
     }
     lua_createtable(L, 0, 1);
@@ -965,7 +1101,7 @@ static std::list<std::string> matchWildcard(Computer * comp, const std::list<std
                 if (fs::is_directory(path, e)) {
                     for (const auto& dir : fs::directory_iterator(path, e)) {
                         if (dir.path().filename() == ".DS_Store" || dir.path().filename() == "desktop.ini") continue;
-                        if (std::regex_match(dir.path().filename().u8string(), std::regex(pathc_regex))) nextOptions.push_back(opt + (opt.empty() ? "" : "/") + dir.path().filename().u8string());
+                        if (std::regex_match(ccNameString(dir.path().filename()), std::regex(pathc_regex))) nextOptions.push_back(opt + (opt.empty() ? "" : "/") + ccNameString(dir.path().filename()));
                     }
                 }
             }

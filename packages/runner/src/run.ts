@@ -16,6 +16,7 @@ import {
   monitorSetupLua,
 } from "./lua.js";
 import { type SimState, type WorldConfig, shownState } from "./world.js";
+import { ensureRom } from "./versions.js";
 
 export interface RunRequest {
   /** Workspace-relative program path, e.g. "hello.lua". */
@@ -70,21 +71,46 @@ export interface RunResult {
 export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Lua around the program: remembers what printError showed while it ran, and when it fails writes
- * /results/error.json saying why (no such program, a syntax error, or the error the shell printed), so the result can
- * name the file and line instead of leaving them in wrapped screen text.
+ * Lua around the program: remembers the error the program failed with, and when it fails writes /results/error.json
+ * saying why (no such program, a syntax error, or the error the shell printed), so the result can name the file and
+ * line instead of leaving them in wrapped screen text.
+ *
+ * The error is caught where the shell catches it, in its own copy of cc.internal.exception (the shell loads it with a
+ * require of its own, so no program ever holds that table): its try is wrapped for the run. Everything the program
+ * can reach stays CC's own, printError included; wrapping _G.printError made `printError == oldPrintError` false
+ * during a run (row 128 of docs/conformance/emulator-vs-real-deviations.md).
  */
 const RUN_ERROR_LUA = `
+local function ccsimShellException()
+  local seen = {}
+  local function find(fn, depth)
+    if seen[fn] then return nil end
+    seen[fn] = true
+    for i = 1, 255 do
+      local name, value = debug.getupvalue(fn, i)
+      if name == nil then return nil end
+      if name == "exception" and type(value) == "table" and type(value.try) == "function" then return value end
+      if type(value) == "function" and depth > 0 then
+        local found = find(value, depth - 1)
+        if found then return found end
+      end
+    end
+  end
+  return find(shell.execute or shell.run, 3)
+end
 local function ccsimRun(program, ...)
-  local shown, rawPrintError = {}, _G.printError
-  _G.printError = function(...)
-    local t = table.pack(...)
-    for i = 1, t.n do t[i] = tostring(t[i]) end
-    shown[#shown + 1] = table.concat(t, "\\t")
-    return rawPrintError(...)
+  local lastError
+  local exception = ccsimShellException()
+  local rawTry = exception and exception.try
+  if rawTry then
+    exception.try = function(...)
+      local r = table.pack(rawTry(...))
+      if not r[1] and r[2] ~= nil and r[2] ~= "" then lastError = tostring(r[2]) end
+      return table.unpack(r, 1, r.n)
+    end
   end
   local ok = shell.run(program, ...)
-  _G.printError = rawPrintError
+  if rawTry then exception.try = rawTry end
   if ok then return true end
   local name = program:match("^%S+") or program
   local path = shell.resolveProgram(name)
@@ -97,16 +123,23 @@ local function ccsimRun(program, ...)
     if h then h.close() end
     local fn, syntax = load(src, "@/" .. path)
     if not fn then info = { kind = "syntax", message = tostring(syntax) }
-    else info = { kind = "runtime", message = shown[#shown] or "the program failed without an error message" } end
+    else info = { kind = "runtime", message = lastError or "the program failed without an error message" } end
   end
   local out = fs.open("/results/error.json", "w")
   if out then out.write(textutils.serializeJSON(info)) out.close() end
   return false
 end`;
 
+/**
+ * A run or a test, not a person at the keyboard: /results/unattended tells the emulator's own programs (the `sim`
+ * program's help) that nobody is there to press a key.
+ */
+export const UNATTENDED_LUA = `do local h = fs.open("/results/unattended", "w") if h then h.close() end end`;
+
 export function programBoot(request: RunRequest): string {
   const args = (request.args ?? []).map(luaString).join(", ");
   return [
+    UNATTENDED_LUA,
     monitorSetupLua(request.monitors ?? []),
     RUN_ERROR_LUA,
     `local ok = ccsimRun(${luaString(request.program)}${args ? ", " + args : ""})`,
@@ -160,6 +193,8 @@ export async function runProgram(
   const timeoutMs = request.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const boot = programBoot(request);
   const blockWorld = request.world && isBlockWorld(request.world);
+  // a version whose ROM an installed package has not built yet: built now, outside the run's timeout
+  await ensureRom(config, request.world?.version);
   // the copy counts against the timeout, and never blocks: other clients of the MCP server go on meanwhile
   const staged = blockWorld
     ? undefined

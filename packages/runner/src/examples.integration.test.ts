@@ -117,6 +117,7 @@ const examples: Example[] = [
   { test: "examples/ccx/storage_card.test.lua" },
   { test: "examples/directgpu/dashboard.test.lua" },
   { test: "examples/cide/under_debugger.test.lua" },
+  { test: "examples/turtle/hut.test.lua", timeScale: 10 },
 ];
 
 function worldOf(test: string): WorldConfig {

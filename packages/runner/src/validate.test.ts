@@ -80,6 +80,15 @@ describe("world checks", () => {
     );
   });
 
+  it("takes CC:Tweaked's printer, and a near miss of a CC type points at the CC type, not a mod's", () => {
+    expect(
+      checkWorld({ peripherals: [{ name: "left", type: "printer" }] }).errors,
+    ).toEqual([]);
+    const r = checkWorld({ peripherals: [{ name: "left", type: "printr" }] });
+    expect(r.errors[0]).toMatch(/Did you mean "printer" \(CC:Tweaked\)\?/);
+    expect(r.errors[0]).not.toMatch(/grinder/);
+  });
+
   it("names the addon a near-miss type comes from", () => {
     const r = checkWorld({
       peripherals: [{ name: "p", type: "playerDetecter" }],
@@ -98,6 +107,22 @@ describe("world checks", () => {
     });
     expect(r.errors).toEqual([]);
     expect(r.warnings).toEqual([expect.stringMatching(/world\.somethingElse/)]);
+  });
+
+  it('catches "monitor" for "monitors", and a monitor wall past 8x6, before boot', () => {
+    expect(checkWorld({ monitor: [{ name: "top" }] }).errors).toEqual([
+      'world.monitor is not a world field. Did you mean "monitors"?',
+    ]);
+    expect(
+      checkWorld({
+        monitors: [
+          { name: "top", blocksWide: 9, blocksHigh: 2 },
+          { name: "left", blocksWide: 8, blocksHigh: 6 },
+        ],
+      }).errors,
+    ).toEqual([
+      'monitor "top" is 9x2 blocks; a monitor wall is at most 8x6 blocks (wide x high)',
+    ]);
   });
 
   it("takes generic storage blocks of any name, and warns on a near miss", () => {

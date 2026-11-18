@@ -4,17 +4,38 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import * as vscode from "vscode";
 import { baseCommand, fallbackFor, missingVersion } from "./launcher";
 import { packEnv } from "./pack";
+import { explicitValue, projectSettings } from "./project";
 
-export type RegisterServer = "auto" | "always" | "never";
+export type RegisterServer = "auto" | "everywhere" | "always" | "never";
 
+/** The folder whose craftos.json counts for a scope: its workspace folder, else the first one. */
+function projectStart(scope?: vscode.Uri): string | undefined {
+  const folder =
+    (scope && vscode.workspace.getWorkspaceFolder(scope)) ??
+    vscode.workspace.workspaceFolders?.[0];
+  return folder?.uri.scheme === "file" ? folder.uri.fsPath : undefined;
+}
+
+/**
+ * The settings, with craftos.json (project.ts) standing in for the pack and the workspace where they are not set:
+ * a setting someone set wins, then craftos.json, then the default.
+ */
 export function settings(scope?: vscode.Uri) {
   const c = vscode.workspace.getConfiguration("craftos-mcp", scope);
+  const start = projectStart(scope);
+  const project = start ? projectSettings(start) : undefined;
+  const pick = (key: string, fromProject: string | undefined): string =>
+    (
+      explicitValue(c.inspect<string>(key)) ??
+      fromProject ??
+      c.get<string>(key, "")
+    ).trim();
   return {
     command: c.get<string[]>("command", []),
-    addons: c.get<string>("addons", "").trim(),
-    mc: c.get<string>("minecraftVersion", "").trim(),
+    addons: pick("addons", project?.addons),
+    mc: pick("minecraftVersion", project?.minecraft),
     testTimeout: c.get<number>("testTimeout", 60),
-    workspace: c.get<string>("workspace", "").trim(),
+    workspace: pick("workspace", project?.workspace),
     registerServer: c.get<RegisterServer>("registerServer", "auto"),
   };
 }

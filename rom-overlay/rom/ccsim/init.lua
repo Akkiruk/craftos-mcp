@@ -59,4 +59,10 @@ if type(core.world.turtle) == "table" or type(core.world.placed) == "table" or c
   if core.mob then core.mob.install(brain) end
 end
 
+-- CraftOS-PC's periphemu, config and mounter, only when the world asks for them (world.craftosPcApis): the emulator
+-- hides its own, then puts these in (hideEmulator in scripts/rom-patches/startup-emulator.lua)
+if core.world.craftosPcApis == true then
+  _G.__ccsimCraftosPc = dofile("/rom/ccsim/craftospc_api.lua")(core, dofile)
+end
+
 core.save()

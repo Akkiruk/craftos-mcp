@@ -264,3 +264,77 @@ ccunit.finish()
     expect(failures(result)).toEqual([]);
   });
 });
+
+// Row 109: every value here is Cobalt's own, read off Cobalt 0.6.0 and 0.9.9 with tools/conformance/cobalt-oracle
+describe.skipIf(!ready)(
+  "row 109: math.random is the version's own generator",
+  () => {
+    it("1.18.2: Cobalt 0.6's java.util.Random, its Java int bounds and its randomseed", async () => {
+      const result = await runLua(
+        `${helpers}
+local R, S = math.random, math.randomseed
+ccunit.test("a seed gives java.util.Random's sequence", function()
+  S(42) ccunit.eq({ R(1, 100), R(1, 100), R(1, 100) }, { 31, 64, 49 })
+  S(42) ccunit.eq(tostring(R()), "0.72756368003287") ccunit.eq({ R(10), R(-5, 5) }, { 9, 0 })
+  S(5) ccunit.eq(string.format("%.17g", R()), "0.73051986361447097")
+  S(123456789) local sum = 0 for _ = 1, 1000 do sum = sum + R(1, 6) end ccunit.eq(sum, 3576)
+  S(1) ccunit.eq(R(1, 2147483647), 1569548986)
+end)
+ccunit.test("randomseed takes a long and gives nothing back", function()
+  ccunit.eq(select("#", S(7)), 0)
+  ccunit.eq(err(S), "pcall: bad argument (number expected, got nil)")
+  ccunit.eq(err(S, "x"), "pcall: bad argument (number expected, got string)")
+  S(2.9) ccunit.eq(R(1000), 109)
+  S(-3.9) ccunit.eq(R(1000), 165)
+  S(2 ^ 40 + 5) ccunit.eq(R(1000), 112)
+  S("12") ccunit.eq(R(1000), 867)
+  S(0 / 0) ccunit.eq(R(1000), 361)
+  S(1 / 0) ccunit.eq(R(1000), 914)
+  S(1e300) ccunit.eq(R(1000), 914)
+end)
+ccunit.test("bounds are Java ints", function()
+  S(0) ccunit.truthy(err(R, 2 ^ 40):find("interval is empty", 1, true)) ccunit.eq(R(2 ^ 40 + 7), 6)
+  ccunit.eq(R(2.5), 2)
+  S(1) ccunit.eq({ R(2.9), R(1.5, 3.7) }, { 2, 2 })
+  ccunit.truthy(err(R, 2 ^ 31):find("interval is empty", 1, true))
+  ccunit.eq(R(2 ^ 32 + 3), 2)
+  ccunit.truthy(err(R, 5, 4):find("bad argument #2", 1, true))
+  ccunit.truthy(err(R, -2 ^ 31, 2 ^ 31 - 1):find("vm error: java.lang.IllegalArgumentException: bound must be positive", 1, true))
+  S(1) ccunit.eq(R(0, 2 ^ 32), 0)
+  ccunit.truthy(err(R, 5, 2 ^ 32 + 4):find("interval is empty", 1, true))
+  S(3) ccunit.eq({ R(-10, -3), R(2147483647, 2147483647), R(-2147483648, -2147483648) }, { -5, 2147483647, -2147483648 })
+  ccunit.eq(err(R, nil), "pcall: bad argument (number expected, got nil)")
+  ccunit.eq(err(R, 1, nil), "pcall: bad argument (number expected, got nil)")
+end)
+ccunit.finish()
+`,
+        { version: "1.18.2" },
+        "random101.test.lua",
+      );
+      expect(failures(result)).toEqual([]);
+    });
+
+    it.skipIf(!newer)(
+      "1.20.1: Cobalt 0.9.9's xoshiro256**, any range",
+      async () => {
+        const result = await runLua(
+          `${helpers}
+ccunit.test("a seed gives Lua 5.4's sequence", function()
+  math.randomseed(42) ccunit.eq({ math.random(1, 100), math.random(1, 100) }, { 50, 76 })
+end)
+ccunit.test("a range past a Java int works", function()
+  math.randomseed(42) math.random(1, 100) math.random(1, 100)
+  ccunit.eq({ math.random(0, 2 ^ 32), math.random(-2 ^ 31, 2 ^ 31 - 1), math.random(5, 2 ^ 32 + 4) },
+    { 151149909, 797463477, 3239840324 })
+  ccunit.truthy(err(math.random, nil):find("number expected, got nil", 1, true))
+end)
+ccunit.finish()
+`,
+          { version: "1.20.1" },
+          "random121.test.lua",
+        );
+        expect(failures(result)).toEqual([]);
+      },
+    );
+  },
+);

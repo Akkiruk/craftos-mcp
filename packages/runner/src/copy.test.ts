@@ -127,6 +127,18 @@ describe("copyWorkspace", () => {
     expect(existsSync(join(target, "scratch"))).toBe(false);
   });
 
+  it("copies a workspace that itself sits inside the excluded runtime folder", () => {
+    // a test tool that lays its scratch workspaces out under .runtime
+    const runtime = folder();
+    const ws = join(runtime, "scratch-ws-1");
+    put(ws, "startup.lua", "print(1)");
+    put(ws, "lib/x.lua", "return 1");
+    const target = join(runtime, "session-1", "computer", "0");
+    copyWorkspace(ws, target, { exclude: [runtime] });
+    expect(existsSync(join(target, "startup.lua"))).toBe(true);
+    expect(existsSync(join(target, "lib", "x.lua"))).toBe(true);
+  });
+
   it("never copies into itself even without an exclude list", () => {
     const ws = folder();
     put(ws, "prog.lua", "x");

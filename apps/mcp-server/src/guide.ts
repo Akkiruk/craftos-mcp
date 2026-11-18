@@ -14,7 +14,7 @@ export const INSTRUCTIONS = [
   "Interactive work: craftos_session_create, then prefer data over pictures: craftos_ui (rectangles, text, what it waits for), craftos_act / craftos_script (input that waits until consumed), craftos_expect (assert). Use craftos_screenshot only to see how something looks.",
   'Peripherals: monitors go in `monitors`; everything else (chests, modems, Advanced Peripherals, Mekanism, Create, turtles and their block world, players) goes in `world`. A world is checked before boot; craftos_help {topic:"world"} has every field. Saved worlds load with worldFile (a name in worlds/ or a workspace *.world.json).',
   'A big workspace (a repo root) is slow to copy onto every computer: give world.deploy [{from:"src"}] to copy only that folder.',
-  "timeScale (e.g. 20) makes sleep() and timers run faster; craftos_advance jumps the clock; world.seed pins math.random.",
+  "timeScale (e.g. 20) makes sleep() and timers run faster; craftos_advance jumps the clock; world.seed pins math.random. craftos_clock pauses, steps, speeds up or jumps every computer at once; craftos_world_snapshot saves and restores the whole world.",
   "The Lua VM follows the version: 1.18.2 is Lua 5.1 semantics with no goto; 1.20.1 and 1.21.1 are Lua 5.2 with goto. os.shutdown(code) ending a run with that status is an emulator extra, not CC:Tweaked.",
   "craftos_info lists the versions, addons and anything missing; check it first if a tool fails.",
 ].join("\n");

@@ -13,6 +13,8 @@ export interface ViewerOptions {
   readonly lastRun: () =>
     | { label: string; screens: ScreenCapture[] }
     | undefined;
+  /** Told the URL once it listens (the port can differ from `port` when that was taken). */
+  readonly onUrl?: (url: string) => void;
 }
 
 /**
@@ -26,6 +28,12 @@ export function startViewer(options: ViewerOptions): Server {
     sessions: options.sessions,
     config: loadConfig(),
     lastRun: options.lastRun,
-    onListening: (url) => process.stderr.write(`craftos viewer: ${url}\n`),
+    // a second MCP server (another editor window, another agent) gets a free port instead of no viewer
+    portFallback: true,
+    // the VS Code extension reads this line (Watch the Agent's Computers): keep its shape
+    onListening: (url) => {
+      options.onUrl?.(url);
+      process.stderr.write(`craftos viewer: ${url}\n`);
+    },
   });
 }

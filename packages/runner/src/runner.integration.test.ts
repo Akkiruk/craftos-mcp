@@ -89,6 +89,50 @@ describe.skipIf(!ready)("runner against the real engine", () => {
     );
   }, 60000);
 
+  it("reports a syntax error in a test file with its file and line", async () => {
+    const own = mkdtempSync(join(tmpdir(), "runner-syntax-"));
+    try {
+      writeFileSync(
+        join(own, "bad.test.lua"),
+        'ccunit.test("one", function()\n  local x =\nend)\n',
+      );
+      const result = await runTests(
+        { ...base, workspaceDir: own },
+        { paths: ["bad.test.lua"] },
+      );
+      const file = result.files[0]!;
+      expect(file.status).toBe("failed");
+      expect(file.tests).toHaveLength(1);
+      const t = file.tests[0]!;
+      expect(t.error).toMatch(/^syntax error in bad\.test\.lua:3: /);
+      expect(t.line).toBe(3);
+      expect(result.failed).toBe(1);
+    } finally {
+      rmSync(own, { recursive: true, force: true });
+    }
+  }, 60000);
+
+  it("says a monitor is missing when a test reads one that is not attached", async () => {
+    const own = mkdtempSync(join(tmpdir(), "runner-nomon-"));
+    try {
+      writeFileSync(join(own, "prog.lua"), 'print("hi")');
+      writeFileSync(
+        join(own, "mon.test.lua"),
+        'ccunit.test("reads top", function()\n  ccunit.run("prog")\n  ccunit.screen("top")\nend)\n',
+      );
+      const result = await runTests(
+        { ...base, workspaceDir: own },
+        { paths: ["mon.test.lua"] },
+      );
+      const t = result.files[0]!.tests[0]!;
+      expect(t.passed).toBe(false);
+      expect(t.error).toContain('no monitor "top" is attached');
+      expect(t.error).toContain("--monitor top:");
+    } finally {
+      rmSync(own, { recursive: true, force: true });
+    }
+  }, 60000);
+
   it("runs a virtual clock faster than real time", async () => {
     put(
       "slow.lua",

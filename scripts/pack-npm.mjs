@@ -152,6 +152,8 @@ for (const dist of [
   "packages/runner/dist",
   "packages/rawterm/dist",
   "packages/protocol/dist",
+  // the world panel's modules, which the browser app serves as they are (packages/runner/src/webapp-world.ts)
+  "packages/world-editor/dist",
 ]) {
   for (const file of walk(join(SRC, dist))) {
     const rel = posix(relative(SRC, file));
@@ -164,6 +166,8 @@ for (const dist of [
 const COPY = [
   "packages/runner/lua",
   "packages/runner/webapp",
+  // the world panel builds its forms from it
+  "schemas/world.schema.json",
   "packages/rawterm/assets",
   "rom-overlay",
   "worlds",

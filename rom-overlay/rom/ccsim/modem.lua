@@ -431,6 +431,7 @@ return function(core, host)
       if modem.open >= MAX_OPEN then error("Too many open channels", 0) end
       modem.channels[channel] = true
       modem.open = modem.open + 1
+      core.dirty = true -- state.json lists the open channels: whoever watches the network reads who listens there
     end
 
     function methods.isOpen(channel)
@@ -442,11 +443,13 @@ return function(core, host)
       if modem.channels[channel] then
         modem.channels[channel] = nil
         modem.open = modem.open - 1
+        core.dirty = true
       end
     end
 
     function methods.closeAll()
       modem.channels, modem.open = {}, 0
+      core.dirty = true
     end
 
     function methods.transmit(channel, reply, message)

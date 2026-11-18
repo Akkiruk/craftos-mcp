@@ -12,10 +12,13 @@ import { join, posix } from "node:path";
 import {
   ADDONS,
   addonOfType,
+  addonSource,
   checkWorldAddons,
   resolveAddons,
 } from "./addons.js";
 import type { RunnerConfig } from "./config.js";
+import { didYouMean } from "./did-you-mean.js";
+import { MONITOR_LIMIT } from "./lua.js";
 import { COPY_SKIP } from "./copy.js";
 import { resolveVersion, romDirFor } from "./versions.js";
 import type { WorldConfig } from "./world.js";
@@ -29,6 +32,7 @@ export const WORLD_KEYS: readonly string[] = [
   "addons",
   "version",
   "simProgram",
+  "craftosPcApis",
   "motd",
   "players",
   "computerId",
@@ -82,6 +86,7 @@ const CC_TYPES = [
   "modem",
   "computer",
   "speaker",
+  "printer",
   "drive",
   "inventory",
   "fluid_storage",
@@ -115,53 +120,7 @@ export interface WorldCheck {
   readonly warnings: string[];
 }
 
-/** Edit distance, for "did you mean". */
-function distance(a: string, b: string): number {
-  // optimal string alignment: insertions, deletions, substitutions and swapped neighbours ("chets") cost 1
-  const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) =>
-    Array.from({ length: b.length + 1 }, (_, j) =>
-      i === 0 ? j : j === 0 ? i : 0,
-    ),
-  );
-  for (let i = 1; i <= a.length; i++)
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      let v = Math.min(
-        d[i - 1]![j]! + 1,
-        d[i]![j - 1]! + 1,
-        d[i - 1]![j - 1]! + cost,
-      );
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
-        v = Math.min(v, d[i - 2]![j - 2]! + 1);
-      d[i]![j] = v;
-    }
-  return d[a.length]![b.length]!;
-}
-
-/** The candidate closest to `word` when it is close enough to be a typo of it (case and a mod prefix ignored). */
-export function didYouMean(
-  word: string,
-  candidates: Iterable<string>,
-): string | undefined {
-  const norm = (s: string): string => s.toLowerCase().replace(/^[a-z_]+:/, "");
-  const w = norm(word);
-  let best: string | undefined;
-  let bestScore = Infinity;
-  for (const c of candidates) {
-    if (c === word) return c;
-    const d = Math.min(
-      distance(w, norm(c)),
-      distance(word.toLowerCase(), c.toLowerCase()),
-    );
-    if (d < bestScore) {
-      bestScore = d;
-      best = c;
-    }
-  }
-  if (best === undefined) return undefined;
-  const limit = Math.max(1, Math.min(3, Math.floor(w.length / 3)));
-  return bestScore <= limit ? best : undefined;
-}
+export { didYouMean };
 
 const mean = (hint: string | undefined, from?: string): string =>
   hint
@@ -198,13 +157,26 @@ export function checkWorld(
   ]);
   for (const key of Object.keys(w)) {
     if (keys.has(key) || NOTE_KEYS.has(key) || key.startsWith("_")) continue;
-    const hint = didYouMean(key, keys);
+    // "monitor" for "monitors" is a typo too, though the sim itself never reads the monitors
+    const hint = didYouMean(key, [...keys, ...NOTE_KEYS]);
     if (hint) errors.push(`world.${key} is not a world field.${mean(hint)}`);
     else
       warnings.push(
         `world.${key} is not a world field and does nothing (the world schema lists them: craftos://schema/world)`,
       );
   }
+
+  // a wall bigger than the game allows would otherwise only fail when the computer boots
+  const monitors = w["monitors"];
+  if (Array.isArray(monitors))
+    monitors.forEach((m: unknown) => {
+      if (!m || typeof m !== "object") return;
+      const { name, blocksWide, blocksHigh } = m as Record<string, unknown>;
+      const wide = typeof blocksWide === "number" ? blocksWide : 1;
+      const high = typeof blocksHigh === "number" ? blocksHigh : 1;
+      if (wide > MONITOR_LIMIT.width || high > MONITOR_LIMIT.height)
+        errors.push(monitorTooBig(String(name), wide, high));
+    });
 
   let mc: string | undefined;
   try {
@@ -249,7 +221,11 @@ export function checkWorld(
         return;
       }
       if (types.has(type)) return;
-      const hint = didYouMean(type, types.keys());
+      // CC:Tweaked's own types first: a near miss of "printer" is not some mod's "grinder"
+      const own = [...types]
+        .filter(([, from]) => from === "CC:Tweaked")
+        .map(([t]) => t);
+      const hint = didYouMean(type, own) ?? didYouMean(type, types.keys());
       if (generic) {
         // any block name works with generic storage fields; only a near miss of a known type is worth a word
         if (hint)
@@ -274,6 +250,7 @@ export function checkWorld(
         w as Parameters<typeof checkWorldAddons>[0],
         resolveAddons(w["addons"] as WorldConfig["addons"], env, mc),
         mc,
+        addonSource(w["addons"] as WorldConfig["addons"], env),
       );
     } catch (error) {
       errors.push((error as Error).message);
@@ -298,6 +275,14 @@ export function assertWorld(
 }
 
 export class WorldError extends Error {}
+
+/** A monitor wall past the game's limit, said the same way wherever it is caught. */
+export const monitorTooBig = (
+  name: string,
+  wide: number,
+  high: number,
+): string =>
+  `monitor "${name}" is ${wide}x${high} blocks; a monitor wall is at most ${MONITOR_LIMIT.width}x${MONITOR_LIMIT.height} blocks (wide x high)`;
 
 /** ROM program names (shell.resolveProgram finds them on the path): the file names under rom/programs. */
 function romPrograms(romDir: string): Set<string> {

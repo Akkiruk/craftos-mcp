@@ -10,7 +10,9 @@ import {
   NPM_PACKAGE,
   baseCommand,
   commandMissing,
+  getPinnedStore,
   readSetupLine,
+  setPinnedStore,
   spawnCommand,
 } from "./launcher";
 import {
@@ -20,7 +22,7 @@ import {
   mergeMcpServer,
 } from "./mcpConfig";
 import type { Status } from "./status";
-import { craftosServersInFolder } from "./projectScan";
+import { ccProjectSign, craftosServersInFolder } from "./projectScan";
 import { oneAtATime } from "./prompts";
 import {
   configuredWorkspace,
@@ -30,6 +32,7 @@ import {
   usePinFallback,
 } from "./settings";
 import type { SupervisorEvent } from "./supervise";
+import { readViewerLine } from "./viewerPage";
 
 export const PROVIDER_ID = "craftos-mcp.server";
 
@@ -50,6 +53,8 @@ interface Host {
   changed: vscode.EventEmitter<void>;
   /** When the supervisor itself died without saying goodbye, for the restart limit. */
   respawns: number[];
+  /** The live viewer's URL, as the server last said it (`craftos viewer: <url>` on its stderr). */
+  viewer?: string;
 }
 
 let host: Host | undefined;
@@ -71,6 +76,9 @@ export function serverDefinition(): vscode.McpStdioServerDefinition {
   if (folder) env["CRAFTOS_WORKSPACE"] = serverWorkspace(folder);
   // a different command or setting is a different server: VS Code offers to refresh its tools
   const version = `${NPM_PACKAGE} ${JSON.stringify([real, env])}`;
+  // the extension's own copy of the pinned package (src/pinned.ts), for the supervisor's directBase
+  const store = getPinnedStore();
+  if (store) env["CRAFTOS_VSCODE_STORE"] = store;
   env["CRAFTOS_SUPERVISE"] = JSON.stringify({
     base: real,
     sub: ["serve"],
@@ -88,7 +96,19 @@ export function serverDefinition(): vscode.McpStdioServerDefinition {
   return def;
 }
 
-/** Why the extension leaves its own server out (craftos-mcp.registerServer), or undefined to register it. */
+/** ccProjectSign per folder, until a Lua or world file appears or a setting or the folders change. */
+const signs = new Map<string, string | undefined>();
+
+function ccSign(folder: string): string | undefined {
+  if (!signs.has(folder)) signs.set(folder, ccProjectSign(folder));
+  return signs.get(folder);
+}
+
+/**
+ * Why the extension leaves its own server out (craftos-mcp.registerServer), or undefined to register it. auto: only in
+ * a workspace that looks like a ComputerCraft project (ccProjectSign) and has no craftos server of its own in
+ * .vscode/mcp.json; everywhere: any workspace without one; always: any; never: none.
+ */
 export function skipReason(): string | undefined {
   const mode = settings().registerServer;
   if (mode === "never") return "craftos-mcp.registerServer is never";
@@ -96,9 +116,16 @@ export function skipReason(): string | undefined {
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     const names = craftosServersInFolder(folder.uri.fsPath);
     if (names.length)
-      return `${folder.name}/.vscode/mcp.json already runs ${names.join(", ")} (craftos-mcp.registerServer is auto)`;
+      return `${folder.name}/.vscode/mcp.json already runs ${names.join(", ")} (craftos-mcp.registerServer is ${mode})`;
   }
-  return undefined;
+  if (mode === "everywhere") return undefined;
+  const folders = (vscode.workspace.workspaceFolders ?? []).filter(
+    (f) => f.uri.scheme === "file",
+  );
+  if (folders.some((f) => ccSign(f.uri.fsPath))) return undefined;
+  return folders.length
+    ? "this workspace does not look like a ComputerCraft project: no Lua, world files or craftos.json (craftos-mcp.registerServer everywhere registers it anyway)"
+    : "no folder is open (craftos-mcp.registerServer everywhere registers it anyway)";
 }
 
 /** The definitions the provider gives VS Code right now: none when skipReason says so. */
@@ -114,6 +141,11 @@ export function providedDefinitions(): vscode.McpStdioServerDefinition[] {
   const problem = folder && configuredWorkspace(folder).problem;
   if (problem) host?.output.appendLine(problem);
   return [serverDefinition()];
+}
+
+/** Where this editor's MCP server shows its live viewer, once it has said so. */
+export function viewerUrl(): string | undefined {
+  return host?.viewer;
 }
 
 export function serverEvents(): readonly ServerEvent[] {
@@ -134,6 +166,8 @@ function onEvent(h: Host, socket: Socket, event: ServerEvent): void {
     // the server's own stderr: into the log, and the setup's progress into the status bar
     h.output.append(event.text);
     for (const line of event.text.split(/\r?\n/)) {
+      const viewer = readViewerLine(line);
+      if (viewer) h.viewer = viewer;
       const setup = readSetupLine(line);
       if (setup?.kind === "setting-up")
         h.status.set({ kind: "setting-up", detail: setup.detail });
@@ -303,6 +337,8 @@ export function registerServer(
 ): vscode.EventEmitter<void> {
   const changed = new vscode.EventEmitter<void>();
   const id = randomBytes(6).toString("hex");
+  // where firstRun puts the pinned package, so it starts with node instead of npx (src/pinned.ts)
+  setPinnedStore(join(context.globalStorageUri.fsPath, "craftos-mcp"));
   host = {
     supervisorJs: context.asAbsolutePath(join("dist", "supervisor.js")),
     extensionId: context.extension.id,
@@ -330,13 +366,36 @@ export function registerServer(
   const mcpJson = vscode.workspace.createFileSystemWatcher(
     "**/.vscode/mcp.json",
   );
+  // craftos.json stands in for settings (settings.ts): a new or changed one is a new server definition
+  const projectJson =
+    vscode.workspace.createFileSystemWatcher("**/craftos.json");
+  const projectChanged = () => {
+    status.refresh();
+    changed.fire();
+  };
+  // registerServer auto: the first Lua or world file in a workspace that had none registers the server
+  const ccFiles = vscode.workspace.createFileSystemWatcher(
+    "**/{*.lua,*.world.json,craftos.json}",
+    false,
+    true,
+    true,
+  );
   context.subscriptions.push(
+    changed.event(() => signs.clear()),
+    ccFiles,
+    ccFiles.onDidCreate(() => {
+      if ([...signs.values()].some((s) => s === undefined)) changed.fire();
+    }),
     changed,
     listen(host),
     mcpJson,
     mcpJson.onDidCreate(() => changed.fire()),
     mcpJson.onDidChange(() => changed.fire()),
     mcpJson.onDidDelete(() => changed.fire()),
+    projectJson,
+    projectJson.onDidCreate(projectChanged),
+    projectJson.onDidChange(projectChanged),
+    projectJson.onDidDelete(projectChanged),
     vscode.workspace.onDidChangeWorkspaceFolders(() => changed.fire()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("craftos-mcp")) changed.fire();

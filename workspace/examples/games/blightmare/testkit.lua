@@ -37,10 +37,28 @@ function kit.screen(W, H)
   return ui, surface, font
 end
 
+local lastBreath = os.epoch("utc")
+
 --- Give the rest of the computer a turn, in a long loop of pure Lua.
 function kit.breathe()
   os.queueEvent("testkit_breathe")
   os.pullEvent("testkit_breathe")
+  lastBreath = os.epoch("utc")
+end
+
+--- Breathe if a quarter of a second has gone by since the last time. CC stops code that runs 7 s without yielding
+--- ("Too long without yielding"), and on a busy host a loop that yields every so many steps can take that long between
+--- them: the playthroughs, the whole game and the drawing checks did, with other suites running. Cheap enough to call
+--- every step; the loops it goes in read no events, so yielding more often changes nothing they find.
+function kit.pace()
+  if os.epoch("utc") - lastBreath >= 250 then kit.breathe() end
+end
+
+-- Every test starts with a turn: a file of many quick tests that never yield adds up to one long stretch otherwise.
+local test = ccunit.test
+ccunit.test = function(...)
+  kit.breathe()
+  return test(...)
 end
 
 --- Wait until condition() is true, for up to limit seconds. Returns its last value.
@@ -56,13 +74,10 @@ end
 
 --- Let the shell take every event queued so far: it handles a touch (and redraws) the moment it gets one, so an event
 --- queued behind the touch comes back only when that's done. A fixed sleep instead let the game's clock run on for as
---- long as a busy machine took to wake the scenario. Twice round: with some mods on, the emulator queues a touch
---- again behind its own touch event, which puts it behind the first marker.
+--- long as a busy machine took to wake the scenario.
 function kit.settle()
-  for _ = 1, 2 do
-    os.queueEvent("testkit_settle")
-    os.pullEvent("testkit_settle")
-  end
+  os.queueEvent("testkit_settle")
+  os.pullEvent("testkit_settle")
 end
 
 --- In play a tap only queues its action: the game takes one a tick. Wait until it has taken them all (a fight takes
@@ -185,4 +200,6 @@ function kit.run(scenario, o)
   if failure then error(failure, 0) end
 end
 
+-- a helper the tests require (tests/play_region.lua) gets this same kit
+package.loaded.testkit = kit
 return kit

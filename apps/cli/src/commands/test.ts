@@ -8,14 +8,18 @@ import {
   loadWorld,
   number,
   parse,
-  parseMonitor,
+  monitorsFor,
+  project,
   workspacePath,
 } from "../shared.js";
+import { summaryLine, watchTests } from "../watch.js";
 import {
   type TestFileResult,
   type TestRunResult,
   WorkspaceError,
   checkTestPaths,
+  discoverTests,
+  filterByGlobs,
   versionChoices,
   runTests,
 } from "@craftos-mcp/runner";
@@ -23,11 +27,15 @@ import {
 const USAGE = [
   "usage: craftos-mcp test [paths...] [--world x.json] [--mc 1.20.1] [--addons a,b] [--timescale n]",
   "                        [--monitor name:WxH] [--timeout seconds] [--dir folder]",
-  "                        [--json] [--reporter human|json|junit|github] [--out file]",
+  "                        [--json] [--reporter human|json|junit|github] [--out file] [--watch]",
   "",
   `--mc picks the Minecraft version: ${versionChoices()}.`,
-  "Runs every *.test.lua under the paths (default: the current folder) with the ccunit harness, each file in",
-  "its own fresh computer. Exits 0 when everything passes, 1 when a test fails, 2 on a usage error.",
+  "Runs every *.test.lua under the paths (default: craftos.json's tests globs, else the current folder) with the",
+  "ccunit harness, each file in its own fresh computer. Exits 0 when everything passes, 1 when a test fails, 2 on a",
+  "usage error.",
+  "",
+  "--watch runs them, then again whenever a .lua file changes: the test files that changed and the ones that load",
+  "a changed module (every one when none names it). Ctrl+C stops.",
   "",
   "Reports: human (default), json (the whole result; --json is short for it), junit (XML for CI test views) and",
   "github (::error annotations on the failing lines, after the human report; on by itself under GitHub Actions).",
@@ -37,13 +45,17 @@ const USAGE = [
 const REPORTERS = ["human", "json", "junit", "github"] as const;
 type Reporter = (typeof REPORTERS)[number];
 
+/** "1 test", "4 tests". */
+export const plural = (n: number, word: string): string =>
+  `${n} ${word}${n === 1 ? "" : "s"}`;
+
 /** The human-readable report: one block per file, the failing tests with their errors, then a summary line. */
 export function formatTestReport(result: TestRunResult): string {
   const out: string[] = [];
   for (const file of result.files) {
     const label = file.status === "passed" ? "PASS" : "FAIL";
     out.push(
-      `${label} ${file.file} (${file.tests.length} tests, ${file.durationMs} ms)`,
+      `${label} ${file.file} (${plural(file.tests.length, "test")}, ${file.durationMs} ms)`,
     );
     for (const t of file.tests) {
       out.push(
@@ -57,17 +69,17 @@ export function formatTestReport(result: TestRunResult): string {
       out.push("  the file did not finish before the timeout");
     if (file.status === "crashed")
       out.push(
-        "  the file produced no results (the engine or the file crashed)",
+        "  the file produced no results: the computer stopped before any test finished (the terminal below shows why)",
       );
     if (file.status !== "passed" && file.terminal?.length) {
       out.push("  terminal:");
       for (const line of file.terminal) out.push(`    | ${line}`);
     }
   }
-  const total = result.passed + result.failed;
+  const total = result.passed + result.failed + (result.skipped ?? 0);
   out.push("");
   out.push(
-    `${result.files.length} file${result.files.length === 1 ? "" : "s"}, ${total} test${total === 1 ? "" : "s"}: ` +
+    `${plural(result.files.length, "file")}, ${plural(total, "test")}: ` +
       `${result.passed} passed, ${result.failed} failed` +
       (result.skipped ? `, ${result.skipped} skipped` : ""),
   );
@@ -143,15 +155,46 @@ export function formatGithub(
       !file.tests.some((t) => !t.passed)
     )
       out.push(
-        `::error file=${prop(pathOf(file.file))},title=${prop(file.file)}::${esc(file.status === "timed_out" ? "the file did not finish before the timeout" : "the file produced no results (the engine or the file crashed)")}`,
+        `::error file=${prop(pathOf(file.file))},title=${prop(file.file)}::${esc(file.status === "timed_out" ? "the file did not finish before the timeout" : "the file produced no results: the computer stopped before any test finished")}`,
       );
   }
   return out.join("\n");
 }
 
+/** --watch: the report of each run on a cleared screen, a summary line under it, until Ctrl+C. */
+async function watchCommand(
+  workspaceDir: string,
+  listTests: () => string[],
+  runFiles: (files: string[]) => Promise<TestRunResult>,
+): Promise<number> {
+  const stop = new AbortController();
+  const onSignal = (): void => stop.abort();
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  try {
+    await watchTests({
+      workspaceDir,
+      listTests,
+      signal: stop.signal,
+      run: async (files, changed) => {
+        if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+        const result = await runFiles(files);
+        console.log(formatTestReport(result));
+        console.log(
+          summaryLine(result, files.length, listTests().length, changed),
+        );
+      },
+    });
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  }
+  return 0;
+}
+
 function progressLine(file: TestFileResult): string {
   const failed = file.tests.filter((t) => !t.passed).length;
-  return `${file.status === "passed" ? "PASS" : "FAIL"} ${file.file} (${file.tests.length} tests${failed ? `, ${failed} failed` : ""})`;
+  return `${file.status === "passed" ? "PASS" : "FAIL"} ${file.file} (${plural(file.tests.length, "test")}${failed ? `, ${failed} failed` : ""})`;
 }
 
 const test: Command = {
@@ -168,6 +211,7 @@ const test: Command = {
         json: { type: "boolean" },
         reporter: { type: "string" },
         out: { type: "string" },
+        watch: { type: "boolean" },
       });
       if (values.help) {
         console.log(USAGE);
@@ -177,7 +221,12 @@ const test: Command = {
         json?: boolean;
         reporter?: string;
         out?: string;
+        watch?: boolean;
       };
+      if (v.watch && (v.json || v.out || (v.reporter ?? "human") !== "human"))
+        throw new UsageError(
+          "--watch prints the human report: leave out --json, --reporter and --out",
+        );
       const reporter: Reporter = v.json
         ? "json"
         : ((v.reporter ?? "human") as Reporter);
@@ -189,27 +238,47 @@ const test: Command = {
         throw new UsageError("--out goes with --reporter json or junit");
       const config = configFor(values.dir);
       const timeout = number("timeout", values.timeout);
-      const paths = positionals.map((p) => workspacePath(config, p));
-      const missing = checkTestPaths(config, paths);
+      const typed = positionals.map((p) => workspacePath(config, p));
+      const missing = checkTestPaths(config, typed);
       if (missing.length) throw new WorkspaceError(missing.join("\n"));
+      // no paths: craftos.json's tests globs pick the files, if it has any
+      const globs = typed.length ? undefined : project()?.data.tests;
+      const listTests = (): string[] =>
+        globs
+          ? filterByGlobs(discoverTests(config.workspaceDir), globs)
+          : discoverTests(config.workspaceDir, typed);
+      const nothing = (): WorkspaceError =>
+        new WorkspaceError(
+          globs
+            ? `craftos.json's tests (${globs.join(", ")}) match no *.test.lua files in ${config.workspaceDir}`
+            : `no *.test.lua files found under ${positionals.join(", ") || config.workspaceDir}`,
+        );
+      const paths = globs ? listTests() : typed;
+      if (globs && paths.length === 0) throw nothing();
+      const world = loadWorld(config, values.world, values.addons, values.mc);
+      const base = {
+        monitors: monitorsFor(world, values.monitor),
+        world,
+        timeScale: number("timescale", values.timescale),
+        ...(timeout ? { timeoutMs: timeout * 1000 } : {}),
+      };
+      if (v.watch) {
+        if (listTests().length === 0) throw nothing();
+        return watchCommand(config.workspaceDir, listTests, (files) =>
+          runTests(config, { ...base, paths: files }),
+        );
+      }
       // a machine-readable report keeps stdout to itself; progress goes to stderr when a person watches
       const progress = process.stderr.isTTY && !(reporter === "json" && !v.out);
       const result = await runTests(config, {
+        ...base,
         paths,
-        monitors: (values.monitor ?? []).map(parseMonitor),
-        world: loadWorld(config, values.world, values.addons, values.mc),
-        timeScale: number("timescale", values.timescale),
-        ...(timeout ? { timeoutMs: timeout * 1000 } : {}),
         ...(progress && {
           onFile: (file: TestFileResult) =>
             process.stderr.write(`${progressLine(file)}\n`),
         }),
       });
-      if (result.files.length === 0) {
-        throw new WorkspaceError(
-          `no *.test.lua files found under ${positionals.join(", ") || config.workspaceDir}`,
-        );
-      }
+      if (result.files.length === 0) throw nothing();
       // annotations name files from where the job runs (the repository root)
       const toRepo = (p: string): string =>
         relative(process.cwd(), resolve(config.workspaceDir, p))

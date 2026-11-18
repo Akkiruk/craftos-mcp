@@ -94,7 +94,7 @@ ccunit.test("ballistic accelerator, against the Java port", function()
   near(ballistics.getDrag(0.98, 0.5), 0.99, "drag below 1")
   near(ballistics.getDrag(0.98, 3), 0.94, "drag above 1")
   ccunit.eq(err(ballistics.timeInAir, 1, 2), "bad argument #3 (number expected, got nil)")
-  ccunit.eq(err(ballistics.timeInAir, 1, 2, 3, 0.05, 0.99, 1.5), "bad argument #6 (number has no integer representation)")
+  ccunit.eq(err(ballistics.timeInAir, 1, 2, 3, 0.05, 0.99, 0 / 0), "bad argument #6 (number expected, got nan)") -- 1.5 would be 1: CC truncates
   ccunit.eq(err(ballistics.tryPitch, 30, 4, 3, 80, { 0, 64, 0 }), "bad argument #6 (table expected, got nil)")
   ccunit.eq(err(ballistics.calculatePitch, { x = 0, y = 64, z = 0 }, { 1, 2, 3 }, 4, 3), "Can't convert cannon item at  1.0")
   ccunit.eq(err(ballistics.calculatePitch, { 0, 64 }, { 1, 2, "z" }, 4, 3), "Can't convert target item at  3.0")

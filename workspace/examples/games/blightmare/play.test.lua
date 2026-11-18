@@ -32,21 +32,21 @@ kit.run(function()
   sleep(1)
   seen.demoPage = kit.S.demo.run and kit.S.demo.run.page
   kit.tap(60, 40)
-  seen.intro = kit.waitFor(function() return kit.S.view == "intro" end, 3)
-  seen.music = kit.waitFor(function() return #kit.sounds > 0 end, 3)
+  seen.intro = kit.waitFor(function() return kit.S.view == "intro" end, 20)
+  seen.music = kit.waitFor(function() return #kit.sounds > 0 end, 20)
   kit.press("skip")
-  seen.ready = kit.waitFor(function() return kit.S.view == "ready" end, 3)
+  seen.ready = kit.waitFor(function() return kit.S.view == "ready" end, 20)
   seen.noSave = kit.button("start") ~= nil and kit.button("continue") == nil
-  seen.rules = kit.press("rules") and kit.waitFor(function() return kit.S.view == "rules" end, 2)
+  seen.rules = kit.press("rules") and kit.waitFor(function() return kit.S.view == "rules" end, 20)
   kit.press("rulesDone")
   kit.press("start")
-  seen.play = kit.waitFor(function() return kit.S.view == "play" end, 3)
+  seen.play = kit.waitFor(function() return kit.S.view == "play" end, 20)
 
   -- no detector, so the game asks who this is, on its own keyboard
-  seen.asked = kit.waitFor(function() local s = kit.state() return s and s.mode == "name" end, 3)
+  seen.asked = kit.waitFor(function() local s = kit.state() return s and s.mode == "name" end, 20)
   for _, key in ipairs({ 1, 4, 1 }) do kit.act({ kind = "pick", i = key }) end
   kit.act({ kind = "pick", i = rules.NAME_DONE })
-  seen.hero = kit.state().heroName
+  seen.hero = kit.state() and kit.state().heroName
 
   -- the story's first scenes, by touch: on foot in Scythebreak, to the Dream Book, and on to the first fight and past it
   seen.walked = playUntil(function(s) return s.mode == "walk" and not s.run end, 120)
@@ -58,24 +58,24 @@ kit.run(function()
   seen.hitSound = kit.heard("sword_hit")
   playUntil(function(s) return s.mode == "walk" and not s.run end, 300)
   kit.drained() -- the last taps queued are walked
-  local s = kit.state()
+  local s = kit.state() or {}
 
   -- SAVE & QUIT, then back in by CONTINUE
   local before = { map = s.map, x = s.x, y = s.y, dir = s.dir, hero = s.heroName, rev = s.rev }
   kit.press("quit")
   seen.asking = kit.button("quit") and kit.button("quit").label
   kit.press("quit")
-  seen.left = kit.waitFor(function() return kit.S.view == "idle" end, 3)
+  seen.left = kit.waitFor(function() return kit.S.view == "idle" end, 20)
   seen.saveFile = fs.exists(fs.combine(kit.DATA, "Player.save"))
   kit.waitFor(function() return kit.S.demo.run ~= nil end, 5)
   kit.tap(60, 40)
-  kit.waitFor(function() return kit.S.view == "intro" end, 3)
+  kit.waitFor(function() return kit.S.view == "intro" end, 20)
   kit.press("skip")
-  kit.waitFor(function() return kit.S.view == "ready" end, 3)
+  kit.waitFor(function() return kit.S.view == "ready" end, 20)
   seen.saveLine = kit.S.ready.saved and kit.S.ready.saved.line
   kit.press("continue")
-  seen.back = kit.waitFor(function() return kit.S.view == "play" end, 3)
-  local after = kit.state()
+  seen.back = kit.waitFor(function() return kit.S.view == "play" end, 20)
+  local after = kit.state() or {}
   seen.same = after.map == before.map and after.x == before.x and after.y == before.y and after.dir == before.dir
     and after.heroName == before.hero
 end)

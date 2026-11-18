@@ -98,7 +98,7 @@ ccunit.test("stockcheckingblock: argument errors", function()
   ccunit.eq(err(ticker.itemBasicDetails, 0), "Index out of range (between 1 and 4)")
   ccunit.eq(err(ticker.itemDetails, 5), "Index out of range (between 1 and 4)")
   ccunit.eq(err(ticker.itemDetails), "bad argument #1 (number expected, got nil)")
-  ccunit.eq(err(ticker.itemBasicDetails, 1.5), "bad argument #1 (number has no integer representation)")
+  ccunit.eq(err(ticker.itemBasicDetails, 0 / 0), "bad argument #1 (number expected, got nan)") -- 1.5 would be 1: CC truncates
   -- getCountOf takes an item's JSON, not its id: Gson stops at the colon and throws
   ccunit.truthy(err(ticker.getCountOf, "minecraft:iron_ingot"):find("JsonSyntaxException", 1, true))
   ccunit.eq(err(ticker.getCountOf, "iron_ingot"), 'Item not parseable from "iron_ingot" or non-existent')
@@ -154,7 +154,8 @@ ccunit.test("redstonerequester: argument errors", function()
   ccunit.eq(err(requester.request, { { id = "minecraft:nope", count = 1 } }), 'Item not parseable from "minecraft:nope" or non-existent')
   ccunit.eq(err(requester.request, { "x", "y" }), "class java.lang.String cannot be cast to class java.util.Map (java.lang.String and java.util.Map are in module java.base of loader 'bootstrap')")
   ccunit.eq(err(requester.request, { a = {}, b = {} }), "class java.lang.String cannot be cast to class java.lang.Double (java.lang.String and java.lang.Double are in module java.base of loader 'bootstrap')")
-  ccunit.eq(err(requester.request, { { id = "minecraft:carrot", count = 1 } }, 5, "x"), "bad argument #3 (boolean expected, got string)")
+  ccunit.eq(err(requester.request, { { id = "minecraft:carrot", count = 1 } }, "5", "x"), "bad argument #3 (boolean expected, got string)")
+  ccunit.eq(err(requester.request, { { id = "minecraft:carrot", count = 1 } }, 5), "bad argument #2 (string expected, got number)") -- getString takes no number
   ccunit.eq(err(requester.request, { { id = "minecraft:carrot", count = 1 } }, {}), "bad argument #2 (string expected, got table)")
   ccunit.eq(err(requester.request, { { id = "minecraft:carrot", count = 1 } }, "a", true, 1), "bad argument #4 (boolean expected, got number)")
 end)

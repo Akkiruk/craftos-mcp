@@ -75,6 +75,13 @@ describe("monitor option", () => {
     });
     expect(() => parseMonitor("top:wide")).toThrow(/--monitor/);
   });
+
+  it("refuses a wall bigger than the game allows, as a message, not a crash", () => {
+    expect(parseMonitor("top:8x6").blocksWide).toBe(8);
+    expect(() => parseMonitor("top:9x9")).toThrow(
+      /--monitor top:9x9: monitor "top" is 9x9 blocks; a monitor wall is at most 8x6/,
+    );
+  });
 });
 
 describe("reports", () => {
@@ -100,6 +107,36 @@ describe("reports", () => {
     expect(text).toContain("expected 1, got 2");
     expect(text).toContain("| boom");
     expect(text).toContain("1 file, 2 tests: 1 passed, 1 failed");
+  });
+
+  it("counts skipped tests in the total, so the numbers add up", () => {
+    const text = formatTestReport({
+      passed: 1,
+      failed: 2,
+      skipped: 1,
+      files: [
+        {
+          file: "a.test.lua",
+          status: "failed",
+          durationMs: 5,
+          tests: [
+            { name: "one", passed: false, error: "x" },
+            { name: "two", passed: false, error: "y" },
+            { name: "later", passed: true, skipped: true },
+            { name: "good", passed: true },
+          ],
+        },
+        {
+          file: "b.test.lua",
+          status: "passed",
+          durationMs: 5,
+          tests: [{ name: "only", passed: true }],
+        },
+      ],
+    });
+    expect(text).toContain("FAIL a.test.lua (4 tests, 5 ms)");
+    expect(text).toContain("PASS b.test.lua (1 test, 5 ms)");
+    expect(text).toContain("2 files, 4 tests: 1 passed, 2 failed, 1 skipped");
   });
 
   it("prints screens without trailing blank lines", () => {
@@ -297,6 +334,35 @@ describe.skipIf(!ready)("against the real engine", () => {
     expect(readFileSync(png).subarray(1, 4).toString()).toBe("PNG");
   }, 60000);
 
+  it("run attaches the monitors a world file lists, and --monitor replaces one of the same name", async () => {
+    put(
+      "wall.lua",
+      'local m = peripheral.wrap("top")\nm.setCursorPos(1,1)\nm.write("on the wall")',
+    );
+    put(
+      "wall.world.json",
+      JSON.stringify({
+        monitors: [{ name: "top", blocksWide: 2, blocksHigh: 1 }],
+      }),
+    );
+    const world = join(scratch, "wall.world.json");
+    const r = await call(run, "--dir", scratch, "wall.lua", "--world", world);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("--- monitor top (18x5)");
+    expect(r.out).toContain("on the wall");
+    const bigger = await call(
+      run,
+      "--dir",
+      scratch,
+      "wall.lua",
+      "--world",
+      world,
+      "--monitor",
+      "top:3x1",
+    );
+    expect(bigger.out).toContain("--- monitor top (29x5)");
+  }, 60000);
+
   it("run exits 1 when the program errors and 124 on a timeout", async () => {
     put("bad.lua", 'error("kaboom", 0)');
     const bad = await call(run, "--dir", scratch, "bad.lua");
@@ -358,6 +424,49 @@ describe.skipIf(!ready)("checks and reports", () => {
     );
     expect(world.code).toBe(2);
     expect(world.err).toMatch(/Did you mean "peripherals"/);
+  });
+
+  it("run says a bad --addons id came from --addons and suggests the id meant", async () => {
+    put("real.lua", 'print("ok")');
+    const r = await call(
+      run,
+      "--dir",
+      scratch,
+      "real.lua",
+      "--addons",
+      "mekansim",
+    );
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(
+      /unknown addon "mekansim" in --addons\. Did you mean "mekanism"\?/,
+    );
+    expect(r.err).not.toMatch(/world\.addons/);
+  });
+
+  it("run says a world file is not there, and lists the saved worlds for a wrong name", async () => {
+    put("real.lua", 'print("ok")');
+    const file = await call(
+      run,
+      "--dir",
+      scratch,
+      "real.lua",
+      "--world",
+      "typo.world.jsn",
+    );
+    expect(file.code).toBe(2);
+    expect(file.err).toContain("no world file typo.world.jsn (looked in ");
+    const name = await call(
+      run,
+      "--dir",
+      scratch,
+      "real.lua",
+      "--world",
+      "no-such-world",
+    );
+    expect(name.code).toBe(2);
+    expect(name.err).toMatch(
+      /^no world named "no-such-world" in .*it has: .*generic-storage-demo/,
+    );
   });
 
   it("run prints the error with its file and line", async () => {

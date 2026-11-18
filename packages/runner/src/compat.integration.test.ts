@@ -46,6 +46,13 @@ beforeAll(async () => {
       res.writeHead(200, { "Content-Type": "application/octet-stream" });
       res.write(BINARY.subarray(0, 3000));
       setTimeout(() => res.end(BINARY.subarray(3000)), 400);
+    } else if (req.url === "/stall") {
+      // the headers and a part of the body, then nothing: closed by afterAll
+      res.writeHead(200, {
+        "Content-Type": "text/plain",
+        "Content-Length": "100",
+      });
+      res.write("abc");
     } else if (req.url === "/utf8") {
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       res.end(UTF8);
@@ -259,14 +266,44 @@ ccunit.test("the disk is mounted at /disk with its files", function()
 end)
 ccunit.test("it holds 125000 bytes, not what the host's disk does", function()
   ccunit.eq(fs.getCapacity("disk"), 125000)
-  local before = fs.getFreeSpace("disk")
-  ccunit.truthy(before > 100000 and before < 125000, "free: " .. before)
+  -- FileMount counts a folder as 500 bytes and a file as max(size, 500): notes/ and hello.txt
+  ccunit.eq(fs.getFreeSpace("disk"), 124000)
   local h = fs.open("disk/big.txt", "w")
   h.write(("x"):rep(20000))
   h.close()
-  local after = fs.getFreeSpace("disk")
-  ccunit.truthy(after <= before - 20000 and after > before - 21000, before .. " -> " .. after)
+  ccunit.eq(fs.getFreeSpace("disk"), 104000)
   ccunit.eq(fs.getCapacity("/"), fs.getCapacity("startup.lua")) -- the computer's own drive is not a floppy
+end)
+ccunit.test("a full disk refuses what does not fit (row 139)", function()
+  -- the counting channel refuses a write whole, before any of it is written
+  local h = fs.open("disk/fill.bin", "wb")
+  h.write(("y"):rep(100000))
+  ccunit.eq(fs.getFreeSpace("disk"), 4000)
+  -- the handle's own error, placed like every error a handle raises
+  local ok, err = pcall(h.write, ("y"):rep(4001))
+  ccunit.truthy(not ok and tostring(err):find("Out of space$"), err)
+  h.write(("y"):rep(4000))
+  ok, err = pcall(h.write, 65)
+  ccunit.truthy(not ok and tostring(err):find("Out of space$"), err)
+  h.close()
+  ccunit.eq(fs.getSize("disk/fill.bin"), 104000)
+  ccunit.eq(fs.getFreeSpace("disk"), 0)
+  -- a new file needs 500 bytes, a folder 500 each; a file that is there already can be opened again
+  ccunit.eq({ fs.open("disk/new.txt", "w") }, { nil, "/disk/new.txt: Out of space" })
+  ok, err = pcall(fs.makeDir, "disk/more")
+  ccunit.truthy(not ok and tostring(err):find("/disk/more: Out of space$"), err)
+  h = fs.open("disk/big.txt", "w") -- truncated: its 20000 bytes are free again
+  ccunit.eq(fs.getFreeSpace("disk"), 19500)
+  h.write("text, the old way")
+  h.close()
+  ccunit.eq(fs.getFreeSpace("disk"), 19500)
+  fs.delete("disk/fill.bin")
+  ccunit.eq(fs.getFreeSpace("disk"), 123500)
+  -- the computer's own drive is not counted this way
+  h = fs.open("big-on-the-computer.txt", "w")
+  h.write(("z"):rep(130000))
+  h.close()
+  ccunit.eq(fs.getSize("big-on-the-computer.txt"), 130000)
 end)
 `,
           {
@@ -345,6 +382,48 @@ end)
 `,
           { version: v.mc },
         );
+        expect(failed).toEqual([]);
+      },
+      90000,
+    );
+
+    it.skipIf(!v.there)(
+      `${v.mc}: a body that stops coming times out, and the timeout field is the version's`,
+      async () => {
+        // CC's ReadTimeoutHandler fails a request that hears nothing for its timeout, in the body too; the engine
+        // answered http_success with the 3 bytes that had come. 1.101.3 reads no timeout field (always 30 s), so
+        // only the newer version waits out a short one here.
+        const lua =
+          v.cc === "1.101.3"
+            ? `
+ccunit.test("the timeout field is not read", function()
+  ccunit.eq(http.request({ url = "http://127.0.0.1:PORT/utf8", timeout = "soon" }), true)
+  local ev
+  repeat ev = os.pullEvent() until ev == "http_success" or ev == "http_failure"
+  ccunit.eq(ev, "http_success")
+end)
+`
+            : `
+ccunit.test("a stalled body is Timed out", function()
+  ccunit.eq(http.request({ url = "http://127.0.0.1:PORT/stall", timeout = 1 }), true)
+  local t0 = os.epoch("utc")
+  local ev, url, why
+  repeat ev, url, why = os.pullEvent() until ev == "http_success" or ev == "http_failure"
+  ccunit.eq({ ev, why }, { "http_failure", "Timed out" })
+  ccunit.truthy(os.epoch("utc") - t0 >= 900, "failed after " .. (os.epoch("utc") - t0) .. " ms")
+end)
+ccunit.test("the timeout is 0 to 60 seconds", function()
+  -- HTTPAPI.getTimeout's message, at the line of rom/apis/http/http.lua that called the native request
+  for _, t in ipairs({ 61, -1 }) do
+    local ok, err = pcall(http.request, { url = "http://127.0.0.1:PORT/utf8", timeout = t })
+    ccunit.eq(ok, false)
+    ccunit.truthy(tostring(err):find("timeout out of range (between 0.0 and 60.0)", 1, true), tostring(err))
+  end
+end)
+`;
+        const failed = await failures(`stall-${v.mc}.lua`, lua, {
+          version: v.mc,
+        });
         expect(failed).toEqual([]);
       },
       90000,

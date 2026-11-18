@@ -695,4 +695,237 @@ end)
     );
     expectAllPassed(gone);
   });
+
+  it("water poured off a ledge falls straight down as falling water and spreads 7 blocks at the bottom", async () => {
+    // FlowingFluid.spread: a block that can flow down only flows down (fewer than 3 sources beside it), the block
+    // below it is falling water (level 8, amount 8) and spreads no further sideways in the air; where it lands it
+    // spreads to the sides as if it had amount 8, one less per block, so 7 blocks out over flat ground.
+    const fall = await runLua(
+      `${helpers}
+ccunit.test("a column, then a diamond on the floor", function()
+  ccunit.truthy(turtle.place()) -- the source on the edge of the ledge: it runs off east, where there is a drop
+  ccunit.truthy(turtle.up())
+  for _ = 1, 3 do ccunit.truthy(turtle.forward()) end
+  turtle.turnLeft()
+  turtle.turnLeft() -- at 2,71,0 facing west: the column at x = 1 is in front on the way down
+  for y = 70, 65, -1 do
+    ccunit.truthy(turtle.down(), "nothing spreads sideways out of the column at y " .. y)
+    local b = front()
+    ccunit.eq(b and b.name, "minecraft:water", "y " .. y)
+    ccunit.eq(b.state.level, y == 70 and 1 or 8, "y " .. y .. ": the lip off the ledge, then falling water")
+  end
+  turtle.turnLeft()
+  turtle.turnLeft() -- facing east along the floor, from beside the foot of the column at 1,64,0
+  for x = 2, 9 do
+    if x > 2 then ccunit.truthy(turtle.forward()) end
+    local ok, b = turtle.inspectDown()
+    if x <= 8 then
+      ccunit.truthy(ok and b.name == "minecraft:water", "floor at x " .. x)
+      ccunit.eq(b.state.level, x - 1, "floor at x " .. x)
+    else
+      ccunit.eq(ok, false, "nothing 8 blocks from the foot")
+    end
+  end
+end)
+`,
+      turtleWorld(
+        {
+          x: -1,
+          y: 70,
+          facing: "east",
+          inventory: { "1": { name: "minecraft:water_bucket", count: 1 } },
+        },
+        {
+          fills: [
+            { from: [-3, 64, -3], to: [0, 69, 3], name: "minecraft:stone" },
+          ],
+        },
+      ),
+    );
+    expectAllPassed(fall);
+    // The times, on real time: a column held up by a shelf, which the turtle digs out from beside it. The water
+    // above the shelf falls a block every 5 ticks (66, 65, 64) and spreads onto the floor 5 ticks after landing.
+    const timed = await runLua(
+      `${helpers}
+ccunit.test("one block per 5 ticks, then onto the floor", function()
+  local asked = os.clock()
+  ccunit.truthy(turtle.dig())
+  ccunit.truthy(turtle.down())
+  local b = front()
+  ccunit.eq(b and b.name, "minecraft:water")
+  ccunit.eq(b.state.level, 8, "falling past the turtle")
+  -- the dig cannot run before it was asked for, and the fluid never runs early: 4 steps of 5 ticks at the least
+  local took, under = waitFor(function()
+    local ok, d = turtle.inspectDown()
+    return ok and d or nil
+  end, 30)
+  ccunit.truthy(took, "the floor never got wet")
+  ccunit.eq(under.state.level, 1)
+  ccunit.truthy(os.clock() - asked >= 1.0 - 0.05, "on the floor " .. (os.clock() - asked) * 20 .. " ticks after the dig was asked for")
+end)
+`,
+      turtleWorld(
+        { x: 2, y: 66, facing: "west", right: pick },
+        {
+          blocks: [
+            at(1, 70, 0, "minecraft:water", water),
+            at(1, 69, 0, "minecraft:water", { state: { level: "8" } }),
+            at(1, 68, 0, "minecraft:water", { state: { level: "8" } }),
+            at(1, 67, 0, "minecraft:water", { state: { level: "8" } }),
+            at(1, 66, 0, "minecraft:stone"),
+          ],
+        },
+      ),
+      1,
+    );
+    expectAllPassed(timed);
+  });
+
+  it("two sources make a third between them over solid ground, and not over a drop", async () => {
+    // WaterFluid.canConvertToSource: a block with two or more water sources beside it becomes a source when the block
+    // below it is solid or a source. Here two sources sit in pockets either side of a stone the turtle digs out; the
+    // only way out of each pocket is the dug cell.
+    const pockets = (extra: ReturnType<typeof at>[]) => ({
+      blocks: [
+        at(-1, 64, -1, "minecraft:water", water),
+        at(1, 64, -1, "minecraft:water", water),
+        at(0, 64, -1, "minecraft:stone"),
+        at(-2, 64, -1, "minecraft:stone"),
+        at(-1, 64, -2, "minecraft:stone"),
+        at(-1, 64, 0, "minecraft:stone"),
+        at(2, 64, -1, "minecraft:stone"),
+        at(1, 64, -2, "minecraft:stone"),
+        at(1, 64, 0, "minecraft:stone"),
+        at(0, 64, -2, "minecraft:stone"),
+        ...extra,
+      ],
+    });
+    const solid = await runLua(
+      `${helpers}
+ccunit.test("a new source, and again after it is bucketed", function()
+  local asked = os.clock()
+  ccunit.truthy(turtle.dig())
+  local took, b = waitFor(front, 30)
+  ccunit.truthy(took, "no water came")
+  ccunit.eq(b.name, "minecraft:water")
+  ccunit.eq(b.state.level, 0, "a source, not the flowing level 1 one source would give")
+  ccunit.truthy(os.clock() - asked >= 0.25 - 0.05, "never early")
+  -- infinite water: take it, and it is there again
+  ccunit.truthy(turtle.place(), "the bucket takes the new source")
+  ccunit.eq(turtle.getItemDetail(1).name, "minecraft:water_bucket")
+  asked = os.clock()
+  took, b = waitFor(front, 30)
+  ccunit.truthy(took, "it did not come back")
+  ccunit.eq(b.state.level, 0)
+  ccunit.truthy(os.clock() - asked >= 0.25 - 0.05, "never early")
+end)
+`,
+      turtleWorld(
+        {
+          right: pick,
+          inventory: { "1": { name: "minecraft:bucket", count: 1 } },
+        },
+        pockets([]),
+      ),
+      1,
+    );
+    expectAllPassed(solid);
+    const drop = await runLua(
+      `${helpers}
+ccunit.test("over a drop it is only flowing water", function()
+  ccunit.truthy(turtle.dig())
+  local took, b = waitFor(front, 30)
+  ccunit.truthy(took, "no water came")
+  ccunit.eq(b.state.level, 1)
+  -- it pours into the hole below, and falling water under it is no source either
+  sleep(1.5)
+  ccunit.eq(front().state.level, 1, "still flowing")
+end)
+`,
+      turtleWorld({ right: pick }, pockets([at(0, 63, -1, "minecraft:air")])),
+      1,
+    );
+    expectAllPassed(drop);
+  });
+
+  it("a large open flood off a ledge is caught up inside the yield limit", async () => {
+    // Eight sources in a row on a 9 x 9 ledge 119 blocks over an open plane: the water runs to every edge and falls
+    // the whole way in columns (600 ticks of falling), then spreads on the plane below. A jump of the clock makes one
+    // catch-up do nearly all of it, the worst case for the 7 s limit without yielding.
+    const r = await runLua(
+      `${jump}
+local function look(fn)
+  local ok, b = fn()
+  return ok and b or nil
+end
+ccunit.test("the flood runs its course", function()
+  -- a row of sources from x = 4 down to x = -3, the turtle backing west along it
+  for slot = 1, 8 do
+    turtle.select(slot)
+    ccunit.truthy(turtle.place(), "source " .. slot)
+    if slot < 8 then ccunit.truthy(turtle.back()) end
+  end
+  -- 10 s of the flood with the program waiting on events all the while: the sim's state file (a thing of the emulator,
+  -- not the game) is not written again at every wait while the world changes on its own. Each write rewrites every
+  -- changed block, and it was written at every catch-up, 2 a second (20 here, most of a flood's time); now when the
+  -- changes come to a quarter of the changed blocks, or every 100 ticks. Counted by its size, which grows with the flood.
+  local function size() return fs.getSize("/results/state.json") end
+  local writes, seen, t0 = 0, size(), os.clock()
+  while os.clock() - t0 < 10 do
+    os.queueEvent("poll")
+    os.pullEvent("poll")
+    local s = size()
+    if s ~= seen then writes, seen = writes + 1, s end
+  end
+  ccunit.truthy(writes <= 8, "the state was written " .. writes .. " times in 10 s")
+  local before = os.clock()
+  jump(60)
+  -- the jump itself is 60 s; what it took beyond that is the catch-up, in real seconds on a 5x clock (about 0.4 s;
+  -- over 3 s before the slope search kept its caches, and the guard's 7 s before the tag lookups were cached)
+  local over = (os.clock() - before - 60) / 5
+  ccunit.truthy(over < 1.5, "the catch-up took " .. over .. " s")
+  local src = look(turtle.inspect)
+  ccunit.eq(src and src.name, "minecraft:water")
+  ccunit.eq(src.state.level, 0, "a source stays a source")
+  -- the east end: the source at x = 4 runs off the ledge into x = 5, which falls the whole way as falling water
+  ccunit.truthy(turtle.up())
+  for _ = 1, 10 do ccunit.truthy(turtle.forward()) end -- above the row, to x = 6
+  turtle.turnLeft()
+  turtle.turnLeft() -- facing west, the column in front
+  ccunit.truthy(turtle.down())
+  local lip = look(turtle.inspect)
+  ccunit.eq(lip and lip.name, "minecraft:water")
+  ccunit.eq(lip.state.level, 1, "the block that ran off the edge, one less than its source")
+  for y = 69, 66, -1 do
+    ccunit.truthy(turtle.down(), "nothing spreads sideways out of the column at y " .. y)
+    local b = look(turtle.inspect)
+    ccunit.eq(b and b.name, "minecraft:water", "column at y " .. y)
+    ccunit.eq(b.state.level, 8, "falling at y " .. y)
+  end
+end)
+`,
+      turtleWorld(
+        {
+          x: 3,
+          y: 70,
+          z: 0,
+          facing: "east",
+          inventory: Object.fromEntries(
+            Array.from({ length: 8 }, (_, i) => [
+              String(i + 1),
+              { name: "minecraft:water_bucket", count: 1 },
+            ]),
+          ),
+        },
+        {
+          ground: { y: -50, name: "minecraft:stone" },
+          fills: [
+            { from: [-4, -49, -4], to: [4, 69, 4], name: "minecraft:stone" },
+          ],
+        },
+      ),
+      5,
+    );
+    expectAllPassed(r);
+  });
 });

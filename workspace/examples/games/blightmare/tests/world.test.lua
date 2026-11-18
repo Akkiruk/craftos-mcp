@@ -557,6 +557,7 @@ end)
 
 t("every sprite bakes at every distance it's seen from", function()
   for name in pairs(art.SPRITES) do
+    kit.pace()
     for _, size in ipairs({ { 4, 3 }, { 16, 11 }, { 40, 27 }, { 80, 53 } }) do
       truthy(#art.bake(name, size[1], size[2]) >= 0, name)
     end
@@ -592,6 +593,7 @@ t("the view keeps inside its rectangle, sprites and all", function()
   for mapId, map in pairs(stand.DATA) do
     for y, row in ipairs(map.rows) do
       for x = 1, #row do
+        kit.pace()
         for dir = 1, 4 do
           local x1, y1, x2, y2 = filled(function() scene.draw(0, 0, state({ map = mapId, x = x, y = y, dir = dir })) end)
           truthy(x1 >= 0 and y1 >= 0 and x2 <= scene.VIEW_W and y2 <= scene.VIEW_H, mapId .. " " .. x .. "," .. y)
@@ -689,6 +691,7 @@ t("the pictures stay cheap: fills for a frame, once baked", function()
       worst[mapId] = 0
       for y, row in ipairs(map.rows) do
         for x = 1, #row do
+          kit.pace()
           for dir = 1, 4 do
             fills = 0
             scene.draw(0, 0, state({ map = mapId, x = x, y = y, dir = dir }))

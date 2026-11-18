@@ -1,8 +1,11 @@
-// New Test for This File and New World for This File: make `name.test.lua` or `name.world.json` next to the open
-// program from the extension's own snippets (snippets/*.json), with the program's name filled in.
+// New Test for This File and New World for This File: make `name.test.lua` next to the open program from the
+// extension's own snippet (snippets/lua.json), with the program's name filled in, or `name.world.json` with what the
+// program asks for (worldTemplate.ts), opened in the World Editor.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import * as vscode from "vscode";
+import { PACK } from "./packData";
+import { worldText } from "./worldTemplate";
 
 function snippetBody(
   context: vscode.ExtensionContext,
@@ -71,10 +74,21 @@ export function registerScaffold(
           return;
         }
         const name = basename(target.fsPath).replace(/(\.test)?\.lua$/i, "");
-        const body = snippetBody(context, "world.json", "craftos-mcp world");
-        await make(
-          join(dirname(target.fsPath), `${name}.world.json`),
-          new vscode.SnippetString(body),
+        const file = join(dirname(target.fsPath), `${name}.world.json`);
+        // a world with what the program asks for (peripheral.find/wrap, rednet.open, turtle), in the World Editor
+        if (!existsSync(file)) {
+          const open = vscode.workspace.textDocuments.find(
+            (d) => d.uri.toString() === target.toString(),
+          );
+          const source = open
+            ? open.getText()
+            : readFileSync(target.fsPath, "utf8");
+          writeFileSync(file, worldText(source, PACK));
+        }
+        await vscode.commands.executeCommand(
+          "vscode.openWith",
+          vscode.Uri.file(file),
+          "craftos-mcp.worldEditor",
         );
       },
     ),

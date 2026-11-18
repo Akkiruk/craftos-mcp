@@ -1,0 +1,84 @@
+/* Printers (printer.js): printed pages as paper, the same in the light and the dark theme */
+.pp-printer {
+  min-width: 0;
+}
+.pp-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.pp-title {
+  font: 12px var(--mono);
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.pp-paper {
+  /* a printout: off-white paper, the page's 25x21 letters in their ink */
+  background: #f4efe1;
+  border: 1px solid #c9c0a8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  padding: 10px 12px;
+  font: 15px/1.2 var(--mono);
+  white-space: pre;
+  color: #111111;
+  user-select: text;
+}
+.pp-paper.small {
+  font-size: 3px;
+  line-height: 1.2;
+  padding: 3px 4px;
+  pointer-events: none;
+  user-select: none;
+}
+.pp-line {
+  height: 1.2em;
+}
+.pp-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 360px;
+  align-content: flex-start;
+}
+.pp-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px;
+  color: var(--dim);
+  font:
+    11px system-ui,
+    sans-serif;
+  cursor: pointer;
+  max-width: 76px;
+}
+.pp-thumb span {
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp-thumb:hover,
+.pp-thumb:focus-visible {
+  border-color: var(--line);
+  color: var(--fg);
+}
+.pp-thumb.on {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.pp-empty {
+  color: var(--dim);
+  font-size: 12px;
+  max-width: 260px;
+}
+@media (max-width: 700px) {
+  .pp-paper:not(.small) {
+    font-size: 11px;
+  }
+}

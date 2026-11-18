@@ -45,6 +45,18 @@ import {
   runScript,
   saveLabels,
   sendAndWait,
+  // the world clock and world snapshots (craftos_clock, craftos_world_snapshot)
+  DAY_MS,
+  deleteSnapshot,
+  importSnapshot,
+  listSnapshots,
+  parseDuration,
+  restoreSnapshot,
+  saveSnapshot,
+  snapshotFile,
+  snapshotHooksFor,
+  waitForClock,
+  worldClockFor,
   sendCommandResult,
   setLabels,
   settle,
@@ -63,8 +75,22 @@ import {
   checkProgram,
   checkTestPaths,
   checkWorld,
+  type Project,
+  checkProject,
+  discoverTests,
+  filterByGlobs,
+  findProject,
+  projectEnv,
+  projectWorld,
+  withoutEditorKeys,
 } from "@craftos-mcp/runner";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -74,6 +100,39 @@ import {
 import { z } from "zod";
 import { CCUNIT_GUIDE, GUIDE, INSTRUCTIONS } from "./guide.js";
 import { startViewer } from "./viewer.js";
+import {
+  defaultBudgetMs,
+  progressFor,
+  ticker,
+  withBudget,
+} from "./progress.js";
+
+/**
+ * craftos.json (packages/runner/src/project.ts), from the workspace folder or the folder the server starts in: its
+ * workspace, Minecraft version and mods stand in for CRAFTOS_WORKSPACE, CRAFTOS_VERSION and CRAFTOS_ADDONS where
+ * those are unset; its world is the base world of craftos_run, craftos_test and craftos_session_create; its tests
+ * globs pick the files of a craftos_test with no paths. A broken one is said on stderr and in craftos_info.
+ */
+let projectProblem: string | undefined;
+const project = ((): Project | undefined => {
+  try {
+    const found = findProject(
+      process.env["CRAFTOS_WORKSPACE"] ?? process.cwd(),
+    );
+    if (!found) return undefined;
+    const errors = checkProject(found.data, found.dir);
+    if (errors.length) {
+      projectProblem = `${found.file}: ${errors.join("; ")} (ignored until fixed)`;
+      return undefined;
+    }
+    Object.assign(process.env, projectEnv(found));
+    return found;
+  } catch (error) {
+    projectProblem = `${(error as Error).message} (ignored until fixed)`;
+    return undefined;
+  }
+})();
+if (projectProblem) process.stderr.write(`craftos-mcp: ${projectProblem}\n`);
 
 const config = loadConfig();
 const sessions = new SessionManager(config);
@@ -87,6 +146,8 @@ const COPY_NOTE =
   " The computer gets a copy of the workspace (without .git, node_modules, .runtime and what .gitignore ignores); for a big workspace give world.deploy to copy only some folders.";
 
 let lastRun: { label: string; screens: ScreenCapture[] } | undefined;
+/** The live viewer's address once it listens (CRAFTOS_VIEWER_PORT, or a free port when that was taken). */
+let viewerUrl: string | undefined;
 
 const server = new McpServer(
   {
@@ -264,7 +325,7 @@ const peripheralSchema = z
     type: z
       .string()
       .describe(
-        'Virtual: inventories ("minecraft:chest", "minecraft:barrel"), "fluid_storage", "energy_storage", and any block of your own name with a mix of CC:Tweaked\'s generic peripherals (type e.g. "thermal:machine_furnace"; it gets the types inventory, energy_storage and fluid_storage as its fields ask, in CC\'s order, with every method of each): size/items (inventory), tanks [{name (the fluid), amount, capacity?, rate? (mB per tick, minus drains)}] or fluid {name, amount} with capacity (fluid_storage), energy, energyCapacity, energyRate (FE per tick, minus drains; energy_storage); rates run on the virtual clock; see docs/generic-storage.md. Also Advanced Peripherals types playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController. "speaker" is a recording fake (headless has no audio): playSound/playNote calls land in sim state under peripherals.<name>.sounds, and notes are capped at 8 per tick like the real speaker. "modem" behaves like the real game: kind "wireless" (default), "ender" or "wired" (with network, block, on, localName); see craftos_network_create. Engine-emulated: "drive". Extra fixture fields (fluids, energy, cells, cpus, patterns, inputs, ...) are passed through; see docs/advanced-peripherals.md.',
+        'Virtual: inventories ("minecraft:chest", "minecraft:barrel"), "fluid_storage", "energy_storage", and any block of your own name with a mix of CC:Tweaked\'s generic peripherals (type e.g. "thermal:machine_furnace"; it gets the types inventory, energy_storage and fluid_storage as its fields ask, in CC\'s order, with every method of each): size/items (inventory), tanks [{name (the fluid), amount, capacity?, rate? (mB per tick, minus drains)}] or fluid {name, amount} with capacity (fluid_storage), energy, energyCapacity, energyRate (FE per tick, minus drains; energy_storage); rates run on the virtual clock; see docs/generic-storage.md. Also Advanced Peripherals types playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController. "speaker" is a recording fake (headless has no audio): playSound/playNote calls land in sim state under peripherals.<name>.sounds, and notes are capped at 8 per tick like the real speaker. "printer" is CC:Tweaked\'s printer: ink (black dye) and paper counts, or items in its 13 slots (1 a dye, 2-7 paper, 8-13 the printed pages); pages printed land in sim state under peripherals.<name>.printed. "modem" behaves like the real game: kind "wireless" (default), "ender" or "wired" (with network, block, on, localName); see craftos_network_create. Engine-emulated: "drive". Extra fixture fields (fluids, energy, cells, cpus, patterns, inputs, ...) are passed through; see docs/advanced-peripherals.md.',
       ),
     size: z.number().int().min(1).optional().describe("Inventory slot count."),
     items: z
@@ -502,6 +563,7 @@ const worldArg = z
   .optional()
   .describe(
     `The world around the computer (an object). Fields: ${WORLD_KEYS.filter((k) => !["modemLink", "placed"].includes(k)).join(", ")}; e.g. {"peripherals":[{"name":"chest_0","type":"minecraft:chest","size":27}],"deploy":[{"from":"src"}]}. ` +
+      'world.deploy picks which workspace folders or files go on the computer, and where ([{"from":"src","to":"lib"}]), instead of a copy of the whole workspace. ' +
       'Every field with its options: craftos_help {topic:"world"} (or the craftos://schema/world resource). Checked before boot: a wrong key or peripheral type comes back as an error with a suggestion.',
   );
 
@@ -552,14 +614,33 @@ function loadWorldFile(worldFile: string): WorldConfig {
   }
 }
 
-/** A world from `worldFile` plus `world`, checked before anything boots: throws on errors, returns the warnings. */
+/** craftos.json's world, read on every call so an edit to it counts without a restart. */
+function projectBaseWorld(): WorldConfig | undefined {
+  const world = project && projectWorld(project);
+  if (!world) return undefined;
+  try {
+    return /\.json$/i.test(world)
+      ? withoutEditorKeys(
+          JSON.parse(readFileSync(world, "utf8")) as WorldConfig,
+        )
+      : loadNamedWorld(config.worldsDir, world);
+  } catch (error) {
+    throw new Error(`craftos.json world ${world}: ${(error as Error).message}`);
+  }
+}
+
+/** A world from `worldFile` (else craftos.json's) plus `world`, checked before anything boots: throws on errors, returns the warnings. */
 function resolveWorld(
   world: unknown,
   worldFile: string | undefined,
   warnings: string[] = [],
   where = "world",
 ): WorldConfig | undefined {
-  const base = worldFile ? loadWorldFile(worldFile) : undefined;
+  const base = worldFile
+    ? loadWorldFile(worldFile)
+    : where === "world"
+      ? projectBaseWorld()
+      : undefined;
   if (!base && !world) return undefined;
   const merged = { ...base, ...(world as WorldConfig | undefined) };
   const problems: string[] = [];
@@ -655,7 +736,9 @@ export function compactAddons(report: ReturnType<typeof addonReport>): {
 } {
   const on: Record<string, string> = {};
   const off: Record<string, string> = {};
-  for (const a of report.addons) (a.on ? on : off)[a.id] = a.version;
+  for (const a of report.addons)
+    (a.on ? on : off)[a.id] =
+      a.actsAs !== a.version ? `${a.version} (acts as ${a.actsAs})` : a.version;
   return { source: report.source, on, off };
 }
 
@@ -672,7 +755,13 @@ tool(
         ...infoVersion(),
         engine: config.engineExe,
         workspace: config.workspaceDir,
-        problems: [...checkConfig(config), ...(await workspaceProblems())],
+        ...(project && { project: project.file }),
+        ...(viewerUrl && { viewer: viewerUrl }),
+        problems: [
+          ...checkConfig(config),
+          ...(await workspaceProblems()),
+          ...(projectProblem ? [projectProblem] : []),
+        ],
         sessions: sessions.list(),
         tools:
           toolSet === "core"
@@ -836,6 +925,8 @@ tool(
             : `${missing} Write it with craftos_write_file; craftos_list_files shows what is there.`,
         );
       // Always render PNGs so the web viewer can show the last run; only return them on request.
+      // timeoutMs is the call's whole budget: on it the run stops and the reply has the screens as they were.
+      const stopTicking = ticker(progressFor(extra), timeoutMs, program);
       const result = await runProgram(config, {
         program,
         args,
@@ -846,7 +937,7 @@ tool(
         screenshots: true,
         scale,
         signal: extra.signal,
-      });
+      }).finally(stopTicking);
       const snapshotResult = snapshot
         ? compareSnapshot(
             config.workspaceDir,
@@ -895,13 +986,21 @@ tool(
         .describe("Files or directories; empty runs every *.test.lua."),
       monitors: z.array(monitorSchema).default([]),
       timeoutMs: z.number().int().min(100).default(30000),
+      budgetMs: z
+        .number()
+        .int()
+        .min(1000)
+        .optional()
+        .describe(
+          "Real time for the whole call (default 10 min). When it runs out, running files stop keeping their finished tests, and notRun lists the rest.",
+        ),
       timeScale: timeScaleSchema,
       world: worldArg,
       worldFile: worldFileSchema,
     },
   },
   async (
-    { paths, monitors, timeoutMs, timeScale, world, worldFile },
+    { paths, monitors, timeoutMs, budgetMs, timeScale, world, worldFile },
     extra,
   ) => {
     try {
@@ -909,22 +1008,44 @@ tool(
       const resolved = resolveWorld(world, worldFile, warnings);
       const missing = checkTestPaths(config, paths);
       if (missing.length) return failure(missing.join("\n"));
+      // no paths: craftos.json's tests globs, if it has some
+      const globs = paths.length ? undefined : project?.data.tests;
+      const files = globs
+        ? filterByGlobs(discoverTests(config.workspaceDir), globs)
+        : discoverTests(config.workspaceDir, paths);
+      if (files.length === 0)
+        return failure(
+          globs
+            ? `craftos.json's tests (${globs.join(", ")}) match no *.test.lua files in the workspace ${config.workspaceDir}`
+            : `no *.test.lua files under ${paths.length ? paths.join(", ") : `the workspace ${config.workspaceDir}`}`,
+        );
+      const progress = progressFor(extra);
+      const budget = withBudget(extra.signal, budgetMs ?? defaultBudgetMs());
+      let done = 0;
+      progress(0, files.length);
       const result = await runTests(config, {
-        paths,
+        paths: files,
         monitors,
         timeoutMs,
         timeScale,
         world: resolved,
-        signal: extra.signal,
-      });
-      if (result.files.length === 0)
-        return failure(
-          `no *.test.lua files under ${paths.length ? paths.join(", ") : `the workspace ${config.workspaceDir}`}`,
-        );
+        signal: budget.signal,
+        onFile: (f) => progress(++done, files.length, `${f.file} ${f.status}`),
+      }).finally(budget.dispose);
       const reply = compactTests(result);
+      const ran = new Set(result.files.map((f) => f.file));
+      const notRun = files.filter((f) => !ran.has(f));
+      const cut = budget.expired()
+        ? {
+            budget: `ran out after ${Math.round((budgetMs ?? defaultBudgetMs()) / 1000)} s: these are the files that finished or were stopped`,
+            ...(notRun.length && { notRun }),
+          }
+        : {};
       return {
-        isError: result.failed > 0,
-        content: [text(warnings.length ? { ...reply, warnings } : reply)],
+        isError: result.failed > 0 || budget.expired(),
+        content: [
+          text({ ...reply, ...cut, ...(warnings.length && { warnings }) }),
+        ],
       };
     } catch (error) {
       return failure(error);
@@ -982,6 +1103,16 @@ export function compactTests(result: TestRunResult) {
 
 const sessionId = z.string().describe("Id returned by craftos_session_create.");
 
+/**
+ * Who owns the sessions this server's MCP client starts: the client by the name it gave (one client per stdio
+ * server). Sessions a person starts in the viewer are VIEWER_OWNER's; craftos_session_list shows those apart, and
+ * craftos_session_destroy leaves them running unless told force.
+ */
+function clientOwner(): string {
+  const name = server.server.getClientVersion()?.name;
+  return name ? `the agent (${name})` : "the agent";
+}
+
 tool(
   "craftos_session_create",
   {
@@ -993,9 +1124,15 @@ tool(
       timeScale: timeScaleSchema,
       world: worldArg,
       worldFile: worldFileSchema,
+      liveFiles: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Give the computer the workspace folder itself instead of a copy: what the program writes lands in the workspace, and files you change there are seen at once. Only when the person asks for it; default a copy.",
+        ),
     },
   },
-  async ({ monitors, timeScale, world, worldFile }, extra) => {
+  async ({ monitors, timeScale, world, worldFile, liveFiles }, extra) => {
     try {
       const warnings: string[] = [];
       const session = await sessions.createAsync(
@@ -1003,7 +1140,9 @@ tool(
         timeScale,
         resolveWorld(world, worldFile, warnings),
         extra.signal,
+        liveFiles ? config.workspaceDir : undefined,
       );
+      sessions.setOwner(session.id, clientOwner());
       const front = await waitForBoot(session.handle.session);
       return {
         content: [
@@ -1033,7 +1172,8 @@ tool(
   "craftos_network_create",
   {
     description:
-      "Start several computers on one network, each a normal session (every session tool works on the ids returned) with its own full world. Give each world a different computerId, a position and modem peripherals. Modems follow the real rules: 64 blocks low down, rising to 384 at the top of the world; ender modems reach everything; wired modems link through network, or through block plus the cables of `wired`. rednet from the unmodified ROM works over them.",
+      "Start several computers on one network, each a normal session (every session tool works on the ids returned) with its own full world. Give each world a different computerId, a position and modem peripherals. Modems follow the real rules: 64 blocks low down, rising to 384 at the top of the world; ender modems reach everything; wired modems link through network, or through block plus the cables of `wired`. rednet from the unmodified ROM works over them." +
+      COPY_NOTE,
     inputSchema: {
       computers: z
         .array(
@@ -1044,7 +1184,7 @@ tool(
               .describe("Name for this computer; default its id."),
             monitors: z.array(monitorSchema).default([]),
             world: worldArg.describe(
-              "This computer's world, as craftos_run's `world`.",
+              "This computer's world, as craftos_run's `world`; its deploy lists the workspace folders this computer gets (each computer can have its own).",
             ),
             worldFile: worldFileSchema,
           }),
@@ -1094,6 +1234,8 @@ tool(
       );
       const id = randomUUID().slice(0, 8);
       networks.set(id, linked.network);
+      for (const c of Object.values(linked.computers))
+        sessions.setOwner(c.id, clientOwner());
       await Promise.all(
         Object.values(linked.computers).map((c) =>
           settle(c.handle, { quietMs: 200, timeoutMs: 20000 }),
@@ -1204,12 +1346,14 @@ const SIM_COMMANDS = [
   "attachPeripheral",
   "detachPeripheral",
   "resizeMonitor",
+  "insertDisk",
+  "ejectDisk",
 ] as const;
 
 tool(
   "craftos_sim_command",
   {
-    description: `Change the simulated world while a session runs. Commands: addPlayer {name}, join/leave {player}, setPlayerPos {player, x, y, z, dimension?}, setComputerPos {x?, y?, z?, dimension?} (move this computer, modems included; on a network use craftos_network_update), unload / load (the computer's chunk unloads and it stops; load boots it afresh), chat {player, message} (fires a chat event), playerClick {player}, setItem {peripheral, slot, item|null}, setEnergy {peripheral, energy} (what a generic energy_storage holds), setFluid {peripheral, tank? (1-based, default 1), fluid {name, amount}|null} (what one tank holds), setEnergyTransferRate {peripheral, rate}, setRedstoneInput {peripheral, side, level}, completeCraft {peripheral, name?} (finish an ME/RS crafting job), setNetworkConnected {peripheral, connected}, setEnvironment {values:{time, raining, thunder, ...}}, addEntity {entity}, attachPeripheral / detachPeripheral / resizeMonitor, Mekanism QIO: qioSetPowered {block, powered}, qioSetDrive {block, slot, drive|null}, qioSetSecurity {block, mode}, qioSetUpgrades {block, speed}, qioInsert/qioExtract {frequency, item}, Quantum Entangloporter: qeInsert {frequency, item, public?, owner?}, qeExtract {frequency, count?}, qeSetLoaded {block, loaded} (see docs/mekanism-qio.md), seed {value} (pin math.random), advance {seconds} (jump the virtual clock and fire due timers). Returns the sim state, or with delta:true only what changed. Commands are applied when the program next waits for an event; this call returns once they are.`,
+    description: `Change the simulated world while a session runs. Commands: addPlayer {name}, join/leave {player}, setPlayerPos {player, x, y, z, dimension?}, setComputerPos {x?, y?, z?, dimension?} (move this computer, modems included; on a network use craftos_network_update), unload / load (the computer's chunk unloads and it stops; load boots it afresh), chat {player, message} (fires a chat event), playerClick {player}, setItem {peripheral, slot, item|null}, setEnergy {peripheral, energy} (what a generic energy_storage holds), setFluid {peripheral, tank? (1-based, default 1), fluid {name, amount}|null} (what one tank holds), setEnergyTransferRate {peripheral, rate}, setRedstoneInput {peripheral, side, level}, completeCraft {peripheral, name?} (finish an ME/RS crafting job), setNetworkConnected {peripheral, connected}, setEnvironment {values:{time, raining, thunder, ...}}, addEntity {entity}, attachPeripheral / detachPeripheral / resizeMonitor, insertDisk {peripheral, disk} / ejectDisk {peripheral} (a player puts a floppy into a drive or takes it out: disk / disk_eject), Mekanism QIO: qioSetPowered {block, powered}, qioSetDrive {block, slot, drive|null}, qioSetSecurity {block, mode}, qioSetUpgrades {block, speed}, qioInsert/qioExtract {frequency, item}, Quantum Entangloporter: qeInsert {frequency, item, public?, owner?}, qeExtract {frequency, count?}, qeSetLoaded {block, loaded} (see docs/mekanism-qio.md), seed {value} (pin math.random), advance {seconds} (jump the virtual clock and fire due timers). Returns the sim state, or with delta:true only what changed. Commands are applied when the program next waits for an event; this call returns once they are.`,
     inputSchema: {
       id: sessionId,
       command: z
@@ -1269,19 +1413,41 @@ tool(
 
 tool(
   "craftos_session_list",
-  { description: "List live sessions." },
-  async () => ({ content: [text(sessions.list())] }),
+  {
+    description:
+      "List live sessions: `sessions` are yours; `others` (only when there are any) are computers someone else started, such as a person in the viewer, with who owns each. You can look at and drive those too, but craftos_session_destroy leaves them running unless you pass force.",
+  },
+  async () => {
+    const me = clientOwner();
+    const mine = [];
+    const others = [];
+    for (const s of sessions.list()) {
+      const owner = sessions.ownerOf(s.id);
+      if (!owner || owner === me) mine.push(s);
+      else others.push({ id: s.id, owner, running: s.running });
+    }
+    return {
+      content: [text({ sessions: mine, ...(others.length ? { others } : {}) })],
+    };
+  },
 );
 
 tool(
   "craftos_session_destroy",
   {
-    description: "Stop a session and delete its scratch data.",
-    inputSchema: { id: sessionId },
+    description:
+      "Stop a session and delete its scratch data. A session someone else started (craftos_session_list's `others`) is left running with an error naming its owner, unless force is true.",
+    inputSchema: {
+      id: sessionId,
+      force: z
+        .boolean()
+        .default(false)
+        .describe("Stop it even if someone else started it."),
+    },
   },
-  async ({ id }) => {
+  async ({ id, force }) => {
     try {
-      await sessions.destroy(id);
+      await sessions.destroy(id, { by: clientOwner(), force });
       return { content: [text(`destroyed ${id}`)] };
     } catch (error) {
       return failure(error);
@@ -1733,6 +1899,19 @@ tool(
   async ({ id, seconds, timeoutMs }) => {
     try {
       const handle = sessions.get(id).handle;
+      // paused (craftos_clock): the engine jumps its clock itself; the timers' events wait for the clock to run
+      if (worldClockFor(sessions).current.paused && handle.clock) {
+        await waitForClock(handle, handle.clock("advance", seconds * 1000));
+        return {
+          content: [
+            text({
+              applied: true,
+              paused: true,
+              note: "the world is paused: the timers that fell due fire when craftos_clock resumes or steps",
+            }),
+          ],
+        };
+      }
       const applied = await sendAndWait(handle, { cmd: "advance", seconds });
       const result = await settle(handle, { timeoutMs });
       return {
@@ -1749,6 +1928,132 @@ tool(
           }),
         ],
       };
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+tool(
+  "craftos_clock",
+  {
+    description:
+      'The clock of every computer at once (the same controls as the browser app\'s bar): pause (every computer stops at its next yield, then the clock stands still; no \'too long without yielding\'), resume (timers go on where they were, nothing fires in a burst), step (pause and run `ticks` ticks of 1/20 s), speed (1-1000 times faster, or "max": skip idle time to the next timer), jump (`amount` ahead, e.g. "90s", "5m", "2h", "1d" = a Minecraft day; the timers on the way fire one at a time, in order, and the programs run between them, so a sleep loop runs every round that fits), time (set the time of day, "18:00"), status. Returns paused, speed and the world\'s time of day. For one computer\'s own jump use craftos_advance.',
+    inputSchema: {
+      action: z.enum([
+        "status",
+        "pause",
+        "resume",
+        "step",
+        "speed",
+        "jump",
+        "time",
+      ]),
+      ticks: z.number().int().min(1).max(1200).optional(),
+      speed: z
+        .union([z.number().min(0.1).max(1000), z.literal("max")])
+        .optional(),
+      amount: z.string().optional(),
+    },
+  },
+  async ({ action, ticks, speed, amount }) => {
+    try {
+      const clock = worldClockFor(sessions);
+      if (action === "pause") await clock.pause();
+      else if (action === "resume") await clock.resume();
+      else if (action === "step") await clock.step(ticks ?? 1);
+      else if (action === "speed") {
+        if (speed === undefined)
+          throw new Error('speed needs speed: a number or "max"');
+        await clock.setSpeed(speed);
+      } else if (action === "jump") {
+        if (!amount) throw new Error('jump needs amount, e.g. "5m"');
+        await clock.jump(parseDuration(amount));
+      } else if (action === "time") {
+        if (!amount) throw new Error('time needs amount, e.g. "18:00"');
+        const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(amount);
+        if (!m)
+          throw new Error('time is a time of day such as "06:00" or "18:30"');
+        const now = (await clock.status()).worldMs ?? 0;
+        const into =
+          (((((Number(m[1]) + Number(m[2]) / 60 - 6) % 24) + 24) % 24) / 24) *
+          DAY_MS;
+        let at = Math.floor(now / DAY_MS) * DAY_MS + into;
+        if (at < now) at += DAY_MS;
+        await clock.setWorldTime(at);
+      }
+      const status = await clock.status();
+      return {
+        content: [
+          text({
+            paused: status.paused,
+            stopped: status.stopped,
+            speed: status.speed,
+            time: status.time,
+            computers: status.computers.length,
+          }),
+        ],
+      };
+    } catch (error) {
+      return failure(error);
+    }
+  },
+);
+
+tool(
+  "craftos_world_snapshot",
+  {
+    description:
+      "Save the whole world (every session's files and label, players, items, chat, peripherals, a turtle's blocks, the time of day) under a name, list the saved ones, restore one (each computer reboots into it; sessions that are gone are made again, the viewer's computers made after it are closed, other sessions are left alone; a computer on a person's folder, live, has that folder put back exactly: changed files written back, files made since removed, a copy of each in `folders[].backup`), delete one, or move one as a .craftos-world file: export writes it to `file`, import reads `file`. The browser app's Snapshots button uses the same ones.",
+    inputSchema: {
+      action: z.enum(["list", "save", "restore", "delete", "export", "import"]),
+      name: z.string().optional(),
+      file: z
+        .string()
+        .optional()
+        .describe("export/import: a path, relative to the workspace"),
+    },
+  },
+  async ({ action, name, file }) => {
+    try {
+      const hooks = snapshotHooksFor(sessions);
+      const need = (v: string | undefined, what: string): string => {
+        if (!v) throw new Error(`${action} needs ${what}`);
+        return v;
+      };
+      const path = (f: string): string =>
+        resolveInWorkspace(config.workspaceDir, f);
+      let result: unknown;
+      if (action === "list") result = listSnapshots(config);
+      else if (action === "save")
+        result = await saveSnapshot(
+          sessions,
+          config,
+          need(name, "name"),
+          hooks,
+        );
+      else if (action === "restore")
+        result = await restoreSnapshot(
+          sessions,
+          config,
+          need(name, "name"),
+          hooks,
+        );
+      else if (action === "delete") {
+        deleteSnapshot(config, need(name, "name"));
+        result = { deleted: name };
+      } else if (action === "export") {
+        const to = path(need(file, "file"));
+        writeFileSync(to, snapshotFile(config, need(name, "name")));
+        result = { file: to };
+      } else {
+        result = importSnapshot(
+          config,
+          readFileSync(path(need(file, "file"))),
+          name,
+        );
+      }
+      return { content: [text(result)] };
     } catch (error) {
       return failure(error);
     }
@@ -2267,7 +2572,12 @@ export function leanToolList<T>(result: T): T {
 
 const viewerPort = process.env["CRAFTOS_VIEWER_PORT"] ?? "7878";
 if (viewerPort !== "off") {
-  startViewer({ port: Number(viewerPort), sessions, lastRun: () => lastRun });
+  startViewer({
+    port: Number(viewerPort),
+    sessions,
+    lastRun: () => lastRun,
+    onUrl: (url) => (viewerUrl = url),
+  });
 }
 
 const shutdown = (): void => {

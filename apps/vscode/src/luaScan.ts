@@ -573,7 +573,7 @@ function craftosPc(
 ): Finding {
   return {
     code: "craftos-pc-only",
-    message: `${what} is CraftOS-PC's, not CC:Tweaked's: a real computer has no such thing, and craftos-mcp hides it too so a program cannot lean on it.`,
+    message: `${what} is CraftOS-PC's, not CC:Tweaked's: a real computer has no such thing, and craftos-mcp hides it too so a program cannot lean on it. (A world with "craftosPcApis": true gives programs periphemu, config and mounter, acting as the game would.)`,
     ...where,
   };
 }

@@ -128,6 +128,10 @@ local function hideEmulator()
         "_HEADLESS", "" }) do
         _G[name] = nil
     end
+    -- CraftOS-PC's APIs as the simulated world does them, when the world turns them on (rom/ccsim/craftospc_api.lua)
+    local craftosPc = rawget(_G, "__ccsimCraftosPc")
+    _G.__ccsimCraftosPc = nil
+    if type(craftosPc) == "table" then for name, api in pairs(craftosPc) do _G[name] = api end end
     table.setn, os.about, os.__ccsimNative = nil, nil, nil
     -- CC:Tweaked 1.101.3's Cobalt 0.6 has neither; 1.109+ (Cobalt 0.8, Lua 5.2 and up) has both
     if _VERSION == "Lua 5.1" then table.move, coroutine.isyieldable = nil, nil end

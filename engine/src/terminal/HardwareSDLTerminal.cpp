@@ -15,6 +15,7 @@
 #include "../gif.hpp"
 #include "../main.hpp"
 #include "../runtime.hpp"
+#include "../simclock.hpp"
 #include "../termsupport.hpp"
 #ifndef NO_WEBP
 #include <webp/mux.h>
@@ -534,6 +535,18 @@ bool HardwareSDLTerminal::pollEvents() {
                 }
             }
         } else {
+            // craftos-agent: the clock's keys (simclock.hpp) belong to the window, not the computer; closing the window
+            // runs a paused clock again, so the computer sees it close
+            if (!rawClient && e.type == SDL_KEYDOWN && !config.ignoreHotkeys && simclock::hotkey(e.key.keysym.sym, e.key.keysym.mod)) {
+                const std::string tag = simclock::tag();
+                std::lock_guard<std::mutex> lock(renderTargetsLock);
+                for (Terminal * term : renderTargets) {
+                    SDLTerminal * sdlterm = dynamic_cast<SDLTerminal*>(term);
+                    if (sdlterm != NULL && sdlterm->win != NULL) SDL_SetWindowTitle(sdlterm->win, (tag + sdlterm->title).c_str());
+                }
+                return false;
+            }
+            if (e.type == SDL_QUIT || (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_CLOSE)) simclock::command("resume");
             if (rawClient) {
                 sendRawEvent(e);
             } else if (!computers.locked()) {

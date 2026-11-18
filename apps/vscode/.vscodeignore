@@ -9,6 +9,7 @@
 !media/icon.png
 !snippets/*.json
 !schemas/world.schema.json
+!schemas/craftos.schema.json
 !schemas/addons.json
 !lua-addons/**
 !media/walkthrough/*.md

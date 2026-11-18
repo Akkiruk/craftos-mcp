@@ -9,16 +9,27 @@ local floor = math.floor
 local function typeName(v) return v == nil and "nil" or type(v) end
 C.typeName = typeName
 
---- IArguments.getInt / an `int` parameter
-function C.int(i, v)
+--- IArguments.getLong / a `long` parameter: a finite number, truncated toward zero (LuaValues.checkFinite, then
+--- Java's (long) cast). CC:Tweaked (1.101.3 and 1.121.0) has no "no integer representation" error: 1.5 is 1.
+function C.long(i, v)
   if type(v) ~= "number" then
     error(("bad argument #%d (number expected, got %s)"):format(i, typeName(v)), 0)
   end
-  if v ~= v or v == math.huge or v == -math.huge then
-    error(("bad argument #%d (number expected, got %s)"):format(i, tostring(v)), 0)
+  if v ~= v then error(("bad argument #%d (number expected, got nan)"):format(i), 0) end
+  if v == math.huge or v == -math.huge then
+    error(("bad argument #%d (number expected, got %s)"):format(i, v > 0 and "inf" or "-inf"), 0)
   end
-  if v ~= floor(v) then error(("bad argument #%d (number has no integer representation)"):format(i), 0) end
-  return C.toInt(v)
+  return v < 0 and -floor(-v) or floor(v)
+end
+
+--- IArguments.getInt / an `int` parameter: (int) getLong, the long's low 32 bits
+function C.int(i, v)
+  local n = C.long(i, v)
+  if n >= 9223372036854775807 then return -1 end -- (int) Long.MAX_VALUE
+  if n <= -9223372036854775808 then return 0 end -- (int) Long.MIN_VALUE
+  n = n % 4294967296
+  if n >= 2147483648 then n = n - 4294967296 end
+  return n
 end
 
 --- Optional<Integer>: nil is empty
@@ -27,10 +38,9 @@ function C.optInt(i, v)
   return C.int(i, v)
 end
 
---- a `String` parameter (CC coerces numbers, like the shared checkString)
+--- a `String` parameter: IArguments.getString takes strings only (a number arrives as a Double, not a String)
 function C.str(i, v)
   if type(v) == "string" then return v end
-  if type(v) == "number" then return tostring(v) end
   error(("bad argument #%d (string expected, got %s)"):format(i, typeName(v)), 0)
 end
 

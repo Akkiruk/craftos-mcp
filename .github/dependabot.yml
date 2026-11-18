@@ -7,6 +7,14 @@ updates:
     groups:
       development-dependencies:
         dependency-type: development
+    ignore:
+      # TypeScript 7 has no compiler API yet, which world-schema.test.ts uses to make schemas/world.schema.json
+      - dependency-name: typescript
+        versions: [">=6"]
+      # a Prettier bump reformats hundreds of files here and in the public copy; bump it on purpose
+      - dependency-name: prettier
+        update-types:
+          ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

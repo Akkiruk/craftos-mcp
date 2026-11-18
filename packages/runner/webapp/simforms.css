@@ -1,0 +1,47 @@
+/* Sim commands without JSON (simforms.js) */
+.sf-form {
+  border-top: 1px solid var(--line);
+  padding: 8px 0 6px;
+}
+.sf-form:first-of-type {
+  border-top: 0;
+  padding-top: 2px;
+}
+.sf-form h4 {
+  margin: 0 0 6px;
+  font:
+    600 13px system-ui,
+    sans-serif;
+  color: var(--fg);
+}
+.sf-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: flex-end;
+}
+.sf-row + .sf-row {
+  margin-top: 6px;
+}
+.sf-f {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--dim);
+  min-width: 0;
+}
+.sf-f.grow {
+  flex: 1 1 120px;
+}
+.sf-f input,
+.sf-f select {
+  width: 100%;
+}
+.sf-f input[type="number"] {
+  width: 5.5em;
+}
+.sf .msg {
+  flex: 1 1 100%;
+  min-height: 1em;
+}

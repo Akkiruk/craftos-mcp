@@ -18,6 +18,7 @@
 #include "../apis.hpp"
 #include "../main.hpp"
 #include "../runtime.hpp"
+#include "../simclock.hpp"
 #include "../termsupport.hpp"
 
 /* Data spec
@@ -416,7 +417,10 @@ static std::string rawMouseProvider(lua_State *L, void* data) {
     lua_pushinteger(L, d->y);
     std::string retval;
     if (d->evtype == 0) {
-        if (comp->term->id != d->id && !config.monitorsUseMouseEvents) retval = "monitor_touch";
+        if (comp->term->id != d->id && !config.monitorsUseMouseEvents) {
+            retval = "monitor_touch";
+            if (engineTagsTouches()) lua_pushliteral(L, "ccsim_engine");  // a player's touch, not a program's
+        }
         else retval = "mouse_click";
     } else if (d->evtype == 1) retval = "mouse_up";
     else if (d->evtype == 2) retval = "mouse_scroll";
@@ -557,6 +561,16 @@ static void rawInputLoop() {
                 }
                 break;
             } case CCPC_RAW_EVENT_DATA: {
+                {
+                    // craftos-agent: "ccsim_clock:<control>" is for the engine's clock (simclock.hpp), not a computer
+                    const std::string body = in.str().substr(2);
+                    static const std::string prefix = "ccsim_clock:";
+                    if (body.size() > 1 + prefix.size() && body.compare(1, prefix.size(), prefix) == 0) {
+                        const size_t end = body.find('\0', 1);
+                        simclock::command(body.substr(1 + prefix.size(), end == std::string::npos ? std::string::npos : end - 1 - prefix.size()));
+                        break;
+                    }
+                }
                 LockGuard lockc(computers);
                 for (Computer * c : *computers) {
                     if (checkWindowID(c, id)) {
@@ -567,6 +581,8 @@ static void rawInputLoop() {
                 break;
             } case CCPC_RAW_TERMINAL_CHANGE: {
                 int isClosing = in.get();
+                // the host closes the computer: a paused one must run again to see it (simclock.hpp)
+                if (isClosing == 2 || (isClosing == 1 && id == 0)) simclock::command("resume");
                 if (isClosing == 1) {
                     e.type = SDL_WINDOWEVENT;
                     e.window.event = SDL_WINDOWEVENT_CLOSE;

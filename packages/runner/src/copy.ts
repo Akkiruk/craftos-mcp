@@ -160,10 +160,12 @@ class Walk {
 
   constructor(from: string, to: string | undefined, options: CopyOptions) {
     this.root = resolve(from);
+    // A folder that holds the workspace itself excludes nothing: the test suites lay their scratch workspaces out
+    // inside the runtime folder, and excluding it there left every one of their computers empty.
     this.exclude = [
       ...(to === undefined ? [] : [resolve(to)]),
       ...(options.exclude ?? []).map((d) => resolve(d)),
-    ];
+    ].filter((dir) => !inside(this.root, dir));
     this.maxBytes = options.maxBytes ?? MAX_COPY_BYTES;
     this.maxFiles = options.maxFiles ?? MAX_COPY_FILES;
     this.gitignore = options.gitignore ?? true;

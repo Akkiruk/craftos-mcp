@@ -1,0 +1,584 @@
+/* The world panel (worldpanel.js) and the Add list it opens. Colours come from app.css's variables only, so the
+   panel follows the app's theme, light or dark. Everything is under .wp or .wp-layer: app.css stays as it is. */
+.wp {
+  --wp-sel: color-mix(in srgb, var(--accent) 22%, transparent);
+  --wp-hover: color-mix(in srgb, var(--fg) 8%, transparent);
+  /* mixed with the text colour: readable on a dark page and on a light one */
+  --wp-bad: color-mix(in srgb, var(--red) 75%, var(--fg));
+  --wp-ok: color-mix(in srgb, var(--lime) 60%, var(--fg));
+}
+.wp h3 {
+  margin: 0;
+}
+.wp h4 {
+  font: 600 12px var(--mono);
+  margin: 12px 0 6px;
+  color: var(--fg);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.wp .sub,
+.wp-layer .sub {
+  color: var(--dim);
+  font:
+    12px system-ui,
+    sans-serif;
+  font-weight: normal;
+}
+.wp .grow {
+  flex: 1;
+  min-width: 0;
+}
+.wp .btn.small {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.wp button:focus-visible,
+.wp select:focus-visible,
+.wp input:focus-visible,
+.wp-layer :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wp-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.wp-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.wp-tools select {
+  max-width: 13em;
+}
+.wp-note {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--orange) 70%, var(--fg));
+  margin: 6px 0;
+}
+
+/* the computer and its sides */
+.wp-cross {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wp-cross-row {
+  display: flex;
+  gap: 6px;
+}
+.wp-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+.wp-tile {
+  flex: 1;
+  min-width: 0;
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 4px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  font:
+    12px system-ui,
+    sans-serif;
+  position: relative;
+  text-align: center;
+}
+.wp-tile:hover {
+  background: var(--wp-hover);
+}
+.wp-tile.selected {
+  border-color: var(--accent);
+  background: var(--wp-sel);
+}
+.wp-tile.is-empty {
+  border-style: dashed;
+  color: var(--dim);
+  background: transparent;
+}
+.wp-tile.is-empty:hover {
+  color: var(--fg);
+  border-color: var(--dim);
+}
+.wp-tile.problem::after,
+.wp-row.problem::after {
+  content: "!";
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  color: var(--wp-bad);
+  font-weight: 700;
+}
+.wp-computer {
+  border-width: 2px;
+}
+.wp-side {
+  font: 11px var(--mono);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wp-plus {
+  font-size: 20px;
+  line-height: 1;
+}
+.wp-tile-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+.wp-tile-sub {
+  font-size: 11px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.wp-tile-sub.warn,
+.wp .warn {
+  color: color-mix(in srgb, var(--orange) 70%, var(--fg));
+}
+
+/* icons (packages/world-editor/src/dom.ts) */
+.wp .icon,
+.wp-layer .icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wp .icon.big {
+  width: 30px;
+  height: 30px;
+}
+.wp .icon.advanced,
+.wp .icon-monitor,
+.wp-layer .icon-monitor {
+  color: var(--yellow);
+}
+.wp .icon-ender,
+.wp-layer .icon-ender {
+  color: var(--purple);
+}
+.wp .icon-chest,
+.wp-layer .icon-chest {
+  color: color-mix(in srgb, var(--orange) 70%, var(--fg));
+}
+.wp .icon-fluid,
+.wp-layer .icon-fluid {
+  color: var(--lightBlue);
+}
+.wp .icon-energy,
+.wp-layer .icon-energy {
+  color: var(--red);
+}
+.wp .icon-player,
+.wp-layer .icon-player {
+  color: var(--lime);
+}
+
+/* lists: the network and the players */
+.wp-count {
+  font: 11px var(--mono);
+  color: var(--dim);
+  border: 1px solid var(--line);
+  padding: 0 5px;
+}
+.wp-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+}
+.wp-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  font:
+    13px system-ui,
+    sans-serif;
+  position: relative;
+}
+.wp-row:hover {
+  background: var(--wp-hover);
+}
+.wp-row.selected {
+  border-color: var(--accent);
+  background: var(--wp-sel);
+}
+.wp-row-main {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.wp-badge {
+  font-size: 11px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+}
+.wp-badge.bad {
+  color: var(--wp-bad);
+  border-color: var(--wp-bad);
+}
+
+/* what the last change did */
+.wp-status:empty {
+  display: none;
+}
+.wp-status {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.wp-steps,
+.wp-later {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font: 12px var(--mono);
+}
+.wp-steps li.ok {
+  color: var(--wp-ok);
+}
+.wp-steps li.bad {
+  color: var(--wp-bad);
+}
+.wp-steps .why {
+  color: var(--dim);
+}
+.wp-later li {
+  color: var(--dim);
+  margin-top: 4px;
+}
+.wp-later li::before {
+  content: "Saved for the next start: ";
+  color: var(--fg);
+}
+
+/* the inspector */
+.wp-ins-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.wp-ins-head h3 {
+  font-size: 14px;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.wp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.wp-where {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.wp-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.wp-monitor-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.wp-monitor {
+  border: 3px solid #e3c35a;
+  background: var(--black);
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: calc(100% / var(--bw)) calc(100% / var(--bh));
+}
+.wp-monitor.normal {
+  border-color: #c6c6c6;
+}
+.wp-more {
+  margin-top: 10px;
+}
+.wp-more > summary {
+  cursor: pointer;
+  font: 12px var(--mono);
+  color: var(--dim);
+}
+.wp-file {
+  display: none;
+}
+
+/* schema forms (packages/world-editor/src/form.ts) */
+.wp .form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wp .field-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.wp .field-row > label,
+.wp .field-label {
+  flex: 0 0 38%;
+  font-size: 12px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+.wp .field.is-set > .field-row > label {
+  color: var(--fg);
+}
+.wp .field-row > input,
+.wp .field-row > select,
+.wp .field-row > .grow,
+.wp .field-row > .grow > input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+.wp .field-desc {
+  font-size: 11px;
+  color: var(--dim);
+  margin: 2px 0 0 calc(38% + 6px);
+}
+.wp .field-label + .field-desc,
+.wp .items-field .field-desc {
+  margin-left: 0;
+}
+.wp .field-desc code {
+  font: 11px var(--mono);
+}
+.wp .req {
+  color: var(--wp-bad);
+}
+.wp [aria-invalid="true"] {
+  border-color: var(--wp-bad);
+}
+.wp .field-problems {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  color: var(--wp-bad);
+  font-size: 12px;
+}
+.wp .json-error {
+  color: var(--wp-bad);
+  font-size: 11px;
+}
+.wp .icon-button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+.wp .icon-button:hover {
+  color: var(--fg);
+  border-color: var(--line);
+}
+.wp .icon-button-space {
+  width: 26px;
+  flex: none;
+}
+.wp details.nested {
+  border-left: 2px solid var(--line);
+  padding-left: 8px;
+}
+.wp details.nested > summary {
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.wp details.nested .field-row > label {
+  flex-basis: 34%;
+}
+.wp .adder select {
+  width: 100%;
+}
+.wp .muted {
+  color: var(--dim);
+}
+.wp button.secondary,
+.wp button.danger {
+  font: 12px var(--mono);
+  padding: 3px 8px;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.wp .items {
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wp .item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wp .item-row .slot-no,
+.wp .item-row .item-count {
+  width: 4.2em;
+}
+.wp .item-row .item-name {
+  flex: 1;
+  min-width: 0;
+}
+.wp .slot-label {
+  font-size: 11px;
+}
+
+/* the Add list (packages/world-editor/src/picker.ts) */
+.wp-layer .overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 12px 12px;
+  z-index: 50;
+}
+.wp-layer .dialog {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 72px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+.wp-layer .dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wp-layer .dialog-head h2 {
+  margin: 0;
+  font-size: 14px;
+}
+.wp-layer .icon-button {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+.wp-layer .icon-button:hover {
+  color: var(--fg);
+  border-color: var(--line);
+}
+.wp-layer input[type="search"] {
+  width: 100%;
+  font-size: 14px;
+  padding: 7px 9px;
+}
+.wp-layer .options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  min-height: 120px;
+}
+.wp-layer .group-head {
+  position: sticky;
+  top: 0;
+  padding: 6px 6px 3px;
+  font: 600 11px var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--card);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.wp-layer .badge.off {
+  color: color-mix(in srgb, var(--orange) 70%, var(--fg));
+  border: 1px solid var(--orange);
+  padding: 0 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.wp-layer .option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.wp-layer .option.active {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  outline: 1px solid var(--accent);
+}
+.wp-layer .option-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.wp-layer .option-label {
+  font-weight: 600;
+}
+.wp-layer .option-type {
+  font: 12px var(--mono);
+  font-weight: normal;
+  color: var(--dim);
+}
+.wp-layer .option-desc {
+  font-size: 12px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wp-layer .hint {
+  font-size: 12px;
+  color: var(--dim);
+  margin: 0;
+}

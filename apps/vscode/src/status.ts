@@ -50,6 +50,11 @@ export class Status implements vscode.Disposable {
     });
   }
 
+  /** Show the pack again (craftos.json changed under the settings). */
+  refresh(): void {
+    this.show();
+  }
+
   set(state: ServerState): void {
     this.state = state;
     this.show();
@@ -172,6 +177,10 @@ export function menuItems(fork: boolean, lua: boolean): MenuItem[] {
         ]
       : []),
     separator("MCP server"),
+    {
+      label: "$(eye) Watch the Agent's Computers",
+      command: "craftos-mcp.watchAgents",
+    },
     {
       label: "$(debug-restart) Restart MCP Server",
       command: "craftos-mcp.restartServer",

@@ -213,6 +213,11 @@
       "markdownDescription": "Give the computer the emulator's `sim` shell program, so a person can change the world by typing (`sim join Alice`). Not CC:Tweaked's, so off unless a person drives the computer (`craftos-mcp window` and `app` turn it on).",
       "type": "boolean"
     },
+    "craftosPcApis": {
+      "description": "Give programs CraftOS-PC's `periphemu`, `config` and `mounter` APIs, for code written for CraftOS-PC. CC:Tweaked has none of them, so they are off by default. When on they act as the game would: periphemu.create places the block in this world, live; config and mounter answer but change nothing (docs/coming-from-craftos-pc.md).",
+      "markdownDescription": "Give programs CraftOS-PC's `periphemu`, `config` and `mounter` APIs, for code written for CraftOS-PC. CC:Tweaked has none of them, so they are off by default. When on they act as the game would: periphemu.create places the block in this world, live; config and mounter answer but change nothing (docs/coming-from-craftos-pc.md).",
+      "type": "boolean"
+    },
     "motd": {
       "description": "Show the ROM's message of the day (the random tip under \"CraftOS 1.8\") at boot. Default false here, so captured screens are the same every run; CC:Tweaked's own default is true (docs/conformance/emulator-vs-real-deviations.md).",
       "type": "boolean"
@@ -318,8 +323,8 @@
       ]
     },
     "label": {
-      "description": "What another computer's `computer_N` peripheral answers to getLabel.",
-      "markdownDescription": "What another computer's `computer_N` peripheral answers to getLabel.",
+      "description": "The computer's label: os.getComputerLabel, and what another computer's `computer_N` peripheral answers to getLabel.",
+      "markdownDescription": "The computer's label: os.getComputerLabel, and what another computer's `computer_N` peripheral answers to getLabel.",
       "type": "string"
     },
     "modemLink": {
@@ -16215,6 +16220,11 @@
           "default": 1,
           "minimum": 0.5,
           "maximum": 5
+        },
+        "advanced": {
+          "description": "false: a normal monitor, which shows greys only, says isColour() is false and takes no touches.",
+          "type": "boolean",
+          "default": true
         }
       },
       "required": [
@@ -17148,6 +17158,7 @@
                 "fluid_storage",
                 "energy_storage",
                 "speaker",
+                "printer",
                 "drive",
                 "modem",
                 "redstone_relay",
@@ -17412,7 +17423,8 @@
                 "Any generic block: a chest, a tank, a battery, or a modded block with a mix of the three. A block of an unknown type is generic when it has any of size, items, tanks, fluid, energy or energyCapacity.",
                 "Any generic block: a chest, a tank, a battery, or a modded block with a mix of the three. A block of an unknown type is generic when it has any of size, items, tanks, fluid, energy or energyCapacity.",
                 "Any generic block: a chest, a tank, a battery, or a modded block with a mix of the three. A block of an unknown type is generic when it has any of size, items, tanks, fluid, energy or energyCapacity.",
-                "CC:Tweaked's speaker: a recording fake (headless has no audio). Sounds land in the sim state. No extra fields.",
+                "CC:Tweaked's speaker. What it plays is listed in the sim state (peripherals.<name>.sounds); `craftos-mcp window` plays it out loud. No extra fields.",
+                "CC:Tweaked's printer. 13 slots: 1 ink (any dye; its colour is the text's), 2-7 paper, 8-13 the printed pages (computercraft:printed_page) that come out. Chests reach the slots with pushItems/pullItems by the printer's name. The pages printed so far show in the sim state (peripherals.<name>.printed).",
                 "The engine's own disk drive. No extra fields: put disks in with `disks` and the drive methods.",
                 "A modem, emulated in Lua (ccsim/modem.lua). Plain `{ name, type: \"modem\" }` is a normal wireless modem. Wired modems link up through `network`, or through `block` and a network's cables (see `WiredNetworkSpec`).",
                 "\"redstone_relay\" is two blocks: CC:Tweaked's redstone relay (CC:Tweaked 1.114.0 and later, so only on 1.20.1 and 1.21.1 worlds: `inputs`, `bundledInputs`) and, with the create-additions addon on, the Create Crafts & Additions redstone relay (`powered`, `supply`, `demand`). (Create Crafts & Additions)",
@@ -17868,6 +17880,21 @@
           },
           "then": {
             "$ref": "#/definitions/SpeakerSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "printer"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/PrinterSpecFields"
           }
         },
         {
@@ -21653,6 +21680,7 @@
                     "fluid_storage",
                     "energy_storage",
                     "speaker",
+                    "printer",
                     "drive",
                     "modem",
                     "redstone_relay",
@@ -23092,6 +23120,38 @@
           "description": "FE/t pulled out while connected.",
           "type": "number",
           "default": 0
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
+    "PrinterSpecFields": {
+      "description": "CC:Tweaked's printer. 13 slots: 1 ink (any dye; its colour is the text's), 2-7 paper, 8-13 the printed pages (computercraft:printed_page) that come out. Chests reach the slots with pushItems/pullItems by the printer's name. The pages printed so far show in the sim state (peripherals.<name>.printed).",
+      "type": "object",
+      "properties": {
+        "ink": {
+          "description": "Black dye in the ink slot (slot 1), at most 64.",
+          "type": "number",
+          "default": 0
+        },
+        "paper": {
+          "description": "Paper in the paper slots (2-7), 64 to a slot.",
+          "type": "number",
+          "default": 0
+        },
+        "items": {
+          "description": "Slots 1-13 as they start, besides `ink` and `paper`. A printed page here can carry its `title`, `text` (up to 21 lines of 25 characters) and `colours` (one blit colour character per letter).",
+          "markdownDescription": "Slots 1-13 as they start, besides `ink` and `paper`. A printed page here can carry its `title`, `text` (up to 21 lines of 25 characters) and `colours` (one blit colour character per letter).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/InventoryItems"
+            }
+          ]
         },
         "name": {},
         "type": {},
@@ -25806,7 +25866,7 @@
       "additionalProperties": false
     },
     "SpeakerSpecFields": {
-      "description": "CC:Tweaked's speaker: a recording fake (headless has no audio). Sounds land in the sim state. No extra fields.",
+      "description": "CC:Tweaked's speaker. What it plays is listed in the sim state (peripherals.<name>.sounds); `craftos-mcp window` plays it out loud. No extra fields.",
       "type": "object",
       "properties": {
         "name": {},
@@ -27580,7 +27640,8 @@
           "type": "string"
         },
         "type": {
-          "description": "Inventories (\"minecraft:chest\", \"minecraft:barrel\", ...), \"fluid_storage\" tanks, \"speaker\" (a recording fake: the headless engine has no audio device), or an Advanced Peripherals type: playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController; or a Mekanism QIO block (see QioBlockSpec): qioDriveArray, qioDashboard, qioImporter, qioExporter, qioRedstoneAdapter; or \"quantumEntangloporter\" (EntangloporterSpec).",
+          "description": "Inventories (\"minecraft:chest\", \"minecraft:barrel\", ...), \"fluid_storage\" tanks, \"speaker\" (what it plays is listed in the sim state; `craftos-mcp window` plays it out loud), or an Advanced Peripherals type: playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController; or a Mekanism QIO block (see QioBlockSpec): qioDriveArray, qioDashboard, qioImporter, qioExporter, qioRedstoneAdapter; or \"quantumEntangloporter\" (EntangloporterSpec).",
+          "markdownDescription": "Inventories (\"minecraft:chest\", \"minecraft:barrel\", ...), \"fluid_storage\" tanks, \"speaker\" (what it plays is listed in the sim state; `craftos-mcp window` plays it out loud), or an Advanced Peripherals type: playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController; or a Mekanism QIO block (see QioBlockSpec): qioDriveArray, qioDashboard, qioImporter, qioExporter, qioRedstoneAdapter; or \"quantumEntangloporter\" (EntangloporterSpec).",
           "type": "string"
         },
         "size": {

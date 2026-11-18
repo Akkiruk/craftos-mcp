@@ -16,7 +16,10 @@
 #include <cstring>
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <functional>
+#include <thread>
 #include <Computer.hpp>
 #include <configuration.hpp>
 #include <Poco/URI.h>
@@ -332,6 +335,10 @@ downloadThread_entry:
                 // a handle over the socket gave what had arrived. A text handle on CC:Tweaked before 1.109 decodes
                 // the body as UTF-8 (EncodedReadableHandle); from 1.109 on text and binary handles hold the same bytes.
                 std::istream& instream = session->receiveResponse(*response);
+                // A body that stops coming is a failure ("Timed out" once the receive timeout passes), as CC's
+                // ReadTimeoutHandler makes it; std::istream swallowed Poco's exception and the request answered
+                // http_success with the part that had come
+                instream.exceptions(std::ios::badbit);
                 std::string body;
                 while (!instream.eof()) {
                     char buf[4096];
@@ -540,11 +547,18 @@ static int http_request(lua_State *L) {
             }
         }
         lua_pop(L, 1);
-        lua_getfield(L, 1, "timeout");
-        if (!lua_isnil(L, -1) && !lua_isnumber(L, -1)) {delete param; return luaL_error(L, "bad field 'timeout' (number expected, got %s)", lua_typename(L, lua_type(L, -1)));}
-        else if (lua_isnumber(L, -1)) param->timeout = lua_tonumber(L, -1);
-        else param->timeout = 0;
-        lua_pop(L, 1);
+        // craftos-agent: CC 1.101.3's request reads no timeout field (every request has the rules' 30 s); later ones
+        // take 0 to 60 seconds (HTTPAPI.getTimeout)
+        param->timeout = 0;
+        if (ccAtLeast(param->comp, 1, 109, 0)) {
+            lua_getfield(L, 1, "timeout");
+            if (!lua_isnil(L, -1) && !lua_isnumber(L, -1)) {delete param; return luaL_error(L, "bad field 'timeout' (number expected, got %s)", lua_typename(L, lua_type(L, -1)));}
+            else if (lua_isnumber(L, -1)) {
+                param->timeout = lua_tonumber(L, -1);
+                if (!(param->timeout >= 0 && param->timeout <= 60)) {delete param; return luaL_error(L, "timeout out of range (between 0.0 and 60.0)");}
+            }
+            lua_pop(L, 1);
+        }
         lua_getfield(L, 1, "binary");
         param->binary = lua_toboolean(L, -1);
         lua_pop(L, 1);
@@ -816,7 +830,44 @@ struct ws_handle {
     bool closing = false;
     std::chrono::steady_clock::time_point closeSent;
     std::vector<std::pair<std::string, std::string> > responseHeaders;
+    // craftos-agent: client sockets send from a thread of their own, as CC's netty channel does: send() queues the
+    // frame and returns, so a server that reads slowly never holds the computer up. 1.121.0 counts the frames not
+    // yet written (Websocket.sendMessage: at most 512, "Too many ongoing websocket messages"); 1.101.3 has no limit.
+    // A 1.101.3 close() drops the connection (WebsocketHandle.close: channel.close), with no close frame.
+    bool hasWriter = false;
+    bool writerStop = false;
+    bool dropped = false;
+    int inFlight = 0;  // queued or being written
+    std::deque<std::pair<std::string, int> > outbox;  // frame bytes and flags; flags 0 is the close frame (1000)
+    std::condition_variable outboxCv;
 };
+
+/** The writer of a client socket (ws_handle.hasWriter): every frame in the order send() and close() queued them. */
+static void websocket_writer_thread(ws_handle * wsh) {
+    std::unique_lock<std::mutex> lock(wsh->lock);
+    for (;;) {
+        wsh->outboxCv.wait(lock, [wsh]{return wsh->writerStop || !wsh->outbox.empty();});
+        if (wsh->outbox.empty()) return;  // stopping, and nothing left to write
+        std::pair<std::string, int> frame = wsh->outbox.front();
+        wsh->outbox.pop_front();
+        WebSocket * ws = wsh->ws;
+        lock.unlock();
+        bool failed = ws == NULL;
+        if (ws != NULL) {
+            try {
+                if (frame.second == 0) ws->shutdown(1000, "");
+                else ws->sendFrame(frame.first.c_str(), (int)frame.first.size(), frame.second);
+            } catch (...) {failed = true;}
+        }
+        lock.lock();
+        const auto counted = [](const std::pair<std::string, int>& f) {return (f.second & 0x0f) != WebSocket::FRAME_OP_PONG;};
+        if (counted(frame)) wsh->inFlight--;
+        if (failed) {  // the connection is gone: what is still queued is lost, as netty fails the writes
+            for (const auto& f : wsh->outbox) if (counted(f)) wsh->inFlight--;
+            wsh->outbox.clear();
+        }
+    }
+}
 
 struct websocket_failure_data {
     std::string url;
@@ -880,13 +931,26 @@ static int websocket_close(lua_State *L) {
     std::lock_guard<std::mutex> lock(ws->lock);
     if (ws->ws == NULL) return 0;
     if (ws->newer) {
-        // CC:Tweaked 1.121.0: send a close frame (1000) and keep reading until the server answers with its own; the
-        // client thread queues websocket_closed then, or after 5 seconds without an answer (1006)
+        // CC:Tweaked 1.121.0: send a close frame (1000), after the frames still queued, and keep reading until the
+        // server answers with its own; the client thread queues websocket_closed then, or after 5 seconds without an
+        // answer (1006)
         if (ws->closing) return 0;
         ws->closing = true;
         ws->closeSent = std::chrono::steady_clock::now();
-        try {ws->ws->shutdown(1000, "");} catch (...) {}
+        if (ws->hasWriter) {
+            ws->outbox.emplace_back(std::string(), 0);
+            ws->inFlight++;
+            ws->outboxCv.notify_one();
+        } else try {ws->ws->shutdown(1000, "");} catch (...) {}
         return 0;
+    }
+    // 1.101.3: WebsocketHandle.close closes the channel. No close frame goes out, what is still queued is lost, and
+    // nothing is queued for the program.
+    if (ws->hasWriter) {
+        ws->dropped = true;
+        ws->inFlight -= (int)ws->outbox.size();
+        ws->outbox.clear();
+        try {ws->ws->impl()->shutdown();} catch (...) {}
     }
     ws->ws = NULL;
     return 0;
@@ -906,9 +970,22 @@ static int websocket_send(lua_State *L) {
     }
     if (!open) return luaL_error(L, closedError);  // not while holding the lock: a Lua error jumps past its unlock
     if (config.http_max_websocket_message > 0 && str.size() > (unsigned)config.http_max_websocket_message) luaL_error(L, "Message is too large");
-    std::lock_guard<std::mutex> lock(ws->lock);
-    if (ws->ws == NULL) return 0;
-    ws->ws->sendFrame(str.c_str(), str.size(), (int)WebSocket::FRAME_FLAG_FIN | (int)(lua_toboolean(L, 2) ? WebSocket::FRAME_BINARY : WebSocket::FRAME_TEXT));
+    const int flags = (int)WebSocket::FRAME_FLAG_FIN | (int)(lua_toboolean(L, 2) ? WebSocket::FRAME_BINARY : WebSocket::FRAME_TEXT);
+    bool tooMany = false;
+    {
+        std::lock_guard<std::mutex> lock(ws->lock);
+        if (ws->ws == NULL) return 0;
+        if (ws->hasWriter) {
+            // AtomicHelpers.incrementToLimit(inFlight, 512): 1.121.0 refuses the 513th frame not yet written
+            if (ws->newer && ws->inFlight >= 512) tooMany = true;
+            else {
+                ws->outbox.emplace_back(std::move(str), flags);
+                ws->inFlight++;
+                ws->outboxCv.notify_one();
+            }
+        } else ws->ws->sendFrame(str.c_str(), str.size(), flags);
+    }
+    if (tooMany) return luaL_error(L, "Too many ongoing websocket messages");
     return 0;
 }
 
@@ -1341,6 +1418,8 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
     wsh->url = str;
     wsh->ws = ws;
     wsh->newer = ccAtLeast(comp, 1, 121, 0);
+    wsh->hasWriter = true;
+    std::thread writer(websocket_writer_thread, wsh);
     for (const auto& h : response) wsh->responseHeaders.push_back(h);
     {
         std::lock_guard<std::mutex> lock(comp->openWebsocketsMutex);
@@ -1353,10 +1432,13 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
     // (1006 after 5 seconds without one); a drop says "Connection closed", a too-large message "Received a
     // too-large message".
     auto closed = [&](const std::string& reason, uint16_t code) {
+        bool dropped;
         {
             std::lock_guard<std::mutex> lock(wsh->lock);
             wsh->ws = NULL;
+            dropped = wsh->dropped;
         }
+        if (dropped) return;  // 1.101.3: the program closed it, and CC queues nothing for that
         websocket_closed_data * d = new websocket_closed_data;
         d->url = str;
         d->reason = reason;
@@ -1395,7 +1477,10 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
             else closed("", 0);
             break;
         } else if ((flags & 0x0f) == WebSocket::FRAME_OP_PING) {
-            ws->sendFrame(buf, res, WebSocket::FRAME_FLAG_FIN | WebSocket::FRAME_OP_PONG);
+            // the writer sends it, so it never lands in the middle of a frame being written (not counted in inFlight)
+            std::lock_guard<std::mutex> lock(wsh->lock);
+            wsh->outbox.emplace_back(std::string(buf, res), WebSocket::FRAME_FLAG_FIN | WebSocket::FRAME_OP_PONG);
+            wsh->outboxCv.notify_one();
         } else {
             ws_message * message = new ws_message;
             message->url = str;
@@ -1411,7 +1496,19 @@ static void websocket_client_thread(Computer *comp, const std::string& str, cons
         auto it = std::find(comp->openWebsockets.begin(), comp->openWebsockets.end(), (void*)&wsh);
         if (it != comp->openWebsockets.end()) comp->openWebsockets.erase(it);
     }
-    if (!wsh->closing) try {ws->shutdown();} catch (...) {}  // a closing socket has sent its close frame already
+    {
+        // the writer stops; a frame it is still stuck on (a server that stopped reading) is given up
+        std::lock_guard<std::mutex> lock(wsh->lock);
+        wsh->writerStop = true;
+        if (wsh->inFlight > 0 && !wsh->dropped) {
+            wsh->outbox.clear();
+            try {ws->impl()->shutdown();} catch (...) {}
+        }
+        wsh->outboxCv.notify_one();
+    }
+    writer.join();
+    // a closing socket has sent its close frame already, and a dropped one (1.101.3's close) sends none
+    if (!wsh->closing && !wsh->dropped) try {ws->shutdown();} catch (...) {}
     std::lock_guard<std::mutex> lock(wsh->lock);
     wsh->ws = NULL;
     if (wsh->ud != NULL) *wsh->ud = NULL;

@@ -16,7 +16,7 @@ import {
   removeEdit,
   setEdit,
   stringify,
-} from "../../src/worldEditor/jsonDoc.ts";
+} from "../../../../packages/world-editor/src/jsonDoc.ts";
 import {
   addonsOn,
   bySide,
@@ -27,14 +27,14 @@ import {
   neighbourOf,
   thingsOf,
   worldProblems,
-} from "../../src/worldEditor/model.ts";
+} from "../../../../packages/world-editor/src/model.ts";
 import {
   fieldsOf,
   peripheralFields,
   peripheralTypes,
   schemaAt,
   validate,
-} from "../../src/worldEditor/schema.ts";
+} from "../../../../packages/world-editor/src/schema.ts";
 
 const repo = resolve(
   dirname(fileURLToPath(import.meta.url)),

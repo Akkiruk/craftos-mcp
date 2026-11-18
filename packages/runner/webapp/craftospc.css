@@ -1,0 +1,87 @@
+/* "From CraftOS-PC" dialog (craftospc.js). Colours come from app.css's variables. */
+dialog.cpc {
+  width: min(720px, 96vw);
+}
+.cpc-body {
+  padding: 16px 18px;
+}
+.cpc-lead,
+.cpc-foot {
+  color: var(--dim);
+  margin: 0 0 12px;
+}
+.cpc-foot {
+  margin-top: 14px;
+  font-size: 12px;
+}
+.cpc-foot a {
+  color: var(--lightBlue);
+}
+.cpc-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+}
+.cpc-row input {
+  flex: 1;
+}
+.cpc-list {
+  border: 1px solid var(--line);
+  background: var(--card);
+  padding: 6px 10px;
+  margin-bottom: 12px;
+  max-height: 34vh;
+  overflow: auto;
+}
+.cpc-list:empty {
+  display: none;
+}
+dialog .cpc-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin: 4px 0;
+}
+.cpc-start {
+  align-items: center;
+}
+.cpc-start .grow {
+  flex: 1;
+}
+.cpc-name {
+  font-family: var(--mono);
+  color: var(--fg);
+}
+.cpc-dim {
+  color: var(--dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.cpc-note {
+  color: var(--orange);
+  font-size: 12px;
+  margin: 6px 0;
+}
+.cpc-status {
+  flex: 1;
+  color: var(--dim);
+  font-size: 12px;
+  align-self: center;
+  overflow-wrap: anywhere;
+}
+.cpc-actions {
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.cpc-status {
+  min-width: 14em;
+}
+.cpc-status .btn {
+  margin-left: 6px;
+}
+dialog.cpc h3 {
+  font-size: 13px;
+  margin: 12px 0 6px;
+}

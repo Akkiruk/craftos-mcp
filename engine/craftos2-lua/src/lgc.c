@@ -537,6 +537,7 @@ static int traverserope (global_State *g, TString *r) {
 
 static int traversesubstr (global_State *g, TString *ss) {
   markobject(g, ss->tss.str);
+  if (ss->tss.res != NULL) markobject(g, ss->tss.res);
   return sizeof(TString);
 }
 

@@ -86,8 +86,9 @@ export function computerOf(world: World): ComputerFacts {
         : world["kind"] === "pocket"
           ? "pocket"
           : "computer";
+  // a turtle is a normal one unless it says advanced (TurtleSpec.advanced); a computer is advanced unless it says not
   const advanced = turtle
-    ? turtle["advanced"] !== false
+    ? turtle["advanced"] === true
     : world["advanced"] !== false;
   return {
     kind,

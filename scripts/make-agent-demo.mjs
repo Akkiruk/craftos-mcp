@@ -433,7 +433,7 @@ function useFiles(short) {
 async function createLike(short) {
   const r = await tool("craftos_session_create", call(short).input);
   if (!r.error) return parse(r.text).id;
-  const list = parse((await tool("craftos_session_list", {})).text);
+  const list = parse((await tool("craftos_session_list", {})).text).sessions;
   if (!list.length) throw new Error(`session_create ${short}: ${r.text}`);
   return list[list.length - 1].id;
 }

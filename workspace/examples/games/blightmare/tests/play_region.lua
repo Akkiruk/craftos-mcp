@@ -1,6 +1,7 @@
 -- Plays BLIGHTMARE with the real engine and real fights: the bot follows the story guide, so a dead end, a lying guide or a boss
 -- that can't be beaten shows up here, where the model in check_region.lua can't see it.
 -- A tests/playthrough_<id>.test.lua is: require("tests.play_region")("<id>")
+local kit = require("testkit")
 local seeded = require("lib.rng")
 local rules = require("games.blightmare.rules")
 local party = require("games.blightmare.party")
@@ -95,6 +96,7 @@ return function(regionId)
       local helped, flagsSeen, stalledSince = {}, -1, 0
       while ticks < TICKS and not s.flags[R.exit] do
         ticks = ticks + 1
+        kit.pace()
         local action = rules.bot(s, rng)
         if action then rules.input(s, action) end
         for _, ev in ipairs(rules.tick(s, rng)) do

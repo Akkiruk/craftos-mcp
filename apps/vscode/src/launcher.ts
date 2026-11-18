@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pinnedBin } from "./pinned.ts";
 
 /**
  * The npm package this extension was built and tested against. Pinned so every start runs the same version (npx
@@ -105,10 +106,23 @@ export function cachedBin(
   }
 }
 
+/** The extension's own copy of the pinned package (src/pinned.ts), set on activation; CRAFTOS_VSCODE_STORE in the
+ * MCP server's supervisor, which runs in a process of its own. */
+let pinnedStore: string | undefined;
+
+export function setPinnedStore(dir: string | undefined): void {
+  pinnedStore = dir;
+}
+
+export function getPinnedStore(): string | undefined {
+  return pinnedStore;
+}
+
 /**
- * What actually starts: `npx -y craftos-mcp@<x.y.z>` becomes `node <its bin>` when npx already has that version, which
- * skips npx's own second or so on every start (the MCP server, each test run, each Run in CraftOS). Anything else, and
- * a version npx has not installed yet, starts as it is.
+ * What actually starts: `npx -y craftos-mcp@<x.y.z>` becomes `node <its bin>` when the extension has downloaded that
+ * version into its own storage (src/pinned.ts), else when npx already has it in its cache. Both skip npx's own second
+ * or so on every start (the MCP server, each test run, each Run in CraftOS). Anything else, and a version neither has,
+ * starts as it is.
  */
 export function directBase(
   base: readonly string[],
@@ -117,7 +131,9 @@ export function directBase(
 ): string[] {
   if (base.length !== 3 || base[0] !== "npx" || base[1] !== "-y")
     return [...base];
-  const bin = cachedBin(base[2]!, env, platform);
+  const bin =
+    pinnedBin(env["CRAFTOS_VSCODE_STORE"] || pinnedStore, base[2]!) ??
+    cachedBin(base[2]!, env, platform);
   return bin ? ["node", bin] : [...base];
 }
 

@@ -510,8 +510,8 @@ local r2, w2, h2 = ar.isRelativeMode()
 assert(r2 == true and w2 == 200 and h2 == 100)
 local ok, err = pcall(ar.setRelativeMode, true)
 assert(not ok and err:find("virtual screen width and height"), err)
-ok, err = pcall(ar.drawString, "x", 1.5, 2, 3)
-assert(not ok and err:find("no integer representation"), err)
+ok, err = pcall(ar.drawString, "x", 0 / 0, 2, 3) -- a fraction would be truncated (row 124)
+assert(not ok and err:find("number expected, got nan"), err)
 assert(ar.getPlayerRotationY() == 0)
 `,
     );

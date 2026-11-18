@@ -582,6 +582,7 @@ LUA_API const char *lua_pushsubstring (lua_State *L, int idx, size_t start, size
   ss->tss.str = str;
   ss->tss.offset = start - 1;
   ss->tss.len = len;
+  ss->tss.res = NULL;
   setssvalue(L, L->top, ss);
   api_incr_top(L);
   lua_unlock(L);
@@ -950,12 +951,17 @@ LUA_API void lua_callk (lua_State *L, int nargs, int nresults, int ctx,
   if (k != NULL && L->nny == 0) {  /* need to prepare continuation? */
     if (L->ci->callstatus & CIST_HOOKED) {  /* in hook? */
       /* no continuation */
-      L->ci->hook = ctx;  /* save hook - context must be ar->event */
+      CallInfo *hooked = L->ci;
+      hooked->hook = ctx;  /* save hook - context must be ar->event */
+      luaD_call(L, func, nresults, 1);  /* do the call */
+      /* craftos-agent: the hook returned without yielding. Left set, the mark made traceexec take the next line
+         for a resumed one and skip its line hook: a Lua line hook (debug.sethook) missed lines. */
+      hooked->hook = 0xFF;
     } else {
       L->ci->u.c.k = k;  /* save continuation */
       L->ci->u.c.ctx = ctx;  /* save context */
+      luaD_call(L, func, nresults, 1);  /* do the call */
     }
-    luaD_call(L, func, nresults, 1);  /* do the call */
   }
   else  /* no continuation or no yieldable */
     luaD_call(L, func, nresults, 0);  /* just do the call */

@@ -1,6 +1,8 @@
 // New Test for This File and New World for This File in the browser: src/scaffold.ts through vscode.workspace.fs,
 // so it works on any file system the editor has (a GitHub repository on vscode.dev, a local folder in Chrome).
 import * as vscode from "vscode";
+import { PACK } from "../packData";
+import { worldText } from "../worldTemplate";
 
 async function snippetBody(
   context: vscode.ExtensionContext,
@@ -83,14 +85,26 @@ export function registerWebScaffold(
           );
           return;
         }
-        const body = await snippetBody(
-          context,
-          "world.json",
-          "craftos-mcp world",
-        );
-        await make(
-          sibling(target, `${baseName(target)}.world.json`),
-          new vscode.SnippetString(body),
+        // a world with what the program asks for (peripheral.find/wrap, rednet.open, turtle), in the World Editor
+        const file = sibling(target, `${baseName(target)}.world.json`);
+        if (!(await exists(file))) {
+          const open = vscode.workspace.textDocuments.find(
+            (d) => d.uri.toString() === target.toString(),
+          );
+          const source = open
+            ? open.getText()
+            : new TextDecoder().decode(
+                await vscode.workspace.fs.readFile(target),
+              );
+          await vscode.workspace.fs.writeFile(
+            file,
+            new TextEncoder().encode(worldText(source, PACK)),
+          );
+        }
+        await vscode.commands.executeCommand(
+          "vscode.openWith",
+          file,
+          "craftos-mcp.worldEditor",
         );
       },
     ),

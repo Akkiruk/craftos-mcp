@@ -1054,3 +1054,40 @@ details.nested .field-problems {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.option-type {
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: var(--vscode-editor-font-family);
+}
+
+/* ---- a container's items, slot by slot (packages/world-editor/src/form.ts renderItems) ---- */
+
+.items {
+  list-style: none;
+  margin: 4px 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.item-row .slot-no {
+  width: 4.5em;
+}
+
+.item-row .item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.item-row .item-count {
+  width: 4.5em;
+}

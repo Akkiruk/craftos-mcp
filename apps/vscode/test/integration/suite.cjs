@@ -144,6 +144,7 @@ exports.run = async function run() {
       "craftos-mcp.setUpLuaTypes",
       "craftos-mcp.openWorldEditor",
       "craftos-mcp.openSettings",
+      "craftos-mcp.watchAgents",
     ])
       assert.ok(all.includes(id), id);
     // every command has a title that reads as one in the palette, and the ones that only make sense from a lens or a
@@ -762,6 +763,35 @@ exports.run = async function run() {
   );
 
   await step(
+    "New World writes the world the program asks for and opens it in the World Editor",
+    async () => {
+      const program = join(project, "screen.lua");
+      writeFileSync(
+        program,
+        'local mon = peripheral.find("monitor")\nmon.setTextScale(0.5)\nmon.write("hi")\n',
+      );
+      await vscode.window.showTextDocument(vscode.Uri.file(program));
+      await vscode.commands.executeCommand("craftos-mcp.newWorld");
+      const made = join(project, "screen.world.json");
+      const activeInput = () =>
+        vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+      await until(
+        () =>
+          activeInput() instanceof vscode.TabInputCustom &&
+          activeInput().uri.fsPath.toLowerCase() === made.toLowerCase(),
+        "the new world in the World Editor",
+      );
+      assert.equal(activeInput().viewType, api.worldEditor.viewType);
+      assert.deepEqual(JSON.parse(readFileSync(made, "utf8")), {
+        monitors: [{ name: "top", blocksWide: 3, blocksHigh: 2 }],
+      });
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      rmSync(made);
+      rmSync(program);
+    },
+  );
+
+  await step(
     "the MCP server definition is the supervisor running npx craftos-mcp@0.4.0 serve in the project",
     async () => {
       const def = api.serverDefinition();
@@ -876,6 +906,53 @@ exports.run = async function run() {
         );
       }
       assert.equal(api.providedDefinitions().length, 1);
+    },
+  );
+
+  await step(
+    "craftos-mcp.registerServer: auto registers in a ComputerCraft project, everywhere too",
+    async () => {
+      // the project has Lua and world files: auto registers it
+      assert.equal(api.skipReason(), undefined);
+      await config().update(
+        "registerServer",
+        "everywhere",
+        vscode.ConfigurationTarget.Workspace,
+      );
+      try {
+        assert.equal(api.skipReason(), undefined);
+        assert.equal(api.providedDefinitions().length, 1);
+      } finally {
+        await config().update(
+          "registerServer",
+          undefined,
+          vscode.ConfigurationTarget.Workspace,
+        );
+      }
+    },
+  );
+
+  await step(
+    "the pinned craftos-mcp is downloaded into the extension's storage and starts with node, not npx",
+    async () => {
+      const store = api.serverDefinition().env.CRAFTOS_VSCODE_STORE;
+      assert.ok(store, "no CRAFTOS_VSCODE_STORE for the supervisor");
+      assert.ok(store.toLowerCase().includes("globalstorage"), store);
+      const marker = join(store, "0.4.0", "pinned.json");
+      await until(() => existsSync(marker), "the pinned package", 180_000);
+      const bin = join(
+        store,
+        "0.4.0",
+        "node_modules",
+        "craftos-mcp",
+        JSON.parse(readFileSync(marker, "utf8")).bin,
+      );
+      assert.ok(existsSync(bin), bin);
+      const version = spawnSync("node", [bin, "--version"], {
+        encoding: "utf8",
+      });
+      assert.equal(version.stdout.trim(), "0.4.0");
+      console.log(`       ${bin}`);
     },
   );
 
@@ -1029,6 +1106,31 @@ exports.run = async function run() {
   );
 
   await step(
+    "Watch the Agent's Computers opens the server's own viewer in a panel",
+    async () => {
+      await until(
+        () => api.viewerUrl(),
+        "the server to say where its viewer is",
+        60_000,
+      );
+      const url = api.viewerUrl();
+      console.log(`       viewer: ${url}`);
+      const res = await fetch(new URL("api/sessions", url));
+      assert.equal(res.status, 200);
+      const panel = await api.watchAgents();
+      assert.ok(panel, "no panel");
+      assert.equal(panel.title, "Agent's Computers");
+      assert.match(
+        panel.webview.html,
+        /<iframe src="http:\/\/127\.0\.0\.1:\d+\/"/,
+      );
+      // a second time shows the same panel
+      assert.equal(await api.watchAgents(), panel);
+      panel.dispose();
+    },
+  );
+
+  await step(
     "a crashed server comes back and VS Code keeps its tools the whole time (F6, F8)",
     async () => {
       const [pid] = running()[0];
@@ -1094,6 +1196,51 @@ exports.run = async function run() {
       await sleep(2000);
       assert.ok(ours().length > 0, "no tools after the restart");
       console.log(`       ${old} -> ${running()[0][0]}`);
+    },
+  );
+
+  await step(
+    "craftos.json stands in for the pack settings, under a setting someone set",
+    async () => {
+      const file = join(project, "craftos.json");
+      const config = vscode.workspace.getConfiguration("craftos-mcp");
+      assert.equal(api.settings().mc, "");
+      writeFileSync(
+        file,
+        JSON.stringify({ minecraft: "1.20.1", addons: ["create"] }),
+      );
+      try {
+        assert.equal(api.settings().mc, "1.20.1");
+        assert.equal(api.settings().addons, "create");
+        assert.equal(api.serverDefinition().env.CRAFTOS_VERSION, "1.20.1");
+        await config.update(
+          "minecraftVersion",
+          "1.18.2",
+          vscode.ConfigurationTarget.Workspace,
+        );
+        assert.equal(api.settings().mc, "1.18.2");
+        // the schema is packed for jsonValidation
+        const pkg = ext.packageJSON.contributes.jsonValidation;
+        assert.deepEqual(pkg[1], {
+          fileMatch: ["craftos.json"],
+          url: "./schemas/craftos.schema.json",
+        });
+        const schema = require(
+          join(ext.extensionPath, "schemas", "craftos.schema.json"),
+        );
+        assert.ok(
+          schema.properties?.minecraft,
+          "the stand-in craftos.json schema was packed",
+        );
+      } finally {
+        await config.update(
+          "minecraftVersion",
+          undefined,
+          vscode.ConfigurationTarget.Workspace,
+        );
+        rmSync(file, { force: true });
+      }
+      assert.equal(api.settings().mc, "");
     },
   );
 

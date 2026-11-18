@@ -41,7 +41,8 @@ const FILE_LINE = /^(PASS|FAIL) (.+) \((\d+) tests?, (\d+) ms\)$/;
 const TEST_LINE = /^ {2}(ok {2}|FAIL) (.*)$/;
 const ERROR_LINE = /^ {9}(.*)$/;
 const TERMINAL_LINE = /^ {4}\| ?(.*)$/;
-const SUMMARY_LINE = /^(\d+) files?, (\d+) tests?: (\d+) passed, (\d+) failed$/;
+const SUMMARY_LINE =
+  /^(\d+) files?, (\d+) tests?: (\d+) passed, (\d+) failed(?:, \d+ skipped)?$/;
 
 export function parseTestReport(text: string): Report {
   const report: Report = { files: [] };

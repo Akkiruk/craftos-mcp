@@ -9,7 +9,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, dirname, join } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import {
   RawSession,
   encodePng,
@@ -30,8 +37,14 @@ import { engineVersionArgs, isDefaultVersion, romDirFor } from "./versions.js";
 import { checkConfig, missingRomProblem } from "./config.js";
 import { mobComputer } from "./mobs.js";
 import { resolveInWorkspace } from "./workspace.js";
-import { type CopyOptions, copyWorkspace, copyWorkspaceAsync } from "./copy.js";
+import {
+  COPY_SKIP,
+  type CopyOptions,
+  copyWorkspace,
+  copyWorkspaceAsync,
+} from "./copy.js";
 import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import { readClock, worldNow } from "./clock.js";
 
 export interface EngineHandle {
   /** The running engine. `restart` puts a new one here. */
@@ -39,6 +52,10 @@ export interface EngineHandle {
   /** Per-run scratch directory (computer data, results, boot script). */
   readonly dir: string;
   readonly resultsDir: string;
+  /** Where the computer's files are: its live folder (StartOptions.liveDir), else `computer/<id>` in `dir`. */
+  readonly computerDir: string;
+  /** Set when the computer's files are a folder of the person's, live, rather than a copy (StartOptions.liveDir). */
+  readonly liveDir?: string;
   readonly stderr: string[];
   /** Change the simulated world while the computer runs (interact, approve, chat, ...). */
   sendCommand(command: SimCommand): number;
@@ -47,6 +64,12 @@ export interface EngineHandle {
   /** Start a computer that shut down again, with its files, results and boot script as they are. */
   restart(): void;
   dispose(): void;
+  /**
+   * The engine's clock (clock.ts): send one control ("pause", "resume", "step", "speed", "max", "advance",
+   * "worldtime", "status"), which the engine acknowledges in clock.json with this number. A pause and a speed hold for
+   * the engines `restart` starts later too.
+   */
+  clock?(verb: string, arg?: number): number;
 }
 
 // computer_space_limit on the real server, which raised it from CC:Tweaked's 1 MB default (StartOptions)
@@ -134,6 +157,37 @@ export interface StartOptions {
   readonly debug?: DebugLink;
   /** A run folder stageEngine already copied the files into: startEngine copies nothing and blocks nothing. */
   readonly staged?: StagedRun;
+  /**
+   * The computer's files are this folder itself, as CraftOS-PC mounts its computer folder: what the program writes
+   * lands in it, and changes made there (in an editor) are seen at once. Nothing is copied, and dispose leaves the
+   * folder alone. Not with `staged`, or with a block world's own computer folder (`shared.computerDir`).
+   */
+  readonly liveDir?: string;
+}
+
+/**
+ * The engine flags for a live computer folder: `--start-dir` makes `dir` the computer's root, and each of COPY_SKIP
+ * at its top (and the runtime folder, when it is there) is covered by `emptyDir`, an empty folder mounted read-only.
+ */
+export function liveFolderArgs(
+  config: Pick<RunnerConfig, "runtimeDir">,
+  dir: string,
+  emptyDir: string,
+): string[] {
+  // what a copy leaves out (COPY_SKIP: a repository, its packages, the emulator's own run folders) is covered by
+  // an empty read-only folder, so the computer can neither read nor delete it
+  const names = new Set<string>(COPY_SKIP);
+  const inside = relative(resolve(dir), resolve(config.runtimeDir));
+  // only a runtime folder at the top: one deeper down sits in a folder of the person's own
+  if (inside && !/[\\/]/.test(inside) && inside !== ".." && !isAbsolute(inside))
+    names.add(inside);
+  const covered = [...names].filter((name) => existsSync(join(dir, name)));
+  if (covered.length) mkdirSync(emptyDir, { recursive: true });
+  return [
+    "--start-dir",
+    dir,
+    ...covered.flatMap((name) => ["--mount-ro", `${name}=${emptyDir}`]),
+  ];
 }
 
 /**
@@ -172,6 +226,26 @@ export function makeRuntimeDir(config: RunnerConfig, label: string): string {
     JSON.stringify({ pid: process.pid, started: Date.now() }),
   );
   return dir;
+}
+
+/**
+ * The engine's per-computer config (config/<id>.json): no colour on a normal computer, and the world's label, which
+ * os.getComputerLabel then answers as a labelled computer does in game. Undefined when there is nothing to say.
+ */
+export function computerConfigJson(
+  world: WorldConfig | undefined,
+  colour: boolean,
+): string | undefined {
+  const label = typeof world?.label === "string" ? world.label : "";
+  if (colour && !label) return undefined;
+  return JSON.stringify({
+    ...(!colour && { isColor: false }),
+    // CC labels are at most 32 characters (ComputerCraftAPI / StringUtil.normaliseLabel)
+    ...(label && {
+      label: Buffer.from(label.slice(0, 32)).toString("base64"),
+      base64: true,
+    }),
+  });
 }
 
 /** What goes onto a computer: the world's deploy list, else the whole workspace. */
@@ -350,17 +424,23 @@ export function startEngine(
     throw new Error("staged for another computer id");
   if (options.staged && shared)
     throw new Error("a block world's computer is not staged");
+  const liveDir = options.liveDir && resolve(options.liveDir);
+  if (liveDir && (options.staged || shared?.computerDir))
+    throw new Error("a live folder is not staged or shared");
+  if (liveDir && !existsSync(liveDir))
+    throw new Error(`${liveDir} is not a folder`);
   const dir = options.staged?.dir ?? makeRuntimeDir(config, label);
   const resultsDir = join(dir, "results");
-  const computerDir = join(dir, "computer", String(computerId));
+  const computerDir = liveDir ?? join(dir, "computer", String(computerId));
   if (!options.staged) {
     try {
       if (shared) {
         linkDir(shared.diskDir, join(dir, "computer", "disk"));
         if (shared.computerDir) linkDir(shared.computerDir, computerDir);
       }
-      mkdirSync(computerDir, { recursive: true });
-      if (!shared?.fresh) {
+      if (!liveDir) mkdirSync(computerDir, { recursive: true });
+      // a live folder is the computer's as it is: nothing copied (a world's deploy list is for copies)
+      if (!shared?.fresh && !liveDir) {
         // a computer a turtle placed (fresh) has nothing on it but what it was given before
         for (const [from, to] of copiesFor(config, world, computerDir))
           copyWorkspace(from, to.dest, copyOptions(config, to.deploy));
@@ -411,18 +491,15 @@ export function startEngine(
     }),
   );
   // A normal turtle or computer has no colour (ServerComputer: family != NORMAL); an advanced one does
-  if (
+  const plain =
     (world?.turtle && !world.turtle.advanced) ||
     world?.placed?.block?.endsWith("_normal") ||
     mobComputer(world as Record<string, unknown> | undefined)?.colour ===
       false ||
-    world?.advanced === false
-  ) {
-    writeFileSync(
-      join(dir, "config", `${computerId}.json`),
-      JSON.stringify({ isColor: false }),
-    );
-  }
+    world?.advanced === false;
+  const perComputer = computerConfigJson(world, !plain);
+  if (perComputer)
+    writeFileSync(join(dir, "config", `${computerId}.json`), perComputer);
 
   const bootPath = join(dir, "boot.lua");
   writeFileSync(
@@ -448,6 +525,7 @@ export function startEngine(
         romDir,
         ...engineVersionArgs(version),
         ...(computerId !== 0 ? ["--id", String(computerId)] : []),
+        ...(liveDir ? liveFolderArgs(config, liveDir, join(dir, "empty")) : []),
         "--mount-ro",
         `ccunit=${config.luaLibDir}`,
         "--mount-rw",
@@ -464,27 +542,72 @@ export function startEngine(
         "--script",
         bootPath,
       ],
-      // the token goes in the environment, not on the command line other users of the machine can read
-      ...(debug && {
-        env: { ...process.env, CRAFTOS_DEBUG_TOKEN: debug.token },
-      }),
+      // the token goes in the environment, not on the command line other users of the machine can read; the clock's
+      // state comes back in clock.json (clock.ts)
+      env: {
+        ...process.env,
+        CRAFTOS_CLOCK_FILE: join(resultsDir, "clock.json"),
+        ...(debug && { CRAFTOS_DEBUG_TOKEN: debug.token }),
+      },
     });
     started.on("stderr", (text) => stderr.push(text));
     return started;
   };
   let session = spawnEngine();
   let commandSeq = 0;
-  return {
+  // the clock controls that last (clock.ts): sent again to every engine `restart` starts
+  let clockSeq = 0;
+  const lasting = new Map<string, string>();
+  const sendClock = (verb: string, arg?: number): number => {
+    clockSeq += 1;
+    const text = `${clockSeq}:${verb}${arg === undefined ? "" : `:${arg}`}`;
+    if (verb === "pause" || verb === "resume") lasting.set("run", text);
+    if (verb === "speed" || verb === "max") lasting.set("speed", text);
+    if (verb === "worldtime") lasting.set("world", text);
+    session.event(`ccsim_clock:${text}`);
+    return clockSeq;
+  };
+  // The engine empties a computer's event queue as it boots, so a command sent while the computer is still starting
+  // was lost, and on a busy machine that is a long while. Commands wait here until the sim has written its first
+  // beacon, which it does from inside the booted computer, and then go out in the order they were sent.
+  const beaconPath = join(resultsDir, "waiting.json");
+  rmSync(beaconPath, { force: true });
+  let up = false;
+  const held: [number, string][] = [];
+  let holding: NodeJS.Timeout | undefined;
+  const simUp = (): boolean => (up ||= existsSync(beaconPath));
+  const holdUntilUp = (): void => {
+    if (holding) return;
+    holding = setInterval(() => {
+      if (!simUp() && session.running) return;
+      clearInterval(holding);
+      holding = undefined;
+      if (!up) return; // the engine went away before the computer came up
+      for (const [seq, json] of held.splice(0)) {
+        session.event("ccsim_cmd", seq, json);
+      }
+    }, 10);
+    holding.unref();
+  };
+  const handle: EngineHandle = {
     get session() {
       return session;
     },
     dir,
     resultsDir,
+    computerDir,
+    ...(liveDir && { liveDir }),
     stderr,
     sendCommand: (command) => {
       commandSeq += 1;
-      session.event("ccsim_cmd", commandSeq, JSON.stringify(command));
-      return commandSeq;
+      const seq = commandSeq;
+      const json = JSON.stringify(command);
+      if (simUp()) session.event("ccsim_cmd", seq, json);
+      else {
+        held.push([seq, json]);
+        holdUntilUp();
+      }
+      return seq;
     },
     readState: () => {
       try {
@@ -509,10 +632,25 @@ export function startEngine(
     },
     restart: () => {
       if (session.running) return;
+      // the same wait as at the first start: the beacon on disk is the last run's
+      rmSync(beaconPath, { force: true });
+      up = false;
+      // the world's time of day goes on while a computer is off, as in the game
+      const last = lasting.has("world") ? readClock(handle) : undefined;
+      if (last) {
+        clockSeq += 1;
+        lasting.set(
+          "world",
+          `${clockSeq}:worldtime:${Math.round(worldNow(last))}`,
+        );
+      }
       session = spawnEngine();
+      for (const text of lasting.values()) session.event(`ccsim_clock:${text}`);
     },
     dispose: () => rmSync(dir, { recursive: true, force: true }),
+    clock: sendClock,
   };
+  return handle;
 }
 
 export interface ScreenCapture {

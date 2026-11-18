@@ -450,14 +450,53 @@ function M.save()
   if not ok then error(err, 0) end
 end
 
+--- What the world file says now, after the host's commands: the players (who is online, where they stand, what
+--- they have), the weather and time of day, entities, where this computer is, and the virtual peripherals put down
+--- or taken away. A reboot starts from the world file again; a snapshot (the app's) starts from this, with the rest
+--- of state.json for everything a reboot keeps.
+local PLAYER_FIELDS = {
+  "name", "uuid", "balance", "online", "onOtherServer", "x", "y", "z", "yaw", "pitch", "dimension", "health",
+  "maxHealth",
+}
+-- a copy of plain data: state.json may hold a table once only (textutils.serializeJSON refuses repeats)
+local function copyData(v)
+  if type(v) ~= "table" then return v end
+  local out = {}
+  for k, x in pairs(v) do
+    if type(x) ~= "function" and type(x) ~= "thread" and type(x) ~= "userdata" then out[k] = copyData(x) end
+  end
+  return out
+end
+function M.liveWorld()
+  local players = {}
+  for i, p in ipairs(M.players) do
+    local def = {}
+    for _, key in ipairs(PLAYER_FIELDS) do def[key] = copyData(p[key]) end
+    players[i] = def
+  end
+  local owner = M.ownerUuid and M.byUuid[M.ownerUuid]
+  return {
+    players = players,
+    host = owner and owner.name or nil,
+    environment = copyData(M.world.environment),
+    entities = copyData(M.world.entities),
+    position = copyData(M.position),
+    peripherals = copyData(M.worldPeripherals or M.world.peripherals),
+    -- the engine's monitors and drives next to it now (peripherals.lua), for the browser app's world panel
+    engine = M.engineBlocks and M.engineBlocks() or nil,
+  }
+end
+
 function M.saveNow()
   if M.beforeObserve then M.beforeObserve() end -- machines on the virtual clock (Mekanism QIO) catch up first
   M.peekEconomy() -- what other computers moved shows here too
   local balances = {}
   for _, p in ipairs(M.players) do balances[p.name] = p.balance end
   local owner = M.ownerUuid and M.byUuid[M.ownerUuid]
+  -- the server mod's economy and approvals: only a world with it on has them, so a plain world's state has none
+  local econ = M.vhcc
   local state = {
-    balances = balances,
+    balances = econ and balances or nil,
     vaultLevels = M.v36 and (function()
       local levels = {}
       for _, p in ipairs(M.players) do levels[p.name] = p.vaultLevel end
@@ -468,17 +507,17 @@ function M.saveNow()
       for _, p in ipairs(M.players) do worn[p.name] = p.equipment end
       return next(worn) and worn or nil
     end)() or nil,
-    ledger = M.ledger,
-    rejections = M.rejections,
+    ledger = econ and M.ledger or nil,
+    rejections = econ and M.rejections or nil,
     chat = M.chat,
     host = owner and owner.name or nil,
     interacting = M.interaction and M.byUuid[M.interaction.uuid] and M.byUuid[M.interaction.uuid].name or nil,
-    authenticated = (function()
+    authenticated = econ and (function()
       -- the interacting player when approved, otherwise any approved player
       local uuid = M.interaction and M.sessions[M.interaction.uuid] and M.interaction.uuid or next(M.sessions)
       return uuid and M.byUuid[uuid] and M.byUuid[uuid].name or nil
-    end)(),
-    terminalLocked = M.terminalLocked,
+    end)() or nil,
+    terminalLocked = nil, -- set below: false is a value too
     -- crashServer: the reboot to come is the whole server's
     serverCrash = M.serverCrash or nil,
     -- What the server would still know after this computer reboots
@@ -491,11 +530,11 @@ function M.saveNow()
       allowances = M.allowances,
       rcPending = M.rcPending,
     },
-    pendingApprovals = (function()
+    pendingApprovals = econ and (function()
       local n = 0
       for _ in pairs(M.pending) do n = n + 1 end
       return n
-    end)(),
+    end)() or nil,
     inventories = M.inventoryState and M.inventoryState() or nil,
     redstone = M.redstoneState(), -- the computer's own sides: outputs, inputs, bundled
     peripherals = M.peripheralState and M.peripheralState() or nil,
@@ -505,7 +544,13 @@ function M.saveNow()
     turtle = M.turtleState and M.turtleState() or nil,
     blocks = M.blockState and M.blockState() or nil,
     droppedItems = M.droppedItemState and M.droppedItemState() or nil,
+    -- the world file as it stands now (liveWorld): a snapshot starts the computer from it
+    live = (function()
+      local ok, live = pcall(M.liveWorld)
+      return ok and live or nil
+    end)(),
   }
+  if econ then state.terminalLocked = M.terminalLocked end
   local h = fs.open(STATE_PATH, "w")
   if h then
     h.write(textutils.serializeJSON(state))
@@ -679,10 +724,13 @@ function M.applyCommand(seq, json)
   end
   local cmd = textutils.unserializeJSON(json)
   local ok, err = false, "bad command"
-  if type(cmd) == "table" and handlers[cmd.cmd] then
-    ok, err = handlers[cmd.cmd](cmd)
-  elseif type(cmd) == "table" and M.extraHandlers and M.extraHandlers[cmd.cmd] then
-    ok, err = M.extraHandlers[cmd.cmd](cmd)
+  local handler = type(cmd) == "table" and (handlers[cmd.cmd] or (M.extraHandlers and M.extraHandlers[cmd.cmd]))
+  if handler then
+    -- a handler that raises (a field of the wrong type) fails the command, not the program waiting for an event
+    local ran, a, b = pcall(handler, cmd)
+    if ran then ok, err = a, b else ok, err = false, tostring(a) end
+    -- a refusal without a reason still reaches the harness as a failure
+    if not ok and type(err) ~= "string" then err = cmd.cmd .. " was refused" end
   else
     err = "unknown command"
   end
@@ -702,16 +750,23 @@ function M.localCommand(token, json)
   if type(token) ~= "string" or token:sub(1, 4) ~= "sim:" or localSeen[token] then return end
   localSeen[token] = true
   if json == "list" then
+    -- the server mod's economy and approval commands are only listed where the world has the mod on
+    local SERVER_MOD = { approve = true, revoke = true, setBalance = true, setEconomy = true, setHost = true, interact = true }
+    local function listed(name) return M.vhcc or not SERVER_MOD[name] end
     local names = {}
-    for name in pairs(handlers) do names[#names + 1] = name end
-    for name in pairs(M.extraHandlers or {}) do if not handlers[name] then names[#names + 1] = name end end
+    for name in pairs(handlers) do if listed(name) then names[#names + 1] = name end end
+    for name in pairs(M.extraHandlers or {}) do
+      if not handlers[name] and listed(name) then names[#names + 1] = name end
+    end
     table.sort(names)
     os.queueEvent("ccsim_reply", token, true, nil, table.concat(names, " "))
     return
   elseif json == "state" then
     M.save()
     local players = {}
-    for i, p in ipairs(M.players) do players[i] = { name = p.name, online = p.online, balance = p.balance } end
+    for i, p in ipairs(M.players) do
+      players[i] = { name = p.name, online = p.online, balance = M.vhcc and p.balance or nil }
+    end
     os.queueEvent("ccsim_reply", token, true, nil, textutils.serialize(players))
     return
   end
@@ -812,18 +867,8 @@ function M.installEventHook()
 
   -- Reproducible randomness: once pinned, math.randomseed(x) from the program is ignored so the
   -- sequence stays the one the harness chose, even if the program seeds itself from the clock.
-  -- Cobalt works the bound out as a Java int, so a range that does not fit one fails
-  local rawRandom = math.random
-  function math.random(m, n, ...)
-    if n ~= nil and n - m + 1 > 2147483647 then
-      error("vm error: java.lang.IllegalArgumentException: bound must be positive", 2)
-    end
-    if select("#", ...) > 0 then return rawRandom(m, n, ...) end -- 1.101.3 ignores the extras, 1.121.0 refuses them
-    if n ~= nil then return rawRandom(m, n) end
-    if m ~= nil then return rawRandom(m) end
-    return rawRandom()
-  end
-
+  -- math.random itself is the engine's: Cobalt 0.6's java.util.Random on 1.101.3, with its Java int bounds
+  -- (craftos2-lua lmathlib.c), and Lua 5.4's on 1.121.0, whose Cobalt 0.9.9 takes any range.
   local rawRandomseed = math.randomseed
   local function pinSeed(value)
     rawRandomseed(value)
@@ -840,6 +885,10 @@ function M.installEventHook()
   -- forward and fires the timers that fall due, so sleeps and timeouts pass without waiting.
   local rawAdvance = os.__ccsimAdvance
   os.__ccsimAdvance = nil
+  -- A person's jump (`sim advance`, stepped = true): one timer at a time, the programs running between them, as the
+  -- time bar's jump; it goes on after the answer, while the computer waits. An engine without it: the plain jump.
+  local rawJump = os.__ccsimJump
+  os.__ccsimJump = nil
   -- The server's own work done here (machines catching up after a jump) does not count towards the computer's
   -- 7 s limit without yielding: call it now and then in a long catch-up (an engine without it: nothing)
   M.serverWork = os.__ccsimServerWork or function() end
@@ -848,7 +897,7 @@ function M.installEventHook()
   function handlers.advance(cmd)
     local seconds = tonumber(cmd.seconds)
     if not rawAdvance or not seconds or seconds <= 0 then return false, "advance needs seconds > 0" end
-    rawAdvance(seconds)
+    if cmd.stepped == true and rawJump then rawJump(seconds) else rawAdvance(seconds) end
     return true
   end
 
@@ -877,6 +926,11 @@ function M.installEventHook()
     if type(tag) == "string" and tag:sub(1, 13) == "ccsim_player:" then return tag:sub(14) end
     return nil
   end
+  --- A touch the engine made (a player's) carries a tag as its fifth value: "ccsim_engine" (no player named),
+  --- "ccsim_player:<name>", or "ccsim" on the copy the sim queues again. One a program queued itself has none,
+  --- and CC hands it on as an ordinary event, as it was queued and in the order it was queued.
+  local function engineTouch(tag) return tag == "ccsim_engine" or touchedBy(tag) ~= nil end
+  local function simTouch(tag) return tag == "ccsim" or engineTouch(tag) end
   local depthOf = setmetatable({}, { __mode = "k" })
   local rawCreate, rawRunning, rawStatus = coroutine.create, coroutine.running, coroutine.status
   function coroutine.create(fn)
@@ -949,14 +1003,16 @@ function M.installEventHook()
         if M.onLink then M.onLink(event[2], event[3]) end -- linked computers (2.2.36)
       elseif event[1] == "ccsim_world" then
         if M.onWorld then M.onWorld(event[2], event[3]) end -- blocks another computer changed (ccsim/turtle)
+      elseif event[1] == "monitor_touch" and M.normalMonitors and M.normalMonitors[event[2]] then
+        -- a normal monitor: right-clicking it does nothing in game, only advanced monitors send monitor_touch
       elseif event[1] == "monitor_touch" and touchedBy(event[5]) and not M.findPlayer(touchedBy(event[5])) then
         -- the harness named a player the world does not hold: the touch is refused, not given to someone else
         trace("X", "ccsim: monitor_touch by unknown player " .. touchedBy(event[5]) .. " dropped")
-      elseif M.onTouch and event[1] == "monitor_touch" and event[5] == nil then
+      elseif M.onTouch and event[1] == "monitor_touch" and event[5] == "ccsim_engine" then
         -- 2.2.36 with nobody interacting: linked computers still hear the touch, with no player
         os.queueEvent("monitor_touch", event[2], event[3], event[4], "ccsim")
         M.onTouch(event[2], event[3], event[4], nil)
-      elseif event[1] == "monitor_touch" then
+      elseif event[1] == "monitor_touch" and simTouch(event[5]) then
         if filter == nil or filter == "monitor_touch" then
           beacon.blocked = false
           if isProgram then

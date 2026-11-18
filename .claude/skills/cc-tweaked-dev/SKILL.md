@@ -51,6 +51,12 @@ saved worlds on request.
    to run a program and read its screens. A hanging file keeps its finished tests and names the one it was in. A
    failed `craftos_run` comes back with `error {kind, message, file, line}`. For screen layout use
    `craftos_run` with `snapshot: {name}` (golden files in `__snapshots__/`; `update:true` to accept).
+5. A `craftos.json` at the project root (`npx craftos-mcp init` writes one) gives every call its workspace,
+   Minecraft version, addons, test globs (`craftos_test` with no `paths` runs those) and base world; `craftos_info`
+   names it as `project`. Arguments still win. On a big suite give `craftos_test` a `budgetMs`: at the budget it
+   stops and returns the finished files plus `notRun`. Outside the agent, `npx craftos-mcp test --watch` reruns the
+   affected test files on every save, and `npx craftos-mcp doctor` checks the engine, ROMs, cache, craftos.json,
+   world files and a hello-world boot, with a fix for each failure.
 
 ## Facts that bite
 

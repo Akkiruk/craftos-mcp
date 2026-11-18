@@ -36,6 +36,7 @@
 #include <Poco/Net/StreamSocket.h>
 #include "main.hpp"
 #include "runtime.hpp"
+#include "simclock.hpp"
 #include "util.hpp"
 
 extern Uint32 eventTimeoutEvent(Uint32 interval, void* param);
@@ -830,6 +831,7 @@ void stopLoop(const char * reason, const std::string& text, const std::vector<in
         std::lock_guard<std::mutex> lock(S.clockMu);
         S.stopStarted = steady::now();
         S.clockHeld = true;
+        simclock::hold(true); // one hold for the debugger and a pause (simclock.hpp): the clock never counts one twice
     }
     S.frames.clear();
     S.framesBuilt = false;
@@ -875,6 +877,7 @@ void stopLoop(const char * reason, const std::string& text, const std::vector<in
         std::lock_guard<std::mutex> lock(S.clockMu);
         S.frozenTotalUs += std::chrono::duration_cast<std::chrono::microseconds>(steady::now() - S.stopStarted).count();
         S.clockHeld = false;
+        simclock::hold(false);
     }
     // a pause that came in just as this stop began was for this stop
     pauseAsked = false;
@@ -1469,6 +1472,9 @@ bool computerStarting(Computer * comp, lua_State * coro) {
     S.hookCount = 0;
     if (cobaltSlowdown > 1.0) {S.hookMask |= LUA_MASKCOUNT; S.hookCount = 1000;}
     lua_sethook(coro, hook, S.hookMask, S.hookCount);
+    // the program's own debug.sethook goes on top of this one, and both run (ldblib.c), as on a server where the
+    // debugger is not there to take the hook: the cide addon's agent hooks itself
+    lua_setbasehook(coro, hook, S.hookMask, S.hookCount);
     sendLine(Json().str("event", "started").done());
     return true;
 }

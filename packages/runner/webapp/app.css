@@ -502,6 +502,19 @@ dialog::backdrop {
 }
 dialog form {
   padding: 16px 18px;
+  /* the title, the error and Create stay in view; the fields between them scroll */
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+  box-sizing: border-box;
+}
+dialog form > .cols {
+  overflow: auto;
+  min-height: 0;
+}
+dialog form > .error {
+  max-height: 30vh;
+  overflow: auto;
 }
 dialog h2 {
   margin-top: 0;
@@ -588,4 +601,78 @@ legend {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* a light window: the same page on a light ground (the screens themselves stay as the game draws them) */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f4f1;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --line: #cfcfc8;
+    --fg: #1b1b1b;
+    --dim: #5f5f5f;
+    --accent: #8a6a00;
+    --lime: #3f8f00;
+    --cyan: #1f6f88;
+    --red: #b53030;
+    /* CC colours the panels use as text and icons (world panel, time bar, CraftOS-PC import, views): darker, to
+       read on a light ground. The screens draw their own colours and do not read these. */
+    --orange: #a85d00;
+    --lightBlue: #2a5bb8;
+    --yellow: #8a6a00;
+    --purple: #8a3fc4;
+    color-scheme: light;
+  }
+  /* the places app.css names a dark colour outright */
+  .top {
+    background: var(--panel);
+    border-bottom-color: var(--line);
+  }
+  .logo {
+    color: #111;
+    background: #dede6c;
+  }
+  .btn {
+    border-bottom-color: #a9a9a0;
+  }
+  .btn:hover {
+    border-color: var(--dim);
+  }
+  input,
+  select,
+  textarea {
+    background: #fff;
+  }
+  .tree summary,
+  .tree .k,
+  .files li.dir {
+    color: #2a5bb8;
+  }
+  .tree summary .n,
+  .tree .nil,
+  .files .size,
+  .addons .ver,
+  .cmds .h {
+    color: var(--dim);
+  }
+  .tree .num {
+    color: #a15c00;
+  }
+  .tree .b {
+    color: #a02a92;
+  }
+  .cmds li {
+    border-bottom-color: var(--line);
+  }
+  .cmds li:hover,
+  .files li:not(.dir):hover {
+    background: #ecece6;
+  }
+  .cmds .c {
+    color: var(--accent);
+  }
+  dialog {
+    border-color: var(--line);
+  }
 }

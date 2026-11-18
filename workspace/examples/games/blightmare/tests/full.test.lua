@@ -14,6 +14,7 @@ ccunit.test("a whole game, new save to the end", function()
   local lastGoal
   while ticks < TICKS and not s.flags.fn_ended do
     ticks = ticks + 1
+    kit.pace()
     local action = rules.bot(s, rng)
     if action then rules.input(s, action) end
     for _, ev in ipairs(rules.tick(s, rng)) do

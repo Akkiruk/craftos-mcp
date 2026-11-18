@@ -8,11 +8,12 @@ import {
   loadWorld,
   number,
   parse,
-  parseMonitor,
+  monitorsFor,
   workspacePath,
 } from "../shared.js";
 import {
   type ScreenCapture,
+  DEFAULT_TIMEOUT_MS,
   WorkspaceError,
   checkProgram,
   versionChoices,
@@ -27,6 +28,7 @@ const USAGE = [
   `--mc picks the Minecraft version: ${versionChoices()}.`,
   "Runs the program in a fresh computer and prints the terminal and every monitor as text. Put program arguments",
   "that start with - after --. --screenshot saves the terminal as out.png and each monitor as out-<name>.png.",
+  'Monitors: each --monitor (top:3x2, blocks wide x high) and the ones a world file lists under "monitors".',
   "Exit code: 0 finished, 1 the program failed, 124 timed out, 2 engine or usage error.",
 ].join("\n");
 
@@ -104,7 +106,7 @@ const run: Command = {
       const result = await runProgram(config, {
         program,
         args: programArgs,
-        monitors: (values.monitor ?? []).map(parseMonitor),
+        monitors: monitorsFor(world, values.monitor),
         world,
         timeScale: number("timescale", values.timescale),
         screenshots: values.screenshot !== undefined,
@@ -130,6 +132,16 @@ const run: Command = {
           : "";
         console.log(
           `\nerror (${result.error.kind}): ${at}${result.error.message}`,
+        );
+      }
+      if (result.status === "timed_out") {
+        // a program that runs for good (a monitor UI) ends this way too; a slow one (a turtle moves as slowly as in
+        // the game) needs more time, or a faster clock
+        const seconds =
+          Math.round((timeout ?? DEFAULT_TIMEOUT_MS / 1000) * 10) / 10;
+        console.log(
+          `\nStill running after ${seconds} s, so it was stopped there. For a program that needs longer, give it ` +
+            `--timeout 120, or run the clock faster with --timescale 5 (sleep and turtle moves go 5 times faster).`,
         );
       }
       if (result.stderr) console.error(`\nengine stderr:\n${result.stderr}`);

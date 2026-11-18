@@ -826,6 +826,8 @@ std::string termGetEvent(lua_State *L) {
             lua_pushinteger(L, x);
             lua_pushinteger(L, y);
             if (e.button.windowID != computer->term->id && config.monitorsUseMouseEvents) lua_pushstring(L, side.c_str());
+            if (e.button.windowID != computer->term->id && !config.monitorsUseMouseEvents && engineTagsTouches())
+                lua_pushliteral(L, "ccsim_engine");  // a player's touch, not a program's
             return (e.button.windowID == computer->term->id || config.monitorsUseMouseEvents) ? "mouse_click" : "monitor_touch";
         } else if (e.type == SDL_MOUSEBUTTONUP && (computer->config->isColor || computer->isDebugger)) {
             std::string side;

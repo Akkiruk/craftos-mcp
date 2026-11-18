@@ -484,7 +484,7 @@ const TValue *luaH_get (lua_State *L, Table *t, const TValue *key) {
     setrvalue(L, &newobj, luaS_build(L, rawtrvalue(key)));
     key = &newobj;
   } else if (ttissubstr(key)) {
-    setssvalue(L, &newobj, luaS_newlstr(L, getstr(ssvalue(key)->str) + ssvalue(key)->offset, ssvalue(key)->len));
+    setsvalue(L, &newobj, luaS_resolvesub(L, rawssvalue(key)));
     key = &newobj;
   }
   switch (ttype(key)) {

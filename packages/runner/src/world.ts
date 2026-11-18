@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkWorldAddons, resolveAddons } from "./addons.js";
+import { addonSource, checkWorldAddons, resolveAddons } from "./addons.js";
 import {
   type ResolvedVersion,
   type VersionSpec,
@@ -191,7 +191,7 @@ export interface VirtualPeripheralSpec {
   name: string;
   /**
    * Inventories ("minecraft:chest", "minecraft:barrel", ...), "fluid_storage" tanks, "speaker"
-   * (a recording fake: the headless engine has no audio device), or an Advanced Peripherals type:
+   * (what it plays is listed in the sim state; `craftos-mcp window` plays it out loud), or an Advanced Peripherals type:
    * playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector,
    * meBridge, rsBridge, arController; or a Mekanism QIO block (see QioBlockSpec): qioDriveArray,
    * qioDashboard, qioImporter, qioExporter, qioRedstoneAdapter; or "quantumEntangloporter" (EntangloporterSpec).
@@ -568,6 +568,12 @@ export interface WorldConfig {
    */
   simProgram?: boolean;
   /**
+   * Give programs CraftOS-PC's `periphemu`, `config` and `mounter` APIs, for code written for CraftOS-PC. CC:Tweaked
+   * has none of them, so they are off by default. When on they act as the game would: periphemu.create places the
+   * block in this world, live; config and mounter answer but change nothing (docs/coming-from-craftos-pc.md).
+   */
+  craftosPcApis?: boolean;
+  /**
    * Show the ROM's message of the day (the random tip under "CraftOS 1.8") at boot. Default false here, so captured
    * screens are the same every run; CC:Tweaked's own default is true (docs/conformance/emulator-vs-real-deviations.md).
    */
@@ -608,7 +614,7 @@ export interface WorldConfig {
    * Default: see DEFAULT_COBALT_SPEED in engine.ts.
    */
   cobaltSpeed?: number | boolean;
-  /** What another computer's `computer_N` peripheral answers to getLabel. */
+  /** The computer's label: os.getComputerLabel, and what another computer's `computer_N` peripheral answers to getLabel. */
   label?: string;
   /** Set by the runner on a computer whose modems reach other computers through a relay. */
   modemLink?: boolean;
@@ -1033,7 +1039,12 @@ export function worldJson(world: WorldConfig | undefined): string {
   copy["version"] = versionForSim(version);
   // The mods this world runs with (addons.ts): a world using one that is off fails here, before the computer boots
   const addons = resolveAddons(resolved?.addons, process.env, version.mc);
-  checkWorldAddons(copy, addons, version.mc);
+  checkWorldAddons(
+    copy,
+    addons,
+    version.mc,
+    addonSource(resolved?.addons, process.env),
+  );
   copy["addons"] = addons;
   delete copy["deploy"];
   delete copy["$schema"]; // an editor's key (world files point at schemas/world.schema.json)
@@ -1133,6 +1144,11 @@ export interface SimState {
   inventories?: Record<string, Record<string, unknown>>;
   /** Per-peripheral state: redstone outputs, NBT contents, AR canvas, storage networks, tanks, QIO blocks. */
   peripherals?: Record<string, unknown>;
+  /** The world as it stands now (players, peripherals, position, ...): a snapshot starts a computer from it. */
+  live?: {
+    players?: { name?: string; online?: boolean; [k: string]: unknown }[];
+    [k: string]: unknown;
+  };
   /** Mekanism QIO: every frequency's contents, every QIO block, the QIO-only inventories. */
   qio?: {
     gameTime: number;
@@ -1239,6 +1255,9 @@ export type SimCommand =
             type: "monitor";
             blocksWide?: number;
             blocksHigh?: number;
+            textScale?: number;
+            /** false: a normal monitor (greys, no touches). */
+            advanced?: boolean;
           };
     }
   /** The block is broken: `peripheral_detach`, and peripheral.getNames stops listing it. */
@@ -1250,5 +1269,9 @@ export type SimCommand =
       blocksWide: number;
       blocksHigh: number;
     }
+  /** A player puts floppy `disk` (its id) into an empty engine drive: the disk mounts and `disk` is queued. */
+  | { cmd: "insertDisk"; peripheral: string; disk: number }
+  /** A player takes the floppy out of an engine drive: its mount goes and `disk_eject` is queued. */
+  | { cmd: "ejectDisk"; peripheral: string }
   | { cmd: "seed"; value: number }
   | { cmd: "advance"; seconds: number };

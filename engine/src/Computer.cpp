@@ -25,6 +25,7 @@ extern "C" {
 #include "peripheral/computer.hpp"
 #include "platform.hpp"
 #include "runtime.hpp"
+#include "simclock.hpp"
 #include "terminal/RawTerminal.hpp"
 #include "termsupport.hpp"
 
@@ -464,7 +465,8 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
             self->term->changed = true;
         }
         self->colors = 0xF0;
-        self->system_start = std::chrono::system_clock::now();
+        // on the virtual clock (simclock.hpp), so os.clock starts at 0 after a pause or a change of speed too
+        self->system_start = simclock::now();
         if (self->allocator_ctx != NULL) {
             delete self->allocator_ctx;
             self->allocator_ctx = NULL;
@@ -527,7 +529,7 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         // Coroutines inherit the hook from the thread that makes them, so this covers every coroutine of the computer
         // lua_setbasehook: a program's own debug.sethook goes on top of it instead of being refused (ldblib.c)
         else if (cobaltSlowdown > 1.0) {
-            lua_setbasehook(cobaltHook, COBALT_HOOK_COUNT);
+            lua_setbasehook(self->coro, cobaltHook, LUA_MASKCOUNT, COBALT_HOOK_COUNT);
             lua_sethook(self->coro, cobaltHook, LUA_MASKCOUNT, COBALT_HOOK_COUNT);
         }
         //else if (!self->isDebugger) lua_sethook(self->coro, termHook, LUA_MASKRET | LUA_MASKCALL | LUA_MASKERROR | LUA_MASKRESUME | LUA_MASKYIELD, 0);

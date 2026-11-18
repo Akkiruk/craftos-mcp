@@ -1,7 +1,7 @@
 // Forms made from the world schema: one field per property, the widget picked from its schema (a list for enums, a
 // number box, a checkbox list...), its description under it and the schema's problems in red. Anything the
 // schema shapes too freely for a widget (item maps, tank lists, unions) gets a JSON box.
-import type { EditOp, JsonPath } from "../jsonDoc.ts";
+import type { EditOp, JsonPath } from "./jsonDoc.ts";
 import {
   type Field,
   type Problem,
@@ -9,7 +9,7 @@ import {
   deref,
   fieldsOf,
   starterValue,
-} from "../schema.ts";
+} from "./schema.ts";
 import { h } from "./dom.ts";
 
 export interface FormContext {
@@ -17,7 +17,12 @@ export interface FormContext {
   edit(ops: EditOp[]): void;
   /** Problems at this path or below it. */
   problemsAt(path: JsonPath, exact?: boolean): readonly Problem[];
+  /** The label a field shows; default its key, as the file spells it. */
+  label?(key: string): string;
 }
+
+const labelOf = (ctx: FormContext, key: string): string =>
+  ctx.label?.(key) ?? key;
 
 export interface FormOptions {
   /** Keys drawn elsewhere. */
@@ -301,7 +306,7 @@ export function renderField(
       h(
         "label",
         { for: id, title: plain(desc) || undefined },
-        field.key,
+        labelOf(ctx, field.key),
         field.required
           ? h("span", { class: "req", title: "required" }, " *")
           : null,
@@ -312,8 +317,8 @@ export function renderField(
             "button",
             {
               class: "icon-button clear",
-              title: `Remove ${field.key}`,
-              "aria-label": `Remove ${field.key}`,
+              title: `Remove ${labelOf(ctx, field.key)}`,
+              "aria-label": `Remove ${labelOf(ctx, field.key)}`,
               onclick: () => set(undefined),
             },
             "×",
@@ -397,7 +402,7 @@ function renderNested(
           class: "secondary small",
           onclick: () => ctx.edit([{ op: "set", path, value: {} }]),
         },
-        `Add ${field.key}`,
+        `Add ${labelOf(ctx, field.key)}`,
       );
   const details = h(
     "details",
@@ -408,7 +413,7 @@ function renderNested(
     h(
       "summary",
       { title: desc || undefined },
-      h("span", { class: "nested-key" }, field.key),
+      h("span", { class: "nested-key" }, labelOf(ctx, field.key)),
       field.required ? h("span", { class: "req" }, " *") : null,
       present ? null : h("span", { class: "muted" }, " not set"),
       present && !field.required
@@ -416,8 +421,8 @@ function renderNested(
             "button",
             {
               class: "icon-button clear",
-              title: `Remove ${field.key}`,
-              "aria-label": `Remove ${field.key}`,
+              title: `Remove ${labelOf(ctx, field.key)}`,
+              "aria-label": `Remove ${labelOf(ctx, field.key)}`,
               onclick: (e: Event) => {
                 e.preventDefault();
                 ctx.edit([{ op: "remove", path }]);
@@ -497,7 +502,7 @@ export function renderObject(
         h(
           "option",
           { value: f.key, title: deref(ctx.root, f.schema)?.description ?? "" },
-          f.key,
+          labelOf(ctx, f.key),
         ),
       ),
     );
@@ -515,4 +520,183 @@ export function renderObject(
     adder = h("div", { class: "adder" }, select);
   }
   return h("div", { class: "form" }, rows, adder);
+}
+
+/**
+ * What is in a container, slot by slot: a row per stack (slot, item id, count) and a button for one more. A list
+ * form (storage bridges) or anything else the rows cannot show gets the plain field instead.
+ */
+export function renderItems(
+  ctx: FormContext,
+  path: JsonPath,
+  value: unknown,
+  field: Field,
+  size?: number,
+): HTMLElement {
+  if (value !== undefined && !isObj(value))
+    return renderField(ctx, path, field, value);
+  const items = isObj(value) ? value : {};
+  const slots = Object.keys(items)
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (Object.keys(items).length !== slots.length)
+    return renderField(ctx, path, field, value);
+  const problems = ctx.problemsAt(path);
+  const max = size && size > 0 ? size : undefined;
+  const set = (slot: number, key: string, v: unknown): void => {
+    if (value === undefined)
+      ctx.edit([
+        {
+          op: "set",
+          path,
+          value: {
+            [String(slot)]: {
+              name: "minecraft:cobblestone",
+              count: 1,
+              [key]: v,
+            },
+          },
+        },
+      ]);
+    else
+      ctx.edit([{ op: "set", path: [...path, String(slot), key], value: v }]);
+  };
+  const rows = slots.map((slot) => {
+    const stack = isObj(items[String(slot)])
+      ? (items[String(slot)] as Record<string, unknown>)
+      : {};
+    const base = `${keyOf(path)}#${slot}`;
+    const slotBox = h("input", {
+      type: "number",
+      min: 1,
+      max,
+      step: 1,
+      value: String(slot),
+      "data-key": `${base}:slot`,
+      "aria-label": `Slot number (now ${slot})`,
+      class: "slot-no",
+    });
+    slotBox.addEventListener("change", () => {
+      const to = Math.floor(Number(slotBox.value));
+      if (!Number.isFinite(to) || to < 1 || to === slot) return;
+      if (slots.includes(to)) {
+        // a swap, as dragging one stack onto another does
+        ctx.edit([
+          {
+            op: "set",
+            path: [...path, String(to)],
+            value: items[String(slot)],
+          },
+          {
+            op: "set",
+            path: [...path, String(slot)],
+            value: items[String(to)],
+          },
+        ]);
+      } else
+        ctx.edit([
+          { op: "remove", path: [...path, String(slot)] },
+          {
+            op: "set",
+            path: [...path, String(to)],
+            value: items[String(slot)],
+          },
+        ]);
+    });
+    const nameBox = h("input", {
+      type: "text",
+      value: typeof stack["name"] === "string" ? stack["name"] : "",
+      placeholder: "minecraft:iron_ingot",
+      spellcheck: "false",
+      "data-key": `${base}:name`,
+      "aria-label": `Item in slot ${slot}`,
+      class: "item-name",
+    });
+    nameBox.addEventListener("change", () =>
+      set(slot, "name", nameBox.value.trim()),
+    );
+    const countBox = h("input", {
+      type: "number",
+      min: 1,
+      max: typeof stack["maxCount"] === "number" ? stack["maxCount"] : 64,
+      step: 1,
+      value: typeof stack["count"] === "number" ? String(stack["count"]) : "1",
+      "data-key": `${base}:count`,
+      "aria-label": `How many in slot ${slot}`,
+      class: "item-count",
+    });
+    countBox.addEventListener("change", () => {
+      const n = Math.floor(Number(countBox.value));
+      if (Number.isFinite(n) && n >= 1) set(slot, "count", n);
+    });
+    return h(
+      "li",
+      { class: "item-row" },
+      h("span", { class: "muted slot-label", "aria-hidden": "true" }, "slot"),
+      slotBox,
+      nameBox,
+      h("span", { class: "muted", "aria-hidden": "true" }, "×"),
+      countBox,
+      h(
+        "button",
+        {
+          class: "icon-button clear",
+          title: `Take everything out of slot ${slot}`,
+          "aria-label": `Empty slot ${slot}`,
+          "data-key": `${base}:remove`,
+          onclick: () =>
+            ctx.edit([{ op: "remove", path: [...path, String(slot)] }]),
+        },
+        "×",
+      ),
+    );
+  });
+  let free = 1;
+  while (slots.includes(free)) free++;
+  const full = max !== undefined && free > max;
+  const desc = deref(ctx.root, field.schema)?.description ?? "";
+  return h(
+    "div",
+    {
+      class: `field items-field${value !== undefined ? " is-set" : ""}${problems.length ? " has-problem" : ""}`,
+    },
+    h(
+      "div",
+      { class: "field-label", title: plain(desc) || undefined },
+      labelOf(ctx, field.key),
+      h(
+        "span",
+        { class: "muted" },
+        ` ${slots.length} stack${slots.length === 1 ? "" : "s"}${max ? ` in ${max} slots` : ""}`,
+      ),
+    ),
+    h("ul", { class: "items", "aria-label": "Items" }, rows),
+    h(
+      "button",
+      {
+        class: "secondary small",
+        disabled: full,
+        "data-key": `${keyOf(path)}+item`,
+        onclick: () =>
+          ctx.edit([
+            value === undefined
+              ? {
+                  op: "set",
+                  path,
+                  value: {
+                    [String(free)]: { name: "minecraft:cobblestone", count: 1 },
+                  },
+                }
+              : {
+                  op: "set",
+                  path: [...path, String(free)],
+                  value: { name: "minecraft:cobblestone", count: 1 },
+                },
+          ]),
+      },
+      full ? "Every slot is full" : `+ Put an item in slot ${free}`,
+    ),
+    problemList(problems, path),
+  );
 }

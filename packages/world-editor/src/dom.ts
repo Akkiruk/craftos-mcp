@@ -70,6 +70,7 @@ export type IconKind =
   | "fluid"
   | "energy"
   | "speaker"
+  | "printer"
   | "drive"
   | "redstone"
   | "sensor"
@@ -83,6 +84,7 @@ export function iconKind(type: string, modem?: string): IconKind {
     return modem === "ender" ? "ender" : modem === "wired" ? "wired" : "modem";
   const t = type.toLowerCase();
   if (/speaker|note_block|jukebox|sculkophone/.test(t)) return "speaker";
+  if (/printer/.test(t)) return "printer";
   if (/drive|disk|cassette|reel|tape|harddrive/.test(t)) return "drive";
   if (/redstone|rsport|relay|redrouter/.test(t)) return "redstone";
   if (
@@ -122,6 +124,7 @@ const PATHS: Record<IconKind, string> = {
   fluid: "M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z",
   energy: "M13 2L5 14h6l-1 8l8-12h-6z",
   speaker: "M4 9h4l5-4v14l-5-4H4z M16 9a4 4 0 0 1 0 6 M18.5 6.5a8 8 0 0 1 0 11",
+  printer: "M7 3h10v6H7z M3 9h18v8H3z M7 14h10v7H7z M9 17h6",
   drive: "M3 6h18v12H3z M7 14h6 M17 14h1",
   redstone: "M12 3v6 M9 9h6l-1 4h-4z M10 13l-3 8h10l-3-8",
   sensor:

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "../command.js";
-import { UsageError, configFor, guarded, parse } from "../shared.js";
+import { UsageError, configFor, guarded, parse, project } from "../shared.js";
 import {
   addonReport,
   checkConfig,
@@ -52,6 +52,8 @@ const info: Command = {
         `  ${mark(existsSync(join(romDir, "bios.lua")))} ROM        ${romDir}`,
       );
       console.log(`  ok      workspace  ${config.workspaceDir}`);
+      const found = project();
+      if (found) console.log(`  ok      project    ${found.file}`);
       const versions = versionReport();
       console.log(
         `\nVersions (${versions.source}; --mc or world.version picks one):`,
@@ -60,7 +62,7 @@ const info: Command = {
         const dir = romDirFor(config, resolveVersion(v.mc));
         console.log(
           `  ${v.mc === version.mc ? "*" : " "} ${v.mc.padEnd(7)} CC:Tweaked ${v.cc.padEnd(8)} ${v.loaders.join("/").padEnd(15)} ` +
-            `ROM ${existsSync(join(dir, "bios.lua")) ? "built" : `missing (node scripts/build-rom.mjs --download ${v.mc})`}`,
+            `ROM ${existsSync(join(dir, "bios.lua")) ? "built" : packageVersion() ? "not built yet (built when a world asks for it, or craftos-mcp setup --all)" : `missing (node scripts/build-rom.mjs --download ${v.mc})`}`,
         );
       }
       const missingRom = missingRomProblem(romDir, version.mc);
@@ -70,7 +72,7 @@ const info: Command = {
       console.log(`\nAddons (${report.source}):`);
       for (const a of report.addons) {
         console.log(
-          `  ${a.on ? "on " : "off"}  ${a.id.padEnd(22)} ${a.name} ${a.version === "none" ? `(no release for ${version.mc})` : a.version}`,
+          `  ${a.on ? "on " : "off"}  ${a.id.padEnd(22)} ${a.name} ${a.version === "none" ? `(no release for ${version.mc})` : a.actsAs !== a.version ? `${a.version} (acts as ${a.actsAs})` : a.version}`,
         );
       }
       if (problems.length) {

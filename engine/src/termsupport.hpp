@@ -48,6 +48,8 @@ extern void termRenderLoop();
 extern void termHook(lua_State *L, lua_Debug *ar);
 extern int termPanic(lua_State *L);
 extern monitor * findMonitorFromWindowID(Computer *comp, unsigned id, std::string* sideReturn);
+/** Whether a monitor_touch the engine makes carries "ccsim_engine" as its fifth value (runtime.cpp). */
+extern bool engineTagsTouches();
 extern void displayFailure(Terminal * term, const std::string& message, const std::string& extra = "");
 
 inline bool checkWindowID(Computer * c, unsigned wid) {

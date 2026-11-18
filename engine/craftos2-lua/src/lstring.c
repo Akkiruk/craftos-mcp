@@ -13,6 +13,7 @@
 
 #include "lua.h"
 
+#include "lgc.h"
 #include "lmem.h"
 #include "lobject.h"
 #include "lstate.h"
@@ -195,6 +196,19 @@ TString *luaS_concat (lua_State *L, TString *l, TString *r) {
                   ((r->tsr.tt == LUA_TLNGSTR || r->tsr.tt == LUA_TSHRSTR) ? cast(TString *, r)->tsv.len : (r->tsr.tt == LUA_TSUBSTR ? cast(TString *, r)->tss.len : r->tsr.len));
   rope->tsr.res = NULL;
   return rope;
+}
+
+/* craftos-agent: a substring's bytes as a plain string, made once and kept (ss->tss.res). Every C function that reads
+   a string (string.byte, string.find, ...) asks for a plain one, and a fresh copy each time made string.byte on a
+   string.sub result cost as much as copying the whole substring: 140 times what it costs on the string it came from.
+   Cobalt's substrings share the bytes they came from. */
+TString *luaS_resolvesub (lua_State *L, TString *ss) {
+  if (ss->tss.res == NULL) {
+    TString *res = luaS_newlstr(L, getstr(ss->tss.str) + ss->tss.offset, ss->tss.len);
+    ss->tss.res = res;
+    luaC_objbarrier(L, ss, res);
+  }
+  return ss->tss.res;
 }
 
 TString *luaS_build (lua_State *L, TString *rope) {

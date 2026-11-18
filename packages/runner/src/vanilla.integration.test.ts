@@ -305,7 +305,17 @@ print("S=" .. s:sub(1, 256) .. "|" .. s:sub(257))`,
         world,
         timeoutMs: 120000, // 279 calls of a tick each when idle; the clock is the real one
       });
-      expect(result.status).toBe("completed");
+      // a run that did not complete shows why: the Lua error and the screen it ended on
+      const done = result.status === "completed";
+      expect({
+        seed,
+        status: result.status,
+        ...(!done && {
+          error: result.error,
+          stderr: result.stderr,
+          screen: result.screens[0]?.lines,
+        }),
+      }).toEqual({ seed, status: "completed" });
       const line = result.screens[0]!.lines.join("").replace(/\s+/g, "");
       expect(line).toContain(`S=${expected}`);
     }

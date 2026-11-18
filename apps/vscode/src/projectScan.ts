@@ -208,3 +208,45 @@ export function craftosServersInFolder(folder: string): string[] {
     return [];
   }
 }
+
+/**
+ * Why a folder looks like a ComputerCraft project, or undefined when it does not: the MCP server registers only in
+ * those unless craftos-mcp.registerServer says everywhere. Cheap on purpose (it runs whenever the definitions are
+ * asked for): a craftos.json or a .craftos folder at the top, the CC:Tweaked types in the Lua settings, then a breadth
+ * first look through at most `limit` folders for a .lua or .world.json file.
+ */
+export function ccProjectSign(root: string, limit = 2000): string | undefined {
+  if (existsSync(join(root, "craftos.json"))) return "craftos.json";
+  if (existsSync(join(root, ".craftos"))) return ".craftos";
+  for (const file of [".vscode/settings.json", ".luarc.json"]) {
+    try {
+      if (
+        /cc-tweaked|cc-types|craftos/i.test(
+          readFileSync(join(root, file), "utf8"),
+        )
+      )
+        return `the CC:Tweaked types in ${file}`;
+    } catch {
+      // no such file
+    }
+  }
+  const queue = [root];
+  for (let seen = 0; queue.length && seen < limit; seen++) {
+    const dir = queue.shift()!;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const name = e.name.toLowerCase();
+      if (e.isDirectory()) {
+        if (!SKIP.has(e.name) && !name.startsWith("."))
+          queue.push(join(dir, e.name));
+      } else if (name.endsWith(".world.json")) return "a world file";
+      else if (name.endsWith(".lua")) return "Lua files";
+    }
+  }
+  return undefined;
+}

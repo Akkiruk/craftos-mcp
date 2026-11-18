@@ -2,9 +2,11 @@
 // The `craftos-mcp` command of the npm package (scripts/pack-npm.mjs makes this its bin).
 //
 // It sets up the engine and ROMs on first run (first-run.mjs), then hands over to the command line (apps/cli).
-//   craftos-mcp setup [--force]   set up again, or just check
+//   craftos-mcp setup [--force] [--all]   set up again, or just check; --all builds every version's ROM, not
+//                                 only the one in use (another version's is otherwise built when a world asks)
 //   craftos-mcp serve             the MCP server over stdio. On a first run it answers the client at once and sets up
 //                                 in the background; tools that need the engine wait for that (about a minute).
+//   init, doctor, cache           run as they are: they never need the setup done first
 //   anything else                 sets up first (progress on stderr), then runs
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -22,6 +24,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
 const [command, ...rest] = process.argv.slice(2);
 /** Commands that start a computer: after a failed setup they stop with the reason instead of a spawn error. */
 const NEEDS_ENGINE = new Set(["run", "test", "window", "app"]);
+/** Commands that look at the setup or the project and never need it done first: doctor says what is missing. */
+const NO_SETUP = new Set(["init", "doctor", "cache"]);
 
 if (command === "--version" || command === "-v") {
   const { packageVersion } = await import(
@@ -32,15 +36,24 @@ if (command === "--version" || command === "-v") {
   await import(CLI);
   if (!rest.length)
     console.log(
-      "  setup   (re)do the first-run setup: engine and ROMs, in CRAFTOS_HOME",
+      "  setup   (re)do the first-run setup: engine and the ROM in use, in CRAFTOS_HOME (--all: every ROM; --verbose: every step)",
     );
 } else if (command === "setup") {
   const { setUp } = await import("./first-run.mjs");
-  process.exitCode = (await setUp({ force: rest.includes("--force") })).ok
+  process.exitCode = (
+    await setUp({
+      force: rest.includes("--force"),
+      all: rest.includes("--all"),
+      verbose:
+        rest.includes("--verbose") || Boolean(process.env.CRAFTOS_VERBOSE),
+    })
+  ).ok
     ? 0
     : 1;
 } else if (command === "serve") {
   await serve();
+} else if (NO_SETUP.has(command)) {
+  await import(CLI);
 } else {
   const { isSetUp, setUp } = await import("./first-run.mjs");
   if (!isSetUp()) {
@@ -58,7 +71,17 @@ if (command === "--version" || command === "-v") {
         "craftos-mcp: carrying on; craftos-mcp info shows what is missing",
       );
   }
+  await romsOnDemand();
   await import(CLI);
+}
+
+/** Another version's ROM is built the first time a world asks for it (the runner's ensureRom calls this). */
+async function romsOnDemand() {
+  const { buildRomOnDemand } = await import("./first-run.mjs");
+  const { setRomBuilder } = await import(
+    "../../packages/runner/dist/versions.js"
+  );
+  setRomBuilder((romDir, version) => buildRomOnDemand(romDir, version));
 }
 
 async function serve() {
@@ -106,5 +129,6 @@ async function serve() {
       return register.call(this, name, config, wrapped);
     };
   }
+  await romsOnDemand();
   await import(CLI);
 }

@@ -16,15 +16,19 @@ import {
   nodeAt,
   parseTree,
   stringify,
-} from "./jsonDoc.ts";
+} from "../../../../packages/world-editor/src/jsonDoc.ts";
 import {
   type AddonCatalog,
   type Neighbour,
   type World,
   neighbourOf,
   worldProblems,
-} from "./model.ts";
-import { type Problem, type Schema, validate } from "./schema.ts";
+} from "../../../../packages/world-editor/src/model.ts";
+import {
+  type Problem,
+  type Schema,
+  validate,
+} from "../../../../packages/world-editor/src/schema.ts";
 
 export const VIEW_TYPE = "craftos-mcp.worldEditor";
 

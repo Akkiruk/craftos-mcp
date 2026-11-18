@@ -23,7 +23,9 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
+import { craftosPcApi } from "./craftospc-webapp.js";
+import { findProject } from "./project.js";
 import {
   type KeyName,
   Keys,
@@ -31,30 +33,51 @@ import {
   renderPng,
 } from "@craftos-mcp/rawterm";
 import { ADDONS, addonVersion, resolveAddons } from "./addons.js";
-import { DEFAULT_MC, VERSIONS, resolveVersion } from "./versions.js";
+import { DEFAULT_MC, VERSIONS, ensureRom, resolveVersion } from "./versions.js";
 import { type RunnerConfig, checkConfig } from "./config.js";
 import {
   TERMINATE_HOLD_MS,
   holdKey,
+  powerCycle,
   sendCommandResult,
   touchMonitorAs,
 } from "./drive.js";
 import {
   type ScreenCapture,
+  captureScreens,
   parseDebugLink,
   pixelScreenPng,
   pixelScreens,
 } from "./engine.js";
 import { MONITOR_LIMIT, type MonitorSpec } from "./lua.js";
-import { type Session, type SessionManager, waitForBoot } from "./sessions.js";
-import { describeAll, readWaiting } from "./ui.js";
+import {
+  type Session,
+  type SessionManager,
+  VIEWER_OWNER,
+  waitForBoot,
+} from "./sessions.js";
+import { describeAll } from "./ui.js";
 import { listWorkspace, resolveInWorkspace } from "./workspace.js";
-import { copyWorkspaceAsync } from "./copy.js";
+import { COPY_SKIP, copyWorkspaceAsync } from "./copy.js";
+import { assertWorld } from "./validate.js";
+// time controls: the clock bar and world snapshots (webapp-time.ts, webapp/timecontrol.js)
+import { worldClockFor } from "./clock.js";
+import { timeRoutes } from "./webapp-time.js";
+import {
+  SNAPSHOT_EXT,
+  type SnapshotHooks,
+  importSnapshot,
+  registerSnapshotHooks,
+  restoreSnapshot,
+} from "./world-snapshot.js";
+import { createViews } from "./webapp-views.js";
+import { WorldPanel } from "./webapp-world.js";
 import {
   type ModemSpec,
   type SimCommand,
   type WorldConfig,
   loadNamedWorld,
+  shownState,
 } from "./world.js";
 
 export interface WebAppOptions {
@@ -67,7 +90,23 @@ export interface WebAppOptions {
     | undefined;
   /** Called once the server listens, with its URL. Default: a line on stderr. */
   readonly onListening?: (url: string) => void;
+  /** When `port` is taken, listen on a free one instead of failing (the MCP server's viewer). */
+  readonly portFallback?: boolean;
+  /** Time controls: open with this world snapshot restored (a name in the snapshots folder, or a .craftos-world file). */
+  readonly snapshot?: string;
+  /**
+   * Where a new computer's files are when the form does not say (FilesMode): "project", the project folder itself,
+   * live (the default: a person's work lands in their folder); or "copy", a scratch copy that goes with the computer.
+   */
+  readonly files?: FilesMode;
 }
+
+/**
+ * Where a computer's files are: "project" the project folder itself, live; "own" its own folder in it,
+ * computer/<id> as CraftOS-PC keeps them (made when missing); "copy" a scratch copy of the project folder.
+ */
+export type FilesMode = "project" | "own" | "copy";
+const FILES_MODES: readonly FilesMode[] = ["project", "own", "copy"];
 
 /** What the app knows about a computer it made (sessions made elsewhere have none of this). */
 interface Meta {
@@ -98,6 +137,19 @@ interface ComputerForm {
   test?: boolean;
   /** A debug adapter for this computer (engine.ts DebugLink). One computer only, not a network. */
   debug?: { port?: unknown; token?: unknown };
+  /** CraftOS-PC import: the folder copied onto this computer instead of the workspace. One computer only. */
+  dir?: string;
+  /** Where its files are (FilesMode). Default the app's (WebAppOptions.files), else "project". */
+  files?: FilesMode;
+}
+
+/** The form's own folder of files, checked; undefined for the workspace. */
+function formDir(form: ComputerForm): string | undefined {
+  if (typeof form.dir !== "string" || !form.dir.trim()) return undefined;
+  const dir = resolve(form.dir.trim());
+  if (!existsSync(dir) || !statSync(dir).isDirectory())
+    throw new Error(`${dir} is not a folder`);
+  return dir;
 }
 
 /** Sim commands every world knows (core.lua), with what they take. Addons add their own (ADDONS[].commands). */
@@ -211,6 +263,20 @@ const STATIC: Record<string, string> = {
   "/index.html": "index.html",
   "/app.js": "app.js",
   "/app.css": "app.css",
+  // CraftOS-PC import (craftospc-webapp.ts)
+  "/craftospc.js": "craftospc.js",
+  "/craftospc.css": "craftospc.css",
+  // time controls
+  "/timecontrol.js": "timecontrol.js",
+  "/timecontrol.css": "timecontrol.css",
+  // world panel (webapp-world.ts)
+  "/worldpanel.js": "worldpanel.js",
+  "/worldpanel.css": "worldpanel.css",
+  // printed pages, and forms for the common sim commands
+  "/printer.js": "printer.js",
+  "/printer.css": "printer.css",
+  "/simforms.js": "simforms.js",
+  "/simforms.css": "simforms.css",
 };
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -287,6 +353,8 @@ function ppmSize(
 }
 
 function computerDir(session: Session): string {
+  // a live folder, or the copy in the run folder (EngineHandle.computerDir)
+  if (session.handle.computerDir) return session.handle.computerDir;
   let id = 0;
   try {
     const world = JSON.parse(
@@ -319,7 +387,57 @@ function sessionAddons(session: Session): string[] {
 export function startWebApp(options: WebAppOptions): Server {
   const { sessions, config } = options;
   const meta = new Map<string, Meta>();
-  let networkCount = 0;
+  // world panel: the surroundings of each computer, changed live (webapp-world.ts)
+  const worldPanel = new WorldPanel(sessions, config);
+  // time controls: the clock of every computer, and snapshots of the whole world with what the app knows of each
+  const snapshotHooks: SnapshotHooks = {
+    describe: (s) => {
+      const m = meta.get(s.id);
+      return {
+        name: m?.name ?? `session ${s.id}`,
+        kind: m?.kind ?? (s.blockWorld ? "turtle" : "computer"),
+        advanced: m?.advanced ?? true,
+        network: m?.network ?? null,
+        program: m?.program ?? null,
+      };
+    },
+    adopt: (s, info) =>
+      meta.set(s.id, {
+        name: info.name,
+        kind: info.kind,
+        advanced: info.advanced,
+        ...(info.network ? { network: info.network } : {}),
+        ...(info.program ? { program: info.program } : {}),
+      }),
+    forget: (s) => {
+      meta.delete(s.id);
+      worldPanel.forget(s.id); // world panel
+    },
+    started: (s) => startProgram(s, meta.get(s.id)?.program),
+    // world panel: a restored computer's surroundings are the snapshot's now
+    restored: (s) => {
+      if (meta.has(s.id)) worldPanel.reread(s);
+    },
+  };
+  registerSnapshotHooks(sessions, snapshotHooks);
+  const time = timeRoutes({ sessions, config, hooks: snapshotHooks });
+  if (options.snapshot) {
+    const from = options.snapshot;
+    void (async () => {
+      const name =
+        from.endsWith(SNAPSHOT_EXT) && existsSync(from)
+          ? importSnapshot(config, readFileSync(from)).name
+          : from;
+      await restoreSnapshot(sessions, config, name, snapshotHooks);
+    })().catch((error: unknown) =>
+      process.stderr.write(
+        `craftos app: snapshot ${from}: ${error instanceof Error ? error.message : String(error)}
+`,
+      ),
+    );
+  }
+  // views: the block world and the network messages the page's views read (webapp-views.ts)
+  const views = createViews({ sessions, config, json });
 
   const listWorlds = (): string[] => {
     try {
@@ -337,14 +455,14 @@ export function startWebApp(options: WebAppOptions): Server {
     const base = form.worldFile
       ? loadNamedWorld(config.worldsDir, form.worldFile)
       : {};
-    // a person drives these computers: they get the emulator's `sim` program (rom/ccsim/sim_shell.lua)
-    const world: WorldConfig = {
-      ...base,
-      ...(form.world ?? {}),
-      simProgram: true,
-    };
+    const world: WorldConfig = { ...base, ...(form.world ?? {}) };
     if (form.addons) world.addons = form.addons;
     if (form.version) world.version = form.version;
+    // checked before the computer boots, as the command line does: a misspelt key or peripheral type comes back to
+    // the form with "did you mean", not as a red line on the new computer's screen
+    assertWorld(world);
+    // a person drives these computers: they get the emulator's `sim` program (rom/ccsim/sim_shell.lua)
+    world.simProgram = true;
     const kind = form.kind ?? "computer";
     const advanced = form.advanced !== false;
     if (kind === "turtle") {
@@ -395,14 +513,34 @@ export function startWebApp(options: WebAppOptions): Server {
       form.test && form.program?.trim()
         ? `/ccunit/runtest ${form.program.trim()}`
         : form.program;
+    // CraftOS-PC import: a computer started with its own files (form.dir) instead of the workspace
+    const dir = formDir(form);
+    if (dir && count !== 1)
+      throw new Error("a folder of files is for one computer, not a network");
+    // where the files are: the folder itself (live), each computer's own folder in it, or a scratch copy
+    const files = form.files ?? options.files ?? "project";
+    if (!FILES_MODES.includes(files))
+      throw new Error(`files must be ${FILES_MODES.join(", ")}, not ${files}`);
+    const liveFor = (id: number): string | undefined => {
+      const base = dir ?? config.workspaceDir;
+      if (files === "copy") return undefined;
+      if (files === "project") return base;
+      const own = join(base, "computer", String(id));
+      mkdirSync(own, { recursive: true });
+      return own;
+    };
     if (count === 1) {
+      const world = worldOf(form);
       const session = sessions.create(
         monitors,
         timeScale,
-        worldOf(form),
+        world,
         undefined,
         debug,
+        dir,
+        liveFor(world.computerId ?? 0),
       );
+      worldPanel.remember(session.id, world, monitors); // world panel
       meta.set(session.id, {
         name: baseName,
         kind,
@@ -412,8 +550,6 @@ export function startWebApp(options: WebAppOptions): Server {
       startProgram(session, line);
       return { ids: [session.id] };
     }
-    networkCount += 1;
-    const network = `net${networkCount}`;
     const computers = Array.from({ length: count }, (_, i) => {
       const world = worldOf(form);
       const peripherals = [...(world.peripherals ?? [])];
@@ -426,15 +562,29 @@ export function startWebApp(options: WebAppOptions): Server {
         peripherals.push(modem);
       }
       delete world.computerId;
+      // linkedWorlds numbers them from 0 in this order
+      const liveDir = liveFor(i);
       return {
-        name: `${baseName}${i + 1}`,
+        // "computer 1", "computer 2": the tab also names the network, so "net1" next to "net1" is not two names alike
+        name: `${baseName} ${i + 1}`,
         monitors,
-        world: { ...world, peripherals, label: `${baseName}${i + 1}` },
+        world: { ...world, peripherals, label: `${baseName} ${i + 1}` },
+        ...(liveDir && { liveDir }),
       };
     });
     const linked = sessions.createNetwork({ computers, timeScale });
+    const network = sessions.listNetworks().at(-1)!.name;
     const ids: string[] = [];
     for (const [name, session] of Object.entries(linked.computers)) {
+      const index = computers.findIndex((c) => c.name === name);
+      const made = computers[index];
+      // world panel: with the id linkedWorlds gave it (0, 1, 2 in order), not the 0 of a world without one
+      if (made)
+        worldPanel.remember(
+          session.id,
+          { ...made.world, computerId: index },
+          monitors,
+        );
       meta.set(session.id, {
         name,
         kind,
@@ -474,14 +624,22 @@ export function startWebApp(options: WebAppOptions): Server {
           })
       : [];
     const m = meta.get(session.id);
+    const forViews = views.summary(session);
     return {
       id: session.id,
-      name: m?.name ?? `session ${session.id}`,
-      kind: m?.kind ?? (session.blockWorld ? "turtle" : "computer"),
+      name: m?.name ?? forViews.name ?? `session ${session.id}`,
+      kind:
+        m?.kind ??
+        forViews.kind ??
+        (session.blockWorld ? "turtle" : "computer"),
       advanced: m?.advanced ?? true,
-      network: m?.network ?? null,
+      network: m?.network ?? forViews.network,
+      blocks: forViews.blocks,
+      placedBy: forViews.placedBy,
       program: m?.program ?? null,
       fromApp: m !== undefined,
+      // its files: a folder of the person's, live, or null for a scratch copy
+      liveDir: session.handle.liveDir ?? null,
       running: raw.running,
       exitCode: raw.exitInfo?.code ?? null,
       createdAt: session.createdAt,
@@ -494,24 +652,7 @@ export function startWebApp(options: WebAppOptions): Server {
     session: Session,
     how: "reboot" | "shutdown",
   ): Promise<void> => {
-    const { handle } = session;
-    if (!handle.session.running) {
-      if (how === "reboot") handle.restart();
-      return;
-    }
-    // The sim reboots before it can acknowledge the command, so send it once the program waits for an event: that
-    // event is the command, and it is applied at once
-    const start = Date.now();
-    while (Date.now() - start < 3000) {
-      if (readWaiting(handle)?.blocked) {
-        handle.sendCommand({ cmd: how });
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    // the program never waits for an event (a busy loop): pull the plug
-    await handle.session.stop();
-    if (how === "reboot") handle.restart();
+    await powerCycle(session.handle, how);
   };
 
   const route = async (
@@ -533,6 +674,15 @@ export function startWebApp(options: WebAppOptions): Server {
       );
     }
 
+    // views: their own files (webapp/views*.js, views*.css) and their routes
+    if (method === "GET" && /^\/views[\w-]*\.(js|css)$/.test(path)) {
+      const own = new URL(path.slice(1), staticDir);
+      if (!existsSync(own)) throw new HttpError(404, "not found");
+      return send(res, 200, TYPES[extname(path)]!, readFileSync(own));
+    }
+    if (views.route(method, path, url, res)) return;
+    if (await worldPanel.handle(req, res, url)) return; // world panel
+
     if (method === "GET" && path === "/api/meta") {
       let defaultMc = DEFAULT_MC;
       try {
@@ -540,12 +690,15 @@ export function startWebApp(options: WebAppOptions): Server {
       } catch {
         // CRAFTOS_VERSION is invalid: offer the default
       }
+      // New computer ticks the mods the project names (craftos.json's addons, CRAFTOS_ADDONS); with none named, no
+      // mods: a person ticks the ones their pack has, so a program cannot lean on a mod their server lacks
       let defaults: string[] = [];
-      try {
-        defaults = resolveAddons(undefined, process.env, defaultMc);
-      } catch {
-        defaults = ADDONS.map((a) => a.id);
-      }
+      if (process.env["CRAFTOS_ADDONS"] !== undefined)
+        try {
+          defaults = resolveAddons(undefined, process.env, defaultMc);
+        } catch {
+          defaults = [];
+        }
       let programs: string[] = [];
       try {
         programs = listWorkspace(config.workspaceDir)
@@ -566,6 +719,7 @@ export function startWebApp(options: WebAppOptions): Server {
           name: a.name,
           version: addonVersion(a, defaultMc) ?? "",
           versions: a.versions,
+          simulates: a.simulates ?? null,
           requires: a.requires ?? [],
           on: defaults.includes(a.id),
         })),
@@ -575,10 +729,15 @@ export function startWebApp(options: WebAppOptions): Server {
         programs,
         monitorLimit: MONITOR_LIMIT,
         workspaceDir: config.workspaceDir,
+        files: options.files ?? "project",
         problems: checkConfig(config),
         keys: Keys,
       });
     }
+
+    // time controls
+    if (path === "/api/clock" || path.startsWith("/api/snapshots"))
+      if (await time(req, res, url)) return;
 
     let m = /^\/api\/worlds\/([\w.-]+)$/.exec(path);
     if (method === "GET" && m)
@@ -587,7 +746,10 @@ export function startWebApp(options: WebAppOptions): Server {
     if (method === "GET" && path === "/api/sessions") {
       const last = options.lastRun?.();
       return json(res, {
-        sessions: sessions.list().map((s) => summary(sessions.get(s.id))),
+        sessions: sessions
+          .list()
+          .flatMap((s) => views.withPlaced(sessions.get(s.id))) // views
+          .map(summary),
         lastRun: last
           ? {
               label: last.label,
@@ -606,7 +768,12 @@ export function startWebApp(options: WebAppOptions): Server {
     if (method === "POST" && path === "/api/sessions") {
       const form = (await readJson(req)) as ComputerForm;
       try {
-        return json(res, createComputers(form));
+        // a version whose ROM an installed package has not built yet is built first
+        await ensureRom(config, worldOf(form).version);
+        const made = createComputers(form);
+        // a person's computers: the MCP server's agent lists them apart from its own and does not stop them by accident
+        for (const id of made.ids) sessions.setOwner(id, VIEWER_OWNER);
+        return json(res, made);
       } catch (error) {
         throw new HttpError(
           400,
@@ -624,11 +791,25 @@ export function startWebApp(options: WebAppOptions): Server {
       return send(res, 200, "image/png", Buffer.from(screen.png, "base64"));
     }
 
+    // CraftOS-PC import (craftospc-webapp.ts)
+    if (path.startsWith("/api/craftos-pc")) {
+      let projectDir: string | undefined;
+      try {
+        projectDir = findProject(config.workspaceDir)?.dir;
+      } catch {
+        // a broken craftos.json: no project to list
+      }
+      const answer = await craftosPcApi(method, url, () => readJson(req), {
+        ...(projectDir && { projectDir }),
+      });
+      if (answer) return json(res, answer.body, answer.status);
+    }
+
     m = /^\/api\/sessions\/([\w-]+)(\/.*)?$/.exec(path);
     if (!m) throw new HttpError(404, "not found");
     let session: Session;
     try {
-      session = sessions.get(m[1]!);
+      session = views.find(m[1]!) ?? sessions.get(m[1]!); // views
     } catch {
       throw new HttpError(404, `no such computer: ${m[1]}`);
     }
@@ -637,7 +818,13 @@ export function startWebApp(options: WebAppOptions): Server {
     const sub = m[2] ?? "";
 
     if (method === "DELETE" && sub === "") {
+      if (views.summary(session).placedBy)
+        throw new HttpError(
+          400,
+          "a turtle placed this computer: dig it up, or close the turtle",
+        );
       meta.delete(session.id);
+      worldPanel.forget(session.id); // world panel
       await sessions.destroy(session.id);
       return json(res, {});
     }
@@ -771,20 +958,30 @@ export function startWebApp(options: WebAppOptions): Server {
       const command = (body["command"] ?? body) as SimCommand;
       if (typeof (command as { cmd?: unknown }).cmd !== "string")
         throw new HttpError(400, 'a sim command needs "cmd"');
-      const result = await sendCommandResult(handle, command, 10000);
+      // time controls: a paused computer takes the command when the clock runs again
+      const paused = worldClockFor(sessions).current.paused;
+      const result = await sendCommandResult(
+        handle,
+        command,
+        paused ? 1500 : 10000,
+      );
       return json(res, {
         ...result,
         ...(result.applied
           ? {}
           : {
-              error:
-                "the program has not applied it yet: it is not waiting for an event",
+              error: paused
+                ? "the world is paused: it happens when the clock runs again (Resume, or Step one tick)"
+                : "the program has not applied it yet: it is not waiting for an event",
             }),
       });
     }
 
+    // as results show it: without the sim's own bookkeeping (and, in the public build, the empty sections)
     if (method === "GET" && sub === "/state")
-      return json(res, handle.readState() ?? {});
+      return json(res, shownState(handle.readState()) ?? {});
+
+    if (views.sessionRoute(session, method, sub, url, res)) return; // views
 
     if (method === "GET" && sub === "/commands") {
       const on = new Set(sessionAddons(session));
@@ -814,12 +1011,20 @@ export function startWebApp(options: WebAppOptions): Server {
 
     // every screen as text (terminal and monitors), for scripts that drive the app
     if (method === "GET" && sub === "/screens")
-      return json(res, sessions.screens(session.id));
+      return json(
+        res,
+        captureScreens(handle.session, { resultsDir: handle.resultsDir }),
+      );
 
     const dir = computerDir(session);
     if (method === "GET" && sub === "/files") {
       mkdirSync(dir, { recursive: true });
-      return json(res, { dir, entries: listWorkspace(dir).slice(0, 3000) });
+      return json(res, {
+        dir,
+        live: !!handle.liveDir,
+        // never a repository's or the packages' insides (a live folder holds them; the computer does not see them)
+        entries: listWorkspace(dir, ".", COPY_SKIP).slice(0, 3000),
+      });
     }
 
     if (sub === "/file") {
@@ -848,6 +1053,11 @@ export function startWebApp(options: WebAppOptions): Server {
     }
 
     if (method === "POST" && sub === "/sync") {
+      // a live folder is the project's own: there is nothing to copy, a reboot is all it takes
+      if (handle.liveDir) {
+        await reboot(session, "reboot");
+        return json(res, {});
+      }
       // copy the project folder onto the computer again, then reboot so the program picks it up
       mkdirSync(dir, { recursive: true });
       await copyWorkspaceAsync(config.workspaceDir, dir, {
@@ -886,9 +1096,24 @@ export function startWebApp(options: WebAppOptions): Server {
         );
     });
   });
-  server.on("error", (error) =>
-    process.stderr.write(`craftos app: ${error.message}\n`),
-  );
+  let fellBack = false;
+  server.on("error", (error: NodeJS.ErrnoException) => {
+    // the port is taken (another MCP server's viewer, say): any free one will do
+    if (
+      error.code === "EADDRINUSE" &&
+      options.portFallback &&
+      options.port !== 0 &&
+      !fellBack
+    ) {
+      fellBack = true;
+      process.stderr.write(
+        `craftos app: port ${options.port} is taken, using a free one\n`,
+      );
+      server.listen(0, "127.0.0.1");
+      return;
+    }
+    process.stderr.write(`craftos app: ${error.message}\n`);
+  });
   server.listen(options.port, "127.0.0.1", () => {
     const address = server.address();
     const port =

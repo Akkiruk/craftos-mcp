@@ -133,6 +133,12 @@ function upgrade(req: IncomingMessage, socket: Socket): void {
     setTimeout(() => socket.end(closeFrame(4000, "bye")), 300);
     return;
   }
+  if (path === "/stall") {
+    // a server that stops reading: the client's frames back up behind a full socket
+    socket.pause();
+    return;
+  }
+  if (path === "/quiet") socket.on("end", () => seen.push("/quiet end"));
   if (path === "/big") {
     setTimeout(() => socket.write(frame(2, Buffer.alloc(131072 + 1, 65))), 300);
     return;
@@ -263,6 +269,20 @@ ccunit.test("a local close queues nothing", function()
   noEvent("websocket_closed", 2)
   ccunit.raises(function() ws.send("x") end, "attempt to use a closed file")
 end)
+ccunit.test("close drops the connection, with no close frame (row 100)", function()
+  local ws = open("/quiet")
+  ws.send("hi") ccunit.eq(ws.receive(5), "HI")
+  ws.close()
+  noEvent("websocket_closed", 1)
+end)
+ccunit.test("send never waits for a server that stopped reading (row 100)", function()
+  local ws = open("/stall")
+  local chunk = ("x"):rep(65536)
+  local t = os.epoch("utc")
+  for _ = 1, 600 do ws.send(chunk) end -- 39 MB: far more than the socket takes
+  ccunit.truthy(os.epoch("utc") - t < 5000, "600 sends took " .. (os.epoch("utc") - t) .. " ms")
+  ws.close()
+end)
 ccunit.test("no getResponseHeaders before 1.117", function()
   local ws = open("/echo") ccunit.eq(ws.getResponseHeaders, nil) ws.close()
 end)
@@ -293,6 +313,9 @@ end)
       "io-default.test.lua",
     );
     expect(failed).toEqual([]);
+    // WebsocketHandle.close closes the channel: the server saw the connection go, and no close frame before it
+    expect(seen).toContain("/quiet end");
+    expect(seen.filter((s) => s.startsWith("/quiet close"))).toEqual([]);
   }, 60000);
 
   it.skipIf(!newer)(
@@ -326,6 +349,19 @@ ccunit.test("close sends a close frame and the answer queues websocket_closed", 
   local ev = closedEvent(url)
   ccunit.eq(ev.n, 4) ccunit.eq(ev[3], nil) ccunit.eq(ev[4], 1000)
   ccunit.raises(function() ws.receive() end, "attempt to use a closed websocket")
+end)
+ccunit.test("at most 512 frames waiting to be written (row 100)", function()
+  local ws, url = open("/stall")
+  local chunk = ("x"):rep(65536)
+  local sent, err = 0, nil
+  for _ = 1, 2000 do
+    local ok, e = pcall(ws.send, chunk)
+    if not ok then err = e break end
+    sent = sent + 1
+  end
+  ccunit.truthy(tostring(err):find("Too many ongoing websocket messages$"), err)
+  ccunit.truthy(sent >= 512 and sent < 2000, "sent " .. sent)
+  ws.close()
 end)
 ccunit.test("receive answers a close with its reason", function()
   local ws, url = open("/bye")

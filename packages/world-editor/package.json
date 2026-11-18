@@ -1,0 +1,17 @@
+{
+  "name": "@craftos-mcp/world-editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The world file model, schema forms and block picker shared by the VS Code World Editor and the browser app. No Node and no vscode: plain ES modules a page loads as they are.",
+  "exports": {
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  }
+}

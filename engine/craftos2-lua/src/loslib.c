@@ -6,6 +6,7 @@
 
 
 #include <errno.h>
+#include <stdio.h>
 #include <locale.h>
 #include <stdlib.h>
 #include <string.h>
@@ -191,16 +192,67 @@ static const char *checkoption (lua_State *L, const char *conv, char *buff) {
 }
 
 
+/*
+** craftos-agent: CC:Tweaked's os.date is java.time, which takes any year. The C runtime's gmtime and localtime do not:
+** on Windows they give up past the year 3000 and before 1970 (CC's os_spec "formats as expected" passes milliseconds as
+** seconds, a year near 58000). Such a time is moved by whole 400-year Gregorian cycles, which keep the same weekdays and
+** leap years, into a range the runtime takes, converted there, and the years are put back (*years). Local time uses the
+** zone's rules of the year it was moved to, as java.time carries the last rules on.
+*/
+#define CC_CYCLE_SECS ((long long)146097 * 86400)
+static struct tm *cc_datetime (time_t t, int utc, struct tm *r, long long *years) {
+  /* before 1970 the runtime is not asked at all: Windows' takes the 12 hours before the epoch with the wrong weekday */
+  struct tm *stm = t < 0 ? NULL : utc ? l_gmtime(&t, r) : l_localtime(&t, r);
+  const long long from = 946684800;  /* 2000-01-01, a cycle from which 2000-2399 is in every runtime's range */
+  long long cycles;
+  time_t moved;
+  *years = 0;
+  if (stm != NULL) return stm;
+  cycles = (long long)t >= from ? ((long long)t - from) / CC_CYCLE_SECS
+                                : -((from - (long long)t + CC_CYCLE_SECS - 1) / CC_CYCLE_SECS);
+  moved = (time_t)((long long)t - cycles * CC_CYCLE_SECS);
+  stm = utc ? l_gmtime(&moved, r) : l_localtime(&moved, r);
+  if (stm != NULL) *years = cycles * 400;
+  return stm;
+}
+
+/* The conversions that name the year, for a time that was moved (LuaDateTime's own definitions of the composite ones). */
+static int cc_yearconv (char conv, const struct tm *stm, long long year, char *buff, size_t size, size_t *len) {
+  char part[64];
+  long long iso;
+  switch (conv) {
+    case 'Y': *len = (size_t)snprintf(buff, size, "%lld", year); return 1;
+    case 'C': *len = (size_t)snprintf(buff, size, "%02lld", year / 100); return 1;
+    case 'y': *len = (size_t)snprintf(buff, size, "%02lld", year % 100); return 1;
+    case 'G': case 'g':
+      strftime(part, sizeof(part), "%G", stm);
+      iso = atoll(part) + (year - (stm->tm_year + 1900));
+      *len = (size_t)snprintf(buff, size, conv == 'G' ? "%lld" : "%02lld", conv == 'G' ? iso : iso % 100);
+      return 1;
+    case 'F': *len = (size_t)snprintf(buff, size, "%lld-%02d-%02d", year, stm->tm_mon + 1, stm->tm_mday); return 1;
+    case 'D': case 'x':
+      *len = (size_t)snprintf(buff, size, "%02d/%02d/%02lld", stm->tm_mon + 1, stm->tm_mday, year % 100); return 1;
+    case 'c':
+      strftime(part, sizeof(part), "%a %b", stm);
+      *len = (size_t)snprintf(buff, size, "%s %2d %02d:%02d:%02d %lld", part, stm->tm_mday, stm->tm_hour, stm->tm_min,
+                              stm->tm_sec, year);
+      return 1;
+    default: return 0;
+  }
+}
+
+
 static int os_date (lua_State *L) {
   const char *s = luaL_optstring(L, 1, "%c");
   time_t t = luaL_opt(L, (time_t)luaL_checknumber, 2, time(NULL));
   struct tm tmr, *stm;
+  long long years;
   if (*s == '!') {  /* UTC? */
-    stm = l_gmtime(&t, &tmr);
+    stm = cc_datetime(t, 1, &tmr, &years);
     s++;  /* skip `!' */
   }
   else
-    stm = l_localtime(&t, &tmr);
+    stm = cc_datetime(t, 0, &tmr, &years);
   if (stm == NULL)  /* invalid date? */
     lua_pushnil(L);
   else if (strcmp(s, "*t") == 0) {
@@ -210,7 +262,8 @@ static int os_date (lua_State *L) {
     setfield(L, "hour", stm->tm_hour);
     setfield(L, "day", stm->tm_mday);
     setfield(L, "month", stm->tm_mon+1);
-    setfield(L, "year", stm->tm_year+1900);
+    lua_pushinteger(L, (lua_Integer)(stm->tm_year + 1900 + years));
+    lua_setfield(L, -2, "year");
     setfield(L, "wday", stm->tm_wday+1);
     setfield(L, "yday", stm->tm_yday+1);
     setboolfield(L, "isdst", stm->tm_isdst);
@@ -227,7 +280,10 @@ static int os_date (lua_State *L) {
         size_t reslen;
         char buff[200];  /* should be big enough for any conversion result */
         s = checkoption(L, s + 1, cc);
-        reslen = strftime(buff, sizeof(buff), cc, stm);
+        /* a moved time: the year comes from the real one ("%EY" and "%Oy" are the same conversions) */
+        if (years == 0 || !cc_yearconv((cc[1] == 'E' || cc[1] == 'O') && cc[2] ? cc[2] : cc[1], stm,
+                                       stm->tm_year + 1900 + years, buff, sizeof(buff), &reslen))
+          reslen = strftime(buff, sizeof(buff), cc, stm);
         luaL_addlstring(&b, buff, reslen);
       }
     }

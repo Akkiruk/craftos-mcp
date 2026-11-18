@@ -1,6 +1,8 @@
 node_modules/
 dist/
 *.vsix
+# the desktop app's installers (apps/desktop/scripts/build.mjs)
+/apps/desktop/release/
 coverage/
 .env
 .craftos/
