@@ -12,13 +12,13 @@ import { pinnedBin } from "./pinned.ts";
  * uses its cache instead of asking the registry for the latest each time) and so the engine zip it downloads matches.
  * A new craftos-mcp release means a new extension release with this bumped.
  */
-export const NPM_PACKAGE = "craftos-mcp@0.4.1";
+export const NPM_PACKAGE = "craftos-mcp@0.5.0";
 
 /**
  * The release before NPM_PACKAGE. When npm says the pinned version does not exist (the extension went out before
  * the npm release, or a mirror lags), the default command falls back to this one instead of failing.
  */
-export const FALLBACK_PACKAGE = "craftos-mcp@0.4.0";
+export const FALLBACK_PACKAGE = "craftos-mcp@0.4.1";
 
 /** Whether npx failed because the pinned version is not on the registry (ETARGET), not for any other reason. */
 export function missingVersion(output: string): boolean {

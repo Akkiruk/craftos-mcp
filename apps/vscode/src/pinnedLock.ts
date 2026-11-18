@@ -1,9 +1,9 @@
-// Written by pin-lock.mjs from `npm install craftos-mcp@0.4.1`: do not edit. What src/pinned.ts downloads, each tarball checked
+// Written by pin-lock.mjs from `npm install craftos-mcp@0.5.0`: do not edit. What src/pinned.ts downloads, each tarball checked
 // against the integrity hash the npm registry gives for it.
 import type { PinnedLock } from "./pinned.ts";
 
 export const PINNED_LOCK: PinnedLock = {
-  spec: "craftos-mcp@0.4.1",
+  spec: "craftos-mcp@0.5.0",
   bin: "scripts/npm/craftos-mcp.mjs",
   packages: [
     {
@@ -122,11 +122,11 @@ export const PINNED_LOCK: PinnedLock = {
     },
     {
       path: "node_modules/craftos-mcp",
-      version: "0.4.1",
+      version: "0.5.0",
       resolved:
-        "https://registry.npmjs.org/craftos-mcp/-/craftos-mcp-0.4.1.tgz",
+        "https://registry.npmjs.org/craftos-mcp/-/craftos-mcp-0.5.0.tgz",
       integrity:
-        "sha512-juO3urRcooTv0eVQp4XgKAILaIGhvEiNM13Q3CeSmrNH+Bt1uxYC1Lpp9emy+iR1BvrBOZeK6vS/wmUAmhv7GQ==",
+        "sha512-I8fYy7/TFd9mrpOiPXTblpTEFw8OLkewdQ3U/NeWAytWk0eEwuYnJGhGTh1O9k7Xt3lGglP8ANrzNQSD9nN1kQ==",
     },
     {
       path: "node_modules/cross-spawn",
@@ -390,10 +390,10 @@ export const PINNED_LOCK: PinnedLock = {
     },
     {
       path: "node_modules/jose",
-      version: "6.2.17",
-      resolved: "https://registry.npmjs.org/jose/-/jose-6.2.17.tgz",
+      version: "6.2.18",
+      resolved: "https://registry.npmjs.org/jose/-/jose-6.2.18.tgz",
       integrity:
-        "sha512-wOuK9V1yujQFH5S0ZWmLcDZN7+IKh9bUCC2ZPCf2HDlol3WWHy+PPyNjEI75FXRLMp3vDKQcupP59xhVU95hcg==",
+        "sha512-doV4thUwgkrycJH4yLeqwTGIIZphHl+pk7CPReuMIhYhncmgzdko85MaCG4YQFTxqMFr1/oEH32tZuKKovcDEg==",
     },
     {
       path: "node_modules/json-schema-traverse",
@@ -481,11 +481,11 @@ export const PINNED_LOCK: PinnedLock = {
     },
     {
       path: "node_modules/object-inspect",
-      version: "1.13.4",
+      version: "1.14.0",
       resolved:
-        "https://registry.npmjs.org/object-inspect/-/object-inspect-1.13.4.tgz",
+        "https://registry.npmjs.org/object-inspect/-/object-inspect-1.14.0.tgz",
       integrity:
-        "sha512-W67iLl4J2EXEGTbfeHCffrjDfitvLANg0UlX3wFUUSTx92KXRFegMHUVgSqE+wvhAbi4WqjGg9czysTV2Epbew==",
+        "sha512-IVgHNlp/jwQX271+Xzoq9LZNTWXxZK+cEOrGBOBxXNbn7fapnZ+Ts6TVMgNOuAezwG2wdtnMX97tTPK6VEnuOQ==",
     },
     {
       path: "node_modules/on-finished",

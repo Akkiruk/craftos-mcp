@@ -792,14 +792,14 @@ exports.run = async function run() {
   );
 
   await step(
-    "the MCP server definition is the supervisor running npx craftos-mcp@0.4.1 serve in the project",
+    "the MCP server definition is the supervisor running npx craftos-mcp@0.5.0 serve in the project",
     async () => {
       const def = api.serverDefinition();
       assert.ok(def instanceof vscode.McpStdioServerDefinition);
       assert.equal(def.command, process.execPath);
       assert.match(def.args[0], /dist[\\/]supervisor\.js$/);
       const supervise = JSON.parse(def.env.CRAFTOS_SUPERVISE);
-      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.4.1"]);
+      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.5.0"]);
       assert.deepEqual(supervise.sub, ["serve"]);
       assert.ok(supervise.pipe, "no restart channel");
       assert.equal(def.cwd.fsPath.toLowerCase(), project.toLowerCase());
@@ -991,11 +991,11 @@ exports.run = async function run() {
           api.serverEvents().filter((e) => e.supervisor === child.pid);
         const started = () => mine().filter((e) => e.type === "started");
         await until(() => started().length >= 1, "started event");
-        // two starts already while craftos-mcp@0.4.1 is not on npm: it, then the 0.4.0 fallback
+        // two starts already while craftos-mcp@0.5.0 is not on npm: it, then the 0.4.1 fallback
         const base = started().length;
         const fellBack = mine().some((e) => e.type === "fallback");
         console.log(
-          `       ${fellBack ? "fell back to 0.4.0" : "runs the pinned version"}`,
+          `       ${fellBack ? "fell back to 0.4.1" : "runs the pinned version"}`,
         );
         const killLatest = () => killTreeByPid(started().at(-1).pid);
 
