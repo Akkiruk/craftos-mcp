@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.1 (unreleased)
+## 0.4.1
 
 - New command: Watch the Agent's Computers. It opens the MCP server's viewer in a panel, so you can see every
   computer the agent made while it works, and type or click monitors yourself

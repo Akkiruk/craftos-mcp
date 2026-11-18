@@ -83,9 +83,9 @@ block world, and peripherals from Create, Mekanism, Advanced Peripherals, Tom's 
 ## Requirements
 
 - **Windows x64, Linux x64, or macOS 11+ (Apple silicon or Intel).**
-- **Node.js 22 or newer** on your PATH. On first start the extension downloads `craftos-mcp@0.4.0` and its
+- **Node.js 22 or newer** on your PATH. On first start the extension downloads `craftos-mcp@0.4.1` and its
   dependencies from npm into its own storage, each file checked against the registry's integrity hash, and runs it
-  with `node` from then on. If that download fails it uses `npx -y craftos-mcp@0.4.0` instead.
+  with `node` from then on. If that download fails it uses `npx -y craftos-mcp@0.4.1` instead.
 - The debugger needs craftos-mcp 0.4.0 or newer, which is what extension 0.4.0 starts. With an older one the program
   still runs, and the Debug Console says the engine never connected.
 

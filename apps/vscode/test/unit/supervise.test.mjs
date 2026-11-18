@@ -145,10 +145,10 @@ test("a pinned version missing on npm falls back without counting a crash", asyn
   const h = harness({
     env: { FAKE_ETARGET: "1" },
     supervisor: {
-      base: ["npx", "-y", "craftos-mcp@0.4.0"],
+      base: ["npx", "-y", "craftos-mcp@0.4.1"],
       spawn: (base, sub, opts) => {
         seen.push(base.join(" "));
-        const extra = base.includes("craftos-mcp@0.3.0") ? ["fallback"] : [];
+        const extra = base.includes("craftos-mcp@0.4.0") ? ["fallback"] : [];
         return spawn(process.execPath, [fake, ...extra], {
           env: opts.env,
           stdio: ["pipe", "pipe", "pipe"],
@@ -159,8 +159,8 @@ test("a pinned version missing on npm falls back without counting a crash", asyn
   const init = await initialized(h);
   assert.ok(init.result, JSON.stringify(init));
   assert.deepEqual(seen, [
+    "npx -y craftos-mcp@0.4.1",
     "npx -y craftos-mcp@0.4.0",
-    "npx -y craftos-mcp@0.3.0",
   ]);
   assert.deepEqual(
     h.events.map((e) => e.type),

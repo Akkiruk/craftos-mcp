@@ -792,14 +792,14 @@ exports.run = async function run() {
   );
 
   await step(
-    "the MCP server definition is the supervisor running npx craftos-mcp@0.4.0 serve in the project",
+    "the MCP server definition is the supervisor running npx craftos-mcp@0.4.1 serve in the project",
     async () => {
       const def = api.serverDefinition();
       assert.ok(def instanceof vscode.McpStdioServerDefinition);
       assert.equal(def.command, process.execPath);
       assert.match(def.args[0], /dist[\\/]supervisor\.js$/);
       const supervise = JSON.parse(def.env.CRAFTOS_SUPERVISE);
-      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.4.0"]);
+      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.4.1"]);
       assert.deepEqual(supervise.sub, ["serve"]);
       assert.ok(supervise.pipe, "no restart channel");
       assert.equal(def.cwd.fsPath.toLowerCase(), project.toLowerCase());
@@ -938,11 +938,19 @@ exports.run = async function run() {
       const store = api.serverDefinition().env.CRAFTOS_VSCODE_STORE;
       assert.ok(store, "no CRAFTOS_VSCODE_STORE for the supervisor");
       assert.ok(store.toLowerCase().includes("globalstorage"), store);
-      const marker = join(store, "0.4.0", "pinned.json");
+      // the version the extension pins: the base command ends in craftos-mcp@<version>
+      const pinnedBase = JSON.parse(
+        api.serverDefinition().env.CRAFTOS_SUPERVISE,
+      ).base;
+      const pinnedVersion = String(pinnedBase.at(-1)).replace(
+        /^craftos-mcp@/,
+        "",
+      );
+      const marker = join(store, pinnedVersion, "pinned.json");
       await until(() => existsSync(marker), "the pinned package", 180_000);
       const bin = join(
         store,
-        "0.4.0",
+        pinnedVersion,
         "node_modules",
         "craftos-mcp",
         JSON.parse(readFileSync(marker, "utf8")).bin,
@@ -951,7 +959,7 @@ exports.run = async function run() {
       const version = spawnSync("node", [bin, "--version"], {
         encoding: "utf8",
       });
-      assert.equal(version.stdout.trim(), "0.4.0");
+      assert.equal(version.stdout.trim(), pinnedVersion);
       console.log(`       ${bin}`);
     },
   );
@@ -983,11 +991,11 @@ exports.run = async function run() {
           api.serverEvents().filter((e) => e.supervisor === child.pid);
         const started = () => mine().filter((e) => e.type === "started");
         await until(() => started().length >= 1, "started event");
-        // two starts already while craftos-mcp@0.4.0 is not on npm: it, then the 0.3.0 fallback
+        // two starts already while craftos-mcp@0.4.1 is not on npm: it, then the 0.4.0 fallback
         const base = started().length;
         const fellBack = mine().some((e) => e.type === "fallback");
         console.log(
-          `       ${fellBack ? "fell back to 0.3.0" : "runs the pinned version"}`,
+          `       ${fellBack ? "fell back to 0.4.0" : "runs the pinned version"}`,
         );
         const killLatest = () => killTreeByPid(started().at(-1).pid);
 
