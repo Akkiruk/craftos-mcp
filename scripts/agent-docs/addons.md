@@ -26,3 +26,6 @@ prompt, the computer's host), the `vhcc` sandboxed file store, lockdown, linked 
 batch/watch methods; 2.2.37 adds player Gear Power/Temper/reputation/skills/stats reads, items inside container items
 and `identify`. The 2.2.37 API is modelled from the mod's spec: identify's roll is the emulator's, not Vault Hunters'
 (docs/vhcctweaks.md lists what is simulated and how faithfully).
+Linked computers (ender modem links, remote peripherals) run in real time: on a slow or busy machine (many emulated
+computers at once) a linked-peripheral call can time out, stall or behave inconsistently, so don't read a flaky
+linked test as a bug in the program until it fails on a quiet machine too.

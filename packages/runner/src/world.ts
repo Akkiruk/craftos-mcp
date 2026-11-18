@@ -1406,6 +1406,28 @@ export function vhccVersion(
   return on ? "2.2.36" : false;
 }
 
+/** What to tell a person once per session when a world uses vhcctweaks' linked computers (linksInUse). */
+export const LINKS_WARNING =
+  "vhcctweaks linked computers (ender modem links, remote peripherals) run in real time: on a slow or busy machine " +
+  "(many emulated computers at once) a linked-peripheral call can time out, stall or behave inconsistently.";
+
+/**
+ * Whether a world can use vhcctweaks' linked computers: the mod on at 2.2.36 or later and an ender modem (the
+ * links' only way in). False for any world vhccVersion refuses.
+ */
+export function linksInUse(world: WorldConfig | undefined): boolean {
+  if (!world) return false;
+  try {
+    const v = vhccVersion(world);
+    if (v === false || v === "2.2.35") return false;
+  } catch {
+    return false;
+  }
+  return (world.peripherals ?? []).some(
+    (p) => (p as { kind?: string }).kind === "ender",
+  );
+}
+
 /** The world as the Lua sim reads it (engine peripherals are created separately). */
 export function worldJson(world: WorldConfig | undefined): string {
   // A computer alone is a network of one; linked computers arrive already resolved

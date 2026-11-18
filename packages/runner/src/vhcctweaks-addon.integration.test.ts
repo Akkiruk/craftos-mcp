@@ -8,6 +8,7 @@ import {
   type TestRunResult,
   type WorldConfig,
   checkConfig,
+  linksInUse,
   loadConfig,
   resolveVersion,
   runTests,
@@ -86,6 +87,26 @@ describe("which vhcctweaks a world runs", () => {
     expect(sent(on1182({ addons: ["vhcctweaks"] }))).toBe("2.2.36");
     expect(sent(on1182({ vhcctweaks: "2.2.37" }))).toBe("2.2.37");
     expect(sent({ version: "1.21.1" })).toBe(false);
+  });
+});
+
+describe("the linked computers note", () => {
+  const ender = [{ name: "top", type: "modem", kind: "ender" as const }];
+  it("is for a world with links: the mod at 2.2.36 or later and an ender modem", () => {
+    expect(
+      linksInUse(on1182({ vhcctweaks: "2.2.36", peripherals: ender })),
+    ).toBe(true);
+    expect(
+      linksInUse(on1182({ vhcctweaks: "2.2.37", peripherals: ender })),
+    ).toBe(true);
+    expect(
+      linksInUse(on1182({ vhcctweaks: "2.2.35", peripherals: ender })),
+    ).toBe(false);
+    expect(linksInUse(on1182({ vhcctweaks: false, peripherals: ender }))).toBe(
+      false,
+    );
+    expect(linksInUse(on1182({ vhcctweaks: "2.2.36" }))).toBe(false);
+    expect(linksInUse({ version: "1.21.1", peripherals: ender })).toBe(false);
   });
 });
 

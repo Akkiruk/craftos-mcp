@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
+Runs craftos-mcp 0.5.0.
+
+- vhcctweaks is in, as an opt-in addon: tick it in the mods picker (or add `vhcctweaks` to your addons) on a 1.18.2
+  pack and you get `ccvault`, `vhcc`, lockdown and linked ender modems. `"vhcctweaks": "2.2.37"` in a world turns on
+  the 2.2.37 API. It's never part of "all", so nobody gets it by accident
 - New command: Add Agent Instructions to Workspace. Pick the agents you use (Codex, Copilot, Cursor, Gemini CLI,
   Claude Code) and it writes the craftos-mcp guide where each one looks for it: `AGENTS.md`, the `cc-tweaked-dev`
   skill, `.github/copilot-instructions.md`, a Cursor rule, `GEMINI.md`. If one of those files is already there it

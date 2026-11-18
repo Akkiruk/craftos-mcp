@@ -14,6 +14,8 @@ import {
   monitorTooBig,
   troubleshootingLink,
   checkWorld,
+  LINKS_WARNING,
+  linksInUse,
   findProject,
   loadConfig,
   projectEnv,
@@ -196,6 +198,7 @@ export function loadWorld(
       `${world ? `--world ${world}` : addons !== undefined ? `--addons ${addons}` : "the world"}: ${errors.length === 1 ? errors[0] : `\n- ${errors.join("\n- ")}`}`,
     );
   for (const w of warnings) console.error(`warning: ${w}`);
+  if (linksInUse(merged)) console.error(`note: ${LINKS_WARNING}`);
   return merged;
 }
 

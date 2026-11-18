@@ -793,7 +793,8 @@ is opt-in: name it (`"addons": ["all", "vhcctweaks"]`) or give the world `"vhcct
 lockdown, linked ender modems and the batch inventory methods; `"2.2.37"` adds the 2.2.37 API (Gear Power, Temper,
 skills and stats reads, items inside backpacks and shulker boxes, `identify`), which the emulator models from the
 mod's spec: identify's roll is the emulator's, not Vault Hunters'. [docs/vhcctweaks.md](docs/vhcctweaks.md) says what
-is simulated and how faithfully. A world that uses a block
+is simulated and how faithfully. Linked computers (ender modem links, remote peripherals) run in real time: on a slow
+or busy machine a linked-peripheral call can time out, stall or behave inconsistently. A world that uses a block
 from an addon that is off fails before the computer boots and names the addon; `craftos_info` lists what is on.
 
 ## Tools

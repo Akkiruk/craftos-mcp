@@ -75,6 +75,8 @@ import {
   checkProgram,
   checkTestPaths,
   checkWorld,
+  LINKS_WARNING,
+  linksInUse,
   type Project,
   checkProject,
   discoverTests,
@@ -834,8 +836,15 @@ function resolveWorld(
         : `the world has ${problems.length} problems:\n- ${problems.join("\n- ")}`,
     );
   warnings.push(...check.warnings);
+  // once a session: linked computers are timing-sensitive on a slow or busy machine
+  if (!linksWarned && linksInUse(merged)) {
+    linksWarned = true;
+    warnings.push(LINKS_WARNING);
+    console.error(`craftos-mcp: ${LINKS_WARNING}`);
+  }
   return merged;
 }
+let linksWarned = false;
 
 const monitorSchema = z.object({
   name: z.string().describe('Peripheral name, e.g. "top" or "monitor_0".'),

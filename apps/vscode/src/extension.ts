@@ -2,6 +2,7 @@
 // Testing view, and commands that set up other MCP clients.
 import * as vscode from "vscode";
 import { addAgentInstructions } from "./agentDocsCommand";
+import { registerLinksNotice } from "./linksNotice";
 import { registerAgentView, watchAgents } from "./agentView";
 import { registerDebugger } from "./debug/adapter";
 import { addDebugProfile } from "./debug/testProfile";
@@ -119,6 +120,7 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
   const status = new Status();
   const tests = new CraftosTests();
   registerServer(context, output, status);
+  registerLinksNotice(context);
   const fork = !hasMcpApi() || !!editorKind(vscode.env.appName);
   context.subscriptions.push(
     status,

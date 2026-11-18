@@ -35,6 +35,10 @@ Then either name it in the addons (`world.addons`, `"addons"` in `craftos.json`,
 }
 ```
 
+**Linked computers run in real time.** Ender modem links and remote peripherals depend on timing: on a slow or busy
+machine (many emulated computers at once) a linked-peripheral call can time out, stall or behave inconsistently. The
+MCP server, the command line and the VS Code extension say so once when a world uses them.
+
 ## How faithful it is
 
 - **2.2.36 and 2.2.35** were written from the mod's Java source and spec and checked against the real mod in the game:
