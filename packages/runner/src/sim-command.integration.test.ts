@@ -198,6 +198,7 @@ describe.skipIf(!ready)("sim program", () => {
       program: "plain.lua",
       world: {
         ...WORLD,
+        vhcctweaks: false,
       } as WorldConfig,
       timeoutMs: 30000,
       keepRuntime: true,

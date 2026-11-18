@@ -7,7 +7,9 @@
 -- original API.
 --
 -- Not emulated: ME/RS bridges, block reader, geo scanner, inventory manager, energy and
--- environment detectors, redstone integrator.
+-- environment detectors, redstone integrator. With the vhcctweaks addon on, the server it was
+-- measured on disables several of those (see docs/vhcctweaks.md). With the mod off (core.vhcc false) there are no
+-- links, batch methods or watches, and an ender modem is CC's plain one.
 return function(core)
   local realPeripheral = peripheral
   local virtual = {}   -- name -> { types = {...}, methods = {...}, def = ... }
@@ -93,6 +95,7 @@ return function(core)
     for k, v in pairs(item) do -- fixtures add enchantments, vaultData, ...; "__" fields are the sim's own
       if type(k) ~= "string" or k:sub(1, 2) ~= "__" then detail[k] = v end
     end
+    if core.detailHook then core.detailHook(detail) end -- what 2.2.37's detail provider adds (ccsim/vhcc237.lua)
     return detail
   end
   core.itemDetail = itemDetail
@@ -186,23 +189,42 @@ return function(core)
       if type(move) ~= "table" then error(("bad move #%d (table expected)"):format(i), 0) end
       local to = field(move, "to", 2)
       if type(to) ~= "string" then error(("bad move #%d (to expected string)"):format(i), 0) end
+      -- 2.2.37: a move may name the item it expects in fromSlot (by name only, never by position)
+      local expectName
+      if core.v37 then
+        expectName = move.expectName
+        if expectName ~= nil and type(expectName) ~= "string" then
+          error(("bad move #%d (expectName expected string)"):format(i), 0)
+        end
+      end
+      -- 2.2.37: a move out of the container item in fromSlot, by key only
+      local inner
+      if core.v37 and move.inner ~= nil then inner = whole(i, "inner", move.inner) end
       local fromSlot = whole(i, "fromSlot", field(move, "fromSlot", 1))
       local toSlot = field(move, "toSlot", 3)
       if toSlot ~= nil then toSlot = whole(i, "toSlot", toSlot) end
       local limit = field(move, "limit", 4)
       if limit ~= nil then limit = whole(i, "limit", limit) end
       parsed[i] = { fromSlot = fromSlot, to = to, toSlot = toSlot, limit = limit }
+      parsed[i].expectName = expectName
+      parsed[i].inner = inner
     end
     return parsed
   end
   core.parseMoves = parseMoves
 
+  -- 2.2.37: the item name the moveMany move now running expects in its fromSlot. The push that runs it takes it.
+  local expecting
+  -- 2.2.37: the inner slot the moveMany move now running moves out of (a pushContents); taken the same way.
+  local movingInner
   local function moveMany(pushOne, moves)
     local parsed = parseMoves(moves)
     local count = #parsed
     local moved, done, spent = {}, 0, 0
     for i = 1, count do
       local move = parsed[i]
+      expecting = move.expectName
+      movingInner = move.inner
       moved[i] = pushOne(move.to, move.fromSlot, move.limit, move.toSlot)
       done = i
       spent = spent + core.config.batchMoveCostMicros
@@ -318,6 +340,11 @@ return function(core)
 
     -- InventoryMethods.pushItems: the arguments are converted first, then the target is found, then both slots are checked
     local function push(save, toName, fromSlot, limit, toSlot)
+      local expectName = expecting
+      expecting = nil
+      local innerSlot = movingInner
+      movingInner = nil
+      if innerSlot ~= nil then return inv.__pushInner(save, expectName, toName, fromSlot, innerSlot, limit, toSlot) end
       toName = checkString(1, toName)
       fromSlot = checkInt(2, fromSlot)
       if limit ~= nil then limit = checkInt(3, limit) end
@@ -327,6 +354,8 @@ return function(core)
       if toSlot ~= nil then slotInRange(toSlot, slotsOf(target), "To slot") end
       if limit ~= nil and limit <= 0 then return 0 end
       local item = items[fromSlot]
+      -- 2.2.37 expectName: another item in the slot, or none, and the move moves nothing
+      if expectName and (not item or item.name ~= expectName) then return 0 end
       if not item then return 0 end
       if target.__remote then
         local moved = transfer(inv, fromSlot, target, limit, toSlot)
@@ -411,6 +440,14 @@ return function(core)
       return moved
     end
     inv.__state = function() return items end
+    -- 2.2.37: items inside container items, and identify (ccsim/vhcc237.lua)
+    if core.v37inventory then
+      core.v37inventory(inv, {
+        items = items, size = size, def = def, checkInt = checkInt, checkString = checkString,
+        slotInRange = slotInRange, resolveInventory = otherInventory, slotsOf = slotsOf, transfer = transfer,
+        itemDetail = itemDetail,
+      })
+    end
     return inv
   end
 
@@ -779,9 +816,10 @@ return function(core)
   -- Plain CC:Tweaked does this, so it runs with the mod off too; only a 2.2.35 world keeps each computer its own copy.
 
   local linkHost = {}
-  local relay = dofile("/rom/ccsim/wiredrelay.lua")(core, linkHost, modems)
+  local relay = core.world.vhcctweaks ~= "2.2.35" and dofile("/rom/ccsim/wiredrelay.lua")(core, linkHost, modems) or nil
   core.wired = relay
 
+  -- ===== vhcctweaks 2.2.36: linked computers and inventory watches (see ccsim/link.lua) =====
 
   local link = core.v36 and relay and dofile("/rom/ccsim/link.lua")(core, linkHost, modems, relay) or nil
   core.link = link
@@ -872,6 +910,9 @@ return function(core)
           inv.moveMany = inv.__moveMany
           function inv.watch() link.watch(name) end
           function inv.unwatch() link.unwatch(name) end
+          if inv.__listContents then -- 2.2.37
+            inv.listContents, inv.pushContents, inv.identify = inv.__listContents, inv.__pushContents, inv.__identify
+          end
         end
         addGroup(entry.inventory)
         extra[#extra + 1] = "inventory"
@@ -956,6 +997,11 @@ return function(core)
         inventory.moveMany = inventory.__moveMany
         function inventory.watch() link.watch(name) end
         function inventory.unwatch() link.unwatch(name) end
+        if inventory.__listContents then -- 2.2.37
+          inventory.listContents = inventory.__listContents
+          inventory.pushContents = inventory.__pushContents
+          inventory.identify = inventory.__identify
+        end
       end
       virtual[name] = entry
       core.peripherals[name] = entry
@@ -1627,6 +1673,10 @@ return function(core)
       function proxy.__take(slot, count, item) return ask("take", { slot = slot, count = count, item = item }) end
       function proxy.__insert(item, count, toSlot) return ask("insert", { item = item, count = count, toSlot = toSlot }) end
       function proxy.__size() return ask("size", {}) end
+      -- 2.2.37: a container item in that chest (vhcc237.lua inv.__inner)
+      function proxy.__inner(fn, slot, innerSlot, ...)
+        return ask("inner", { fn = fn, slot = slot, inner = innerSlot, args = table.pack(...) })
+      end
       return proxy
     end
 
@@ -1651,10 +1701,65 @@ return function(core)
           local other = type(target) == "string" and virtual[target]
           return other and other.remote and other.remote.id == id and other.remote.name or nil
         end
+        -- 2.2.37: pushContents and inner moves out of a container item in the linked computer's chest. The target on
+        -- that computer: it moves the item itself; elsewhere: the container is asked why not, then the item travels.
+        local function pushInner(expectName, toName, slot, innerSlot, limit, toSlot)
+          toName = checkString(1, toName)
+          slot = checkInt(2, slot)
+          innerSlot = checkInt(3, innerSlot)
+          if limit ~= nil then limit = checkInt(4, limit) end
+          if toSlot ~= nil then toSlot = checkInt(5, toSlot) end
+          local there = sameComputer(toName)
+          if there and expectName == nil then return call("pushContents", false, there, slot, innerSlot, limit, toSlot) end
+          local target = not there and resolveInventory(toName, "Target") or nil
+          slotInRange(slot, proxy.__size(), "From slot")
+          if toSlot ~= nil and target then slotInRange(toSlot, slotsOf(target), "To slot") end
+          if limit ~= nil and limit <= 0 then return 0 end
+          local why = proxy.__inner("blocked", slot, innerSlot, expectName)
+          if why == "" then return 0 end
+          if why then return 0, why end
+          if there then return call("pushContents", false, there, slot, innerSlot, limit, toSlot) end
+          local source = {
+            __peek = function(i) return proxy.__inner("peek", slot, i) end,
+            __take = function(i, n, like) return proxy.__inner("take", slot, i, n, like) end,
+            __insert = function(like, n, i) return proxy.__inner("insert", slot, i, n, like) end,
+          }
+          return transfer(source, innerSlot, target, limit, toSlot)
+        end
+        if methods.pushContents then
+          function methods.pushContents(toName, slot, innerSlot, limit, toSlot)
+            return pushInner(nil, toName, slot, innerSlot, limit, toSlot)
+          end
+        end
+        if methods.identify then
+          -- the approval is this computer's; the piece is identified where it is
+          function methods.identify(slot, player, innerSlot)
+            slot = checkInt(1, slot)
+            player = checkString(2, player)
+            if innerSlot ~= nil then innerSlot = checkInt(3, innerSlot) end
+            if core.config.identify == false then return nil, "identify is turned off" end
+            local p, why = core.identifyPlayer(player)
+            if not p then return nil, why end
+            return proxy.__inner("identify", slot, innerSlot, p.name)
+          end
+        end
         local function push(toName, fromSlot, limit, toSlot)
+          local expectName = expecting
+          expecting = nil
+          local innerSlot = movingInner
+          movingInner = nil
+          if innerSlot ~= nil then return pushInner(expectName, toName, fromSlot, innerSlot, limit, toSlot) end
           toName = checkString(1, toName)
           fromSlot = checkInt(2, fromSlot)
           if limit ~= nil then limit = checkInt(3, limit) end
+          -- 2.2.37 expectName: another item in the slot, or none, and the move moves nothing
+          if expectName and not (limit ~= nil and limit <= 0) then
+            local item = proxy.__peek(fromSlot)
+            if not item or item.name ~= expectName then
+              resolveInventory(toName, "Target") -- a target that is not there still raises
+              return 0
+            end
+          end
           local there = sameComputer(toName)
           if there then return call("pushItems", false, there, fromSlot, limit, toSlot) end
           if toSlot ~= nil then toSlot = checkInt(4, toSlot) end
@@ -1694,6 +1799,8 @@ return function(core)
               local there = sameComputer(move.to)
               if not there then translated = nil break end
               translated[i] = { fromSlot = move.fromSlot, to = there, toSlot = move.toSlot, limit = move.limit }
+              translated[i].expectName = move.expectName
+              translated[i].inner = move.inner
             end
             if translated and #parsed > 0 then return call("moveMany", false, translated) end
             return moveMany(push, moves)

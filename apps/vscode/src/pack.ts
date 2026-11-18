@@ -13,6 +13,8 @@ export interface PackAddon {
   types: string[];
   /** Addons it needs switched on too. */
   requires: string[];
+  /** Off unless named: "all" and the default leave it out (vhcctweaks). */
+  optIn?: boolean;
 }
 
 export interface PackData {
@@ -86,12 +88,27 @@ export function enabledAddons(
         ? spec.split(",")
         : [...spec];
   const trimmed = list.map((s) => String(s).trim()).filter((s) => s !== "");
-  const every = () => new Set(addonsOn(data, mc).map((a) => a.id));
+  const every = () =>
+    new Set(
+      addonsOn(data, mc)
+        .filter((a) => !a.optIn)
+        .map((a) => a.id),
+    );
   // a world's empty list is "none"; an empty setting is "everything"
   if (trimmed.length === 0)
     return { on: Array.isArray(spec) ? new Set() : every(), unknown: [] };
-  if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "all")
-    return { on: every(), unknown: [] };
+  if (trimmed.some((s) => s.toLowerCase() === "all")) {
+    // "all" and opt-in ones by name: "all,vhcctweaks"
+    const rest = enabledAddons(
+      data,
+      trimmed.filter((s) => s.toLowerCase() !== "all").join(","),
+      mc,
+    );
+    return {
+      on: new Set([...every(), ...(trimmed.length > 1 ? rest.on : [])]),
+      unknown: trimmed.length > 1 ? rest.unknown : [],
+    };
+  }
   if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "none")
     return { on: new Set(), unknown: [] };
   const ids = trimmed.map((s) => normalise(data, s));
@@ -129,14 +146,18 @@ export function addonSpec(
   mc: string,
 ): string {
   const ids = withRequired(data, picked);
-  const available = addonsOn(data, mc).map((a) => a.id);
+  const available = addonsOn(data, mc)
+    .filter((a) => !a.optIn)
+    .map((a) => a.id);
   if (ids.length === 0) return "none";
+  const optIn = ids.filter((id) => data.addons.find((a) => a.id === id)?.optIn);
+  const rest = ids.filter((id) => !optIn.includes(id));
   if (
     available.length > 0 &&
-    available.every((id) => ids.includes(id)) &&
-    ids.every((id) => available.includes(id))
+    available.every((id) => rest.includes(id)) &&
+    rest.every((id) => available.includes(id))
   )
-    return "all";
+    return ["all", ...optIn].join(",");
   return ids.join(",");
 }
 
@@ -181,7 +202,9 @@ export function addonCount(
     on: [...on].filter(
       (id) => data.addons.find((a) => a.id === id)?.versions[mc],
     ).length,
-    available: addonsOn(data, mc).length,
+    // an opt-in addon (vhcctweaks) counts only once it is on, so "all" reads as every addon
+    available: addonsOn(data, mc).filter((a) => !a.optIn || on.has(a.id))
+      .length,
   };
 }
 

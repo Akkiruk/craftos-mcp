@@ -31,7 +31,7 @@ Decided by your instance's `peripherals.toml`:
 | turtle / pocket / automata cores, `compass`, pocket geo scanner                                                          | No        | turtle and pocket peripherals                                     |
 | `beacon`, `note_block` integrations (AP adds these to vanilla blocks)                                                    | No        | not used by your scripts; not built                               |
 
-All four are enabled in AP's default config and emulated.
+All four are enabled in AP's default config and emulated. With the opt-in vhcctweaks addon on ([vhcctweaks.md](vhcctweaks.md)) none of them exists: the server it was measured on turns them off.
 
 `worlds/ap-extra-demo.json` has all four.
 
@@ -65,7 +65,7 @@ Only what the source fires: `chat` (`username, message, uuid, isHidden`) to chat
 `playerClick` (`username`) to player detectors, and `crafting` (`success, message`) from
 
 `meBridge.craftItem`. A message starting with `$` arrives with its `$` signs removed and `isHidden` true.
-There are no `playerJoin` / `playerLeave` events in this AP version.
+There are no `playerJoin` / `playerLeave` events in this AP version. With the vhcctweaks addon on, its changes apply instead: no hidden `$` channel, a 1 s chat cooldown, the two `sendFormatted*` methods disabled, and `isSlimeChunk()` always `false`.
 
 ## Behaviours worth knowing (all from the source)
 

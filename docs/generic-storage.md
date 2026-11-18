@@ -105,6 +105,8 @@ How a block with several tanks behaves (Forge handlers differ; the sim follows t
 As the chest: `size`, `list`, `getItemDetail`, `getItemLimit`, `pushItems` and `pullItems`. They can move into or
 out of any block with an inventory part, including the mixed ones.
 
+With the vhcctweaks addon (2.2.36, [vhcctweaks.md](vhcctweaks.md)) on, also `listDetailed`, `moveMany`, `watch` and `unwatch`.
+
 ### On Minecraft 1.20.1 and 1.21.1 (CC:Tweaked 1.121.0)
 
 The method lists and their arguments, messages and threads are the same (`AbstractInventoryMethods`,

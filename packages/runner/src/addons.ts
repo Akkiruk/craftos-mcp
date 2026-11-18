@@ -45,6 +45,11 @@ export interface AddonInfo {
   readonly docs?: string;
   /** Short list of its sim commands for tool descriptions. */
   readonly commands?: string;
+  /**
+   * Off unless named: "all" and the default (no list) leave it out. A server mod that changes plain CC:Tweaked and
+   * other mods' peripherals (vhcctweaks) must never switch on by accident.
+   */
+  readonly optIn?: boolean;
 }
 
 /** Sim commands every mob addon has (rom-overlay/rom/ccsim/mob.lua): the world around the mob. */
@@ -661,6 +666,18 @@ export const ADDONS: readonly AddonInfo[] = [
       "cpNfcTap {peripheral, card}, cpNfcTapPocket {peripheral, self?|data?, privateKey?}, cpNfcCardToPocket {card}, cpRadioReceive {frequency, data, x?, y?, z?, dimension?, range?}, " +
       "cpSetRadio {peripheral, valid?, height?, complete?, x?, y?, z?}, cpSetEntities {entities}, cpSetPrintout {peripheral, printout|null}",
   },
+  {
+    id: "vhcctweaks",
+    name: "vhcctweaks",
+    // a Forge 1.18.2 server mod for Vault Hunters (github.com/Akkiruk/vhcctweaks); world.vhcctweaks picks the release
+    versions: { "1.18.2": "2.2.36" },
+    types: [],
+    docs: "docs/vhcctweaks.md",
+    optIn: true,
+    commands:
+      "interact {player}, approve {player?, nonce?}, revoke {player?}, setBalance {player, balance}, setHost {player?}, setEconomy {available}, " +
+      "setVaultLevel {player, level}, setEquipment {player, slot|curio, item}, setGearPower/setTemper/setReputation/setGreedTier/setSkills/setStats {player, ...} (2.2.37)",
+  },
 ];
 
 const BY_ID = new Map(ADDONS.map((a) => [a.id, a]));
@@ -747,6 +764,13 @@ export function addonsFor(mc: string = DEFAULT_MC): AddonInfo[] {
   return ADDONS.filter((a) => addonVersion(a, mc) !== undefined);
 }
 
+/** What "all" and the default switch on: every addon on the version but the opt-in ones (optIn). */
+function allFor(mc: string): string[] {
+  return addonsFor(mc)
+    .filter((a) => !a.optIn)
+    .map((a) => a.id);
+}
+
 /** The one id that starts the way a longer slip does ("advanced-perifs": advanced-peripherals), if there is one. */
 function samePrefix(word: string): string | undefined {
   const common = (id: string): number => {
@@ -774,8 +798,19 @@ function parseList(
 ): string[] {
   const list = typeof spec === "string" ? spec.split(",") : [...spec];
   const trimmed = list.map((s) => s.trim()).filter((s) => s !== "");
-  if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "all")
-    return addonsFor(mc).map((a) => a.id);
+  // "all" can come with opt-in ones too: "all,vhcctweaks"
+  const lower = trimmed.map((s) => s.toLowerCase());
+  if (lower.includes("all"))
+    return [
+      ...new Set([
+        ...allFor(mc),
+        ...parseList(
+          trimmed.filter((_, i) => lower[i] !== "all"),
+          mc,
+          source,
+        ),
+      ]),
+    ];
   if (trimmed.length === 1 && trimmed[0]!.toLowerCase() === "none") return [];
   const ids = trimmed.map(normalise);
   const unknown = ids.filter((id) => !BY_ID.has(id));
@@ -826,7 +861,7 @@ export function resolveAddons(
       ? parseList(worldAddons, mc, source)
       : envSpec !== undefined
         ? parseList(envSpec, mc, source)
-        : addonsFor(mc).map((a) => a.id);
+        : allFor(mc);
   const on = new Set(ids);
   for (const id of on) {
     for (const need of BY_ID.get(id)?.requires ?? []) {

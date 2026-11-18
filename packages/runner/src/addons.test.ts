@@ -103,3 +103,28 @@ describe("addon messages", () => {
         expect(a.versions["1.18.2"]?.split(" ")[0], a.id).toBe(a.simulates);
   });
 });
+
+describe("an opt-in addon (vhcctweaks)", () => {
+  it('is never part of "all" or the default, only named', () => {
+    expect(resolveAddons(undefined, {}, "1.18.2")).not.toContain("vhcctweaks");
+    expect(resolveAddons("all", {}, "1.18.2")).not.toContain("vhcctweaks");
+    expect(resolveAddons(["vhcctweaks"], {}, "1.18.2")).toEqual(["vhcctweaks"]);
+    const both = resolveAddons("all,vhcctweaks", {}, "1.18.2");
+    expect(both).toContain("vhcctweaks");
+    expect(both).toContain("advanced-peripherals");
+    expect(
+      resolveAddons(
+        undefined,
+        { CRAFTOS_ADDONS: "mekanism,vhcctweaks" },
+        "1.18.2",
+      ),
+    ).toEqual(["mekanism", "vhcctweaks"]);
+  });
+
+  it("only exists on 1.18.2", () => {
+    expect(error(() => resolveAddons(["vhcctweaks"], {}, "1.21.1"))).toMatch(
+      /vhcctweaks \(addon "vhcctweaks"\) has no release for Minecraft 1\.21\.1/,
+    );
+    expect(resolveAddons("all", {}, "1.21.1")).not.toContain("vhcctweaks");
+  });
+});

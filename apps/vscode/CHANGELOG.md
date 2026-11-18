@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- New command: Add Agent Instructions to Workspace. Pick the agents you use (Codex, Copilot, Cursor, Gemini CLI,
+  Claude Code) and it writes the craftos-mcp guide where each one looks for it: `AGENTS.md`, the `cc-tweaked-dev`
+  skill, `.github/copilot-instructions.md`, a Cursor rule, `GEMINI.md`. If one of those files is already there it
+  asks first, and you can append, overwrite or skip
+
 ## 0.4.1
 
 - New command: Watch the Agent's Computers. It opens the MCP server's viewer in a panel, so you can see every

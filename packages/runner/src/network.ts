@@ -77,8 +77,13 @@ function sameUuids(worlds: WorldConfig[]): WorldConfig[] {
   const uuids = new Map<string, string>();
   return worlds.map((world) => {
     const players: PlayerSpec[] = [
-      ...(world.players?.length ? world.players : [{ name: "Player" }]),
+      ...(world.players?.length
+        ? world.players
+        : [{ name: "Player", balance: 0 }]),
     ];
+    const host = world.host?.toLowerCase();
+    if (host && !players.some((p) => p.name.toLowerCase() === host))
+      players.push({ name: world.host!, online: false });
     return {
       ...world,
       players: players.map((p, index) => {
@@ -106,7 +111,7 @@ export function seedEconomy(dir: string, worlds: readonly WorldConfig[]): void {
   const balances: Record<string, number> = {};
   for (const world of worlds)
     for (const p of world.players ?? [])
-      if (p.uuid && !(p.uuid in balances)) balances[p.uuid] = 0;
+      if (p.uuid && !(p.uuid in balances)) balances[p.uuid] = p.balance ?? 0;
   mkdirSync(dir, { recursive: true });
   const economy: SharedEconomy = { balances, ledger: [], rejections: [] };
   writeFileSync(join(dir, "economy.json"), JSON.stringify(economy));
@@ -183,7 +188,7 @@ export class ComputerNetwork {
       offset: 0,
       seq: 0,
       running: true,
-      relay: true,
+      relay: world.vhcctweaks !== "2.2.35",
       linkSeq: 0,
     });
     for (const modem of modemsOf(world))

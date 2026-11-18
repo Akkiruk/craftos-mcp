@@ -202,6 +202,11 @@ export function menuItems(fork: boolean, lua: boolean): MenuItem[] {
       label: "$(copy) Copy MCP Server JSON",
       command: "craftos-mcp.copyMcpJson",
     },
+    {
+      label: "$(book) Add Agent Instructions to Workspace",
+      description: "AGENTS.md, Copilot, Cursor, Gemini, skills",
+      command: "craftos-mcp.addAgentInstructions",
+    },
     separator(""),
     { label: "$(output) Show Log", command: "craftos-mcp.showLog" },
     {

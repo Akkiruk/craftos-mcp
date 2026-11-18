@@ -161,14 +161,15 @@ export function extractTgz(tgz: Buffer, dest: string): number {
   return files;
 }
 
+/** What a download answers (the part of fetch's Response this uses). */
+export interface Fetched {
+  ok: boolean;
+  status: number;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
 export interface InstallOptions {
-  readonly fetch?: (
-    url: string,
-  ) => Promise<{
-    ok: boolean;
-    status: number;
-    arrayBuffer(): Promise<ArrayBuffer>;
-  }>;
+  readonly fetch?: (url: string) => Promise<Fetched>;
   readonly log?: (line: string) => void;
   /** Downloads at once. */
   readonly parallel?: number;

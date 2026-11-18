@@ -15,6 +15,8 @@ export interface AddonInfo {
   readonly worldKeys?: readonly string[];
   readonly requires?: readonly string[];
   readonly docs?: string;
+  /** Off unless named: "all" and the default leave it out (vhcctweaks). */
+  readonly optIn?: boolean;
 }
 
 export interface AddonCatalog {
@@ -197,7 +199,7 @@ export function addonsOn(
 ): Set<string> {
   const spec = world["addons"] ?? (fallback.trim() ? fallback : undefined);
   const forMc = catalog.addons
-    .filter((a) => a.versions[mc] !== undefined)
+    .filter((a) => a.versions[mc] !== undefined && !a.optIn)
     .map((a) => a.id);
   if (spec === undefined) return new Set(forMc);
   const list = (

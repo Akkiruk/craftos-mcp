@@ -1,4 +1,4 @@
--- ccsim core: the simulated world around a computer (players, chat, inventories, other mods' blocks).
+-- ccsim core: simulated server world for the vhcctweaks / Advanced Peripherals APIs.
 --
 -- The host (the MCP runner) describes the world in /results/world.json before the
 -- computer boots and can change it later by sending `ccsim_cmd` events. The sim
@@ -23,10 +23,29 @@ M.config = {
   modemHighAltitudeRange = 384,
   modemRangeDuringStorm = 64,
   modemHighAltitudeRangeDuringStorm = 384,
+  -- vhcctweaks 2.2.36 (only read when the world turns 2.2.36 on)
+  maxLinksPerComputer = 64,
+  maxBatchMoves = 256,
+  batchTimeBudgetMicros = 2000,
+  maxWatchesPerComputer = 64,
+  maxAllowanceMinutes = 240,
+  -- Emulator only: what one moveMany move costs against batchTimeBudgetMicros, so a test can force an early stop
+  batchMoveCostMicros = 10,
+  -- vhcctweaks 2.2.37 (only read when the world says 2.2.37): vaultDetails.gearScore and gearScoreLines
+  gearScore = true,
+  gearScoreLines = true,
+  -- Emulator only: Vault Hunters' own gear_power.json minLevel, the level Gear Power starts at
+  gearPowerMinLevel = 100,
 }
 
--- Server-mod behaviour this build does not simulate: always off.
-M.vhcc, M.v36 = false, false
+-- The vhcctweaks mod (ccvault, vhcc, lockdown, and its changes to CC and Advanced Peripherals). On by default; off when
+-- the world says `vhcctweaks: false` or the ROM has no /rom/ccsim/vhcc.lua (a build without the mod). Off, the server
+-- is plain CC:Tweaked 1.101.3, Advanced Peripherals 0.7.31r and Mekanism with their own default behaviour.
+M.vhcc = false
+-- vhcctweaks 2.2.36 behaviour (the default with the mod; a world with vhcctweaks "2.2.35" opts out)
+M.v36 = false
+-- vhcctweaks 2.2.37 on top of 2.2.36: only for a world that says `vhcctweaks: "2.2.37"` (ccsim/vhcc237.lua)
+M.v37 = false
 --- The Minecraft / CC:Tweaked version the world is on (packages/runner/src/versions.ts; world.json `version`).
 --- Modules read it to follow a version: what CC:Tweaked 1.121.0 does differently from 1.101.3 is behind M.cc121
 --- (docs/turtle.md, "Minecraft versions").
@@ -68,6 +87,7 @@ M.economyAvailable = true
 M.computerId = os.getComputerID()
 M.kind = "block"    -- "block" computers claim ownership on first interaction
 M.peripherals = {}  -- virtual peripherals, filled by ccsim.peripherals
+M.vhccDir = "/.vhcc_data"
 M.position = { x = 0, y = 64, z = 0, dimension = "minecraft:overworld" } -- where the computer stands
 
 local function readFile(path)
@@ -107,6 +127,15 @@ local function addPlayer(def)
     yaw = def.yaw or 0, pitch = def.pitch or 0,
     dimension = def.dimension or "minecraft:overworld",
     health = def.health or 20, maxHealth = def.maxHealth or 20,
+    vaultLevel = def.vaultLevel, -- Vault Hunters level (2.2.36 getPlayerVaultLevel); nil: no vault data
+    equipment = def.equipment,   -- worn and held items (2.2.36 getPlayerEquipment)
+    -- 2.2.37: what Vault Hunters knows about the player (ccsim/vhcc237.lua)
+    gearPower = M.v37 and def.gearPower or nil,
+    temper = M.v37 and def.temper or nil,
+    reputation = M.v37 and def.reputation or nil,
+    greedTier = M.v37 and def.greedTier or nil,
+    skills = (M.v37 or nil) and def.skills, -- false: Vault Hunters cannot read them
+    stats = (M.v37 or nil) and def.stats,
   }
   M.players[#M.players + 1] = player
   M.byName[player.name:lower()] = player
@@ -152,6 +181,9 @@ function M.load()
   end
   M.cc121 = M.ccAtLeast("1.121.0")
   -- 2.2.36 is the target and the default; "2.2.35" is kept only as an explicit opt-out for old measurements
+  M.vhcc = world.vhcctweaks ~= false and fs.exists("/rom/ccsim/vhcc.lua")
+  M.v36 = M.vhcc and world.vhcctweaks ~= "2.2.35"
+  M.v37 = M.vhcc and world.vhcctweaks == "2.2.37"
   -- Mods the world runs with (packages/runner/src/addons.ts). The runner always sends the list; without one, all.
   M.addons = {}
   if type(world.addons) == "table" then
@@ -165,6 +197,11 @@ function M.load()
     if not stale or stale < 5 or stale > 3600 then M.config.interactionStaleSeconds = 30 end
   end
   if world.economyAvailable == false then M.economyAvailable = false end
+  -- 2.2.36 tests: ccvault function name -> how many calls answer nil, "internal error" (-1: every call)
+  if M.v36 and type(world.internalErrors) == "table" then
+    M.internalErrors = {}
+    for name, times in pairs(world.internalErrors) do M.internalErrors[name] = times end
+  end
   if world.computerId then M.computerId = world.computerId end
   if world.kind then M.kind = world.kind end
   for key, value in pairs(world.position or {}) do M.position[key] = value end
@@ -209,6 +246,15 @@ function M.restore()
     for name, equipment in pairs(saved.equipment or {}) do
       local p = M.findPlayer(name)
       if p then p.equipment = equipment end
+    end
+  end
+  if M.v37 then
+    for name, stats in pairs(saved.vaultStats or {}) do
+      local p = M.findPlayer(name)
+      if p then
+        p.gearPower, p.temper, p.reputation, p.greedTier = stats.gearPower, stats.temper, stats.reputation, stats.greedTier
+        p.skills, p.stats = stats.skills, stats.stats
+      end
     end
   end
   M.ledger = saved.ledger or M.ledger
@@ -458,6 +504,8 @@ local PLAYER_FIELDS = {
   "name", "uuid", "balance", "online", "onOtherServer", "x", "y", "z", "yaw", "pitch", "dimension", "health",
   "maxHealth",
 }
+PLAYER_FIELDS[#PLAYER_FIELDS + 1] = "vaultLevel"
+PLAYER_FIELDS[#PLAYER_FIELDS + 1] = "equipment"
 -- a copy of plain data: state.json may hold a table once only (textutils.serializeJSON refuses repeats)
 local function copyData(v)
   if type(v) ~= "table" then return v end
@@ -506,6 +554,16 @@ function M.saveNow()
       local worn = {}
       for _, p in ipairs(M.players) do worn[p.name] = p.equipment end
       return next(worn) and worn or nil
+    end)() or nil,
+    vaultStats = M.v37 and (function()
+      local stats = {}
+      for _, p in ipairs(M.players) do
+        if p.gearPower or p.temper or p.reputation or p.greedTier or p.skills ~= nil or p.stats ~= nil then
+          stats[p.name] = { gearPower = p.gearPower, temper = p.temper, reputation = p.reputation, greedTier = p.greedTier,
+            skills = p.skills, stats = p.stats }
+        end
+      end
+      return next(stats) and stats or nil
     end)() or nil,
     ledger = econ and M.ledger or nil,
     rejections = econ and M.rejections or nil,
@@ -568,6 +626,13 @@ function handlers.interact(cmd)
   local p = M.findPlayer(cmd.player)
   if not p then return false, "unknown player" end
   M.recordInteraction(p.uuid, M.nowMs())
+  -- Computers belong to whoever placed them; one with no host offers itself on every right-click (vhcctweaks)
+  if M.vhcc and M.kind == "block" and not M.ownerUuid then
+    for nonce, pending in pairs(M.pending) do
+      if pending.request == "offer" and pending.uuid == p.uuid then M.pending[nonce] = nil end
+    end
+    M.prompt(p, "offer", "[CCVault] Computer #" .. M.computerId .. " has no host. Claim it? Scripts on it can spend from your wallet. [CLAIM]")
+  end
   return true
 end
 
@@ -697,6 +762,8 @@ function handlers.chat(cmd)
   if not p then return false, "unknown player" end
   local message, hidden = cmd.message, false
   if type(message) == "string" and message:sub(1, 1) == "$" then
+    -- the hidden "$" channel is removed by vhcctweaks
+    if M.vhcc then return true end
     -- Advanced Peripherals' own (Events.onChatBox): the message is kept out of chat and reaches chat boxes with every
     -- "$" taken out (String.replace), and isHidden true
     message, hidden = (message:gsub("%$", "")), true
@@ -952,6 +1019,23 @@ function M.installEventHook()
     end
     return best
   end
+  -- A call on the computer thread to a linked computer's peripheral (a monitor's, ccsim/wiredrelay.lua) returns before
+  -- the computer takes its next event in CC, so the coroutine that made it still gets every event that arrived
+  -- meanwhile, in order. Here the call has to yield to hear its answer: what that coroutine is handed while it waits is
+  -- kept for it alone (M.keepFor), and its next waits here take those first, as if they had only just arrived. The rest
+  -- of the program gets each event once, as it comes. (Queued again instead, every other coroutine got each event a
+  -- second time, and two such calls at once multiplied them until CC's 256-event queue dropped a call's task_complete
+  -- and the call never returned.)
+  local keptFor = setmetatable({}, { __mode = "k" }) -- coroutine -> events kept for its next waits
+  function M.keepFor(event)
+    local co = rawRunning() or MAIN
+    local list = keptFor[co]
+    if not list then
+      list = {}
+      keptFor[co] = list
+    end
+    list[#list + 1] = event
+  end
   function os.pullEventRaw(filter)
     local co = rawRunning() or MAIN
     local rec = { depth = depthOf[co] or 0, filter = filter or "*", order = 0 }
@@ -968,7 +1052,13 @@ function M.installEventHook()
       end
       if M.flushHost then M.flushHost() end -- the block changes held back go out before the wait (ccsim/modem.lua)
       if M.dirty then M.save() end -- a change inside the 200 ms window (a redstone output) is written when the program waits
-      local event = table.pack(rawPull())
+      local kept = keptFor[co]
+      local event
+      if kept and kept[1] then
+        event = table.remove(kept, 1)
+      else
+        event = table.pack(rawPull())
+      end
       if M.dirty then M.save() end
       local inner = deepest()
       local isProgram = inner == nil or rec.depth >= inner.depth
@@ -1008,6 +1098,19 @@ function M.installEventHook()
       elseif event[1] == "monitor_touch" and touchedBy(event[5]) and not M.findPlayer(touchedBy(event[5])) then
         -- the harness named a player the world does not hold: the touch is refused, not given to someone else
         trace("X", "ccsim: monitor_touch by unknown player " .. touchedBy(event[5]) .. " dropped")
+      elseif M.vhcc and event[1] == "monitor_touch" and (event[5] == "ccsim_engine" and M.interaction or touchedBy(event[5])) then
+        -- The touch as the engine sends it, with the player who made it when the harness names one: each touch
+        -- carries its own player, so two players' touches close together keep their own names. Like
+        -- ComputerInteractionTracker, renew the interaction, then send vhcc_touch and the touch in that order, so a
+        -- script always sees who before where. The tag marks the second copy, which every coroutine then treats as
+        -- a plain touch; only the program's copy drops it.
+        local by = touchedBy(event[5])
+        local uuid = by and M.findPlayer(by).uuid or M.interaction.uuid
+        M.recordInteraction(uuid, M.nowMs())
+        local who = M.byUuid[uuid]
+        if who then os.queueEvent("vhcc_touch", who.name) end
+        os.queueEvent("monitor_touch", event[2], event[3], event[4], "ccsim")
+        if M.onTouch then M.onTouch(event[2], event[3], event[4], who and who.name or nil) end
       elseif M.onTouch and event[1] == "monitor_touch" and event[5] == "ccsim_engine" then
         -- 2.2.36 with nobody interacting: linked computers still hear the touch, with no player
         os.queueEvent("monitor_touch", event[2], event[3], event[4], "ccsim")
@@ -1047,7 +1150,7 @@ function M.prompt(player, request, text, extra)
     expiresAt = M.nowMs() + M.config.nonceExpirySeconds * 1000,
   }
   for k, v in pairs(extra or {}) do M.pending[nonce][k] = v end
-  M.say(player, text, { kind = request, nonce = nonce })
+  M.say(player, text, { kind = request == "session" and "auth" or request, nonce = nonce, command = "/ccvault approve " .. nonce })
   if M.world.autoApprove then M.approve(player.uuid, nonce) end
   M.save()
   return nonce

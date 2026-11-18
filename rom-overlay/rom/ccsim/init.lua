@@ -1,4 +1,4 @@
--- ccsim: the simulated world around a computer (peripherals from other mods, modems, turtles).
+-- ccsim: simulated server environment (vhcctweaks APIs when the mod is on + Advanced Peripherals fakes).
 -- Loaded from rom/startup.lua when /results/world.json exists (the runner always writes it).
 -- Programs do not see rom/ccsim; every module loads through the simulation's own fs (rom/ccsim/env.lua).
 local dofile = dofile("/rom/ccsim/env.lua").dofile
@@ -12,6 +12,15 @@ core.installEventHook()
 core.installRedstone()
 core.mounter = mounter -- taken before emulator.hide(): a mod's drive block mounts a folder (addons/crickets-peripherals)
 
+-- The vhcctweaks mod's own APIs. Without it (core.vhcc false: the world turns it off, or the ROM has no vhcc files)
+-- none of them exist and the computer is plain CC:Tweaked.
+if core.vhcc then
+  -- the lockdown manifest ships inside the computer's files, so apply it before user code runs
+  dofile("/rom/ccsim/lockdown.lua")()
+
+  _G.ccvault = dofile("/rom/ccsim/ccvault.lua")(core)
+  _G.vhcc = dofile("/rom/ccsim/vhcc.lua")(core)
+end
 dofile("/rom/ccsim/peripherals.lua")(core)
 
 -- A pocket computer has the pocket API (PocketAPI.java): programs tell one by `if pocket then`, the shell adds

@@ -148,9 +148,11 @@ describe("addons per Minecraft version", () => {
     }
   });
 
-  it("each version's default holds exactly the addons with a release for it", () => {
+  it("each version's default holds exactly the addons with a release for it, but the opt-in ones", () => {
     for (const mc of ["1.18.2", "1.20.1", "1.21.1"]) {
-      const want = ADDONS.filter((a) => a.versions[mc]).map((a) => a.id);
+      const want = ADDONS.filter((a) => a.versions[mc] && !a.optIn).map(
+        (a) => a.id,
+      );
       expect([...resolveAddons(undefined, noEnv, mc)].sort(), mc).toEqual(
         [...want].sort(),
       );

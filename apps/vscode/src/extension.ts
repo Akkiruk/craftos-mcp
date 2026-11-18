@@ -1,6 +1,7 @@
 // craftos-mcp for VS Code: the emulator's MCP server for VS Code's agents, Run in CraftOS, *.test.lua in the
 // Testing view, and commands that set up other MCP clients.
 import * as vscode from "vscode";
+import { addAgentInstructions } from "./agentDocsCommand";
 import { registerAgentView, watchAgents } from "./agentView";
 import { registerDebugger } from "./debug/adapter";
 import { addDebugProfile } from "./debug/testProfile";
@@ -141,6 +142,9 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
     ),
     vscode.commands.registerCommand("craftos-mcp.addToEditor", () =>
       addToEditor(context, output, "command"),
+    ),
+    vscode.commands.registerCommand("craftos-mcp.addAgentInstructions", () =>
+      addAgentInstructions(output),
     ),
     registerAgentView(output),
   );

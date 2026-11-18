@@ -783,8 +783,17 @@ a peripheral your server does not have. Set `CRAFTOS_ADDONS` for the MCP server,
 | `ducky-peripherals`          | Ducky Peripherals 1.0.2 / 1.20.1-1.3.1                                     |
 | `more-peripherals`           | More Peripherals 1.20.1-1.13.0 (1.20.1 only)                               |
 | `classic-peripherals`        | Classic Peripherals 0.5.1 / 0.6.6 (not 1.18.2)                             |
+| `vhcctweaks`                 | vhcctweaks 2.2.36 / 2.2.37 (1.18.2 only; opt-in, never part of `all`)      |
 
-`"all"` and `"none"` work too. With no setting at all, everything the version has is on. A world that uses a block
+`"all"` and `"none"` work too. With no setting at all, everything the version has is on, except vhcctweaks.
+
+**vhcctweaks** ([Akkiruk/vhcctweaks](https://github.com/Akkiruk/vhcctweaks), a Vault Hunters server mod for 1.18.2)
+is opt-in: name it (`"addons": ["all", "vhcctweaks"]`) or give the world `"vhcctweaks": "2.2.36"` or `"2.2.37"`, with
+`"version": "1.18.2"`. It adds `ccvault` (player token balances and transfers a player approves), the `vhcc` file store,
+lockdown, linked ender modems and the batch inventory methods; `"2.2.37"` adds the 2.2.37 API (Gear Power, Temper,
+skills and stats reads, items inside backpacks and shulker boxes, `identify`), which the emulator models from the
+mod's spec: identify's roll is the emulator's, not Vault Hunters'. [docs/vhcctweaks.md](docs/vhcctweaks.md) says what
+is simulated and how faithfully. A world that uses a block
 from an addon that is off fails before the computer boots and names the addon; `craftos_info` lists what is on.
 
 ## Tools
@@ -806,8 +815,10 @@ The server also gives its client short instructions on how to work, resources (`
 `craftos://schema/world`, `craftos://worlds/<name>`, `craftos://docs/<name>`, `craftos://examples/<path>`) and prompts
 (`new-program`, `add-tests`, `debug-ui`). `CRAFTOS_TOOLS=core` offers a lean set of 17 tools instead of all 32, for
 clients that pay for every tool in every request; what the rest do is covered by the core ones (`craftos_act` types and
-taps, `craftos_expect` waits for text, `craftos_ui` reads the terminal). For Claude Code,
-`.claude/skills/cc-tweaked-dev/SKILL.md` is a longer guide.
+taps, `craftos_expect` waits for text, `craftos_ui` reads the terminal). A longer guide for agents is the
+`cc-tweaked-dev` skill (`.claude/skills/`, `.agents/skills/` and `.github/skills/`), with the same in `AGENTS.md`,
+`GEMINI.md`, `.github/copilot-instructions.md` and `.cursor/rules/craftos-mcp.mdc`; the VS Code extension's **Add
+Agent Instructions to Workspace** copies them into your own project.
 
 ## Settings
 

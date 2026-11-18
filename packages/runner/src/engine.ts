@@ -29,6 +29,8 @@ import {
   type SimState,
   type WorldConfig,
   enginePeripheralLua,
+  safeStoreName,
+  vhccVersion,
   terminalSize,
   worldJson,
   worldVersion,
@@ -472,6 +474,15 @@ export function startEngine(
     const missing = missingRomProblem(romDir, version.mc);
     if (missing) throw new Error(missing);
   }
+  // vhcc_data: persistent when the world names a store, otherwise fresh per run. Only with vhcctweaks: a world that
+  // turns it off, a version without the mod, or a ROM without it (no ccsim/vhcc.lua), has no store mounted at all.
+  const vhccOn =
+    vhccVersion(world, version) !== false &&
+    existsSync(join(romDir, "rom", "ccsim", "vhcc.lua"));
+  const vhccDir = world?.vhccStore
+    ? join(config.runtimeDir, "vhcc", safeStoreName(world.vhccStore))
+    : join(dir, "vhcc_data");
+  if (vhccOn) mkdirSync(vhccDir, { recursive: true });
   writeFileSync(join(resultsDir, "world.json"), worldJson(world));
 
   const size = terminalSize(world);
@@ -534,6 +545,7 @@ export function startEngine(
         // drive mounts its folder); programs never see `mounter` (emulator.hide)
         "-o",
         "mount_mode=ro",
+        ...(vhccOn ? ["--mount-rw", `.vhcc_data=${vhccDir}`] : []),
         ...(timeScale !== 1 ? ["--time-scale", String(timeScale)] : []),
         ...(cobaltSlowdown(world) > 1
           ? ["--cobalt-speed", String(cobaltSlowdown(world))]

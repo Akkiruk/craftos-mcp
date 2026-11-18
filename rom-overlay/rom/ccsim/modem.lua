@@ -503,6 +503,8 @@ return function(core, host)
       end
     end
 
+    -- vhcctweaks 2.2.36: an ender modem links to other computers and is a peripheral hub for theirs. A peripheral's
+    -- types and methods are fixed when it attaches, so it has them whether or not it is linked yet.
     if kind == "ender" and core.link then
       modem.types = { "modem", "peripheral_hub" }
       modem.methodOrder = ENDER_METHODS

@@ -79,6 +79,7 @@ export function catalog(runner) {
       versions: { ...a.versions },
       simulates: a.simulates ?? null,
       requires: [...(a.requires ?? [])],
+      optIn: a.optIn === true,
     })),
   };
 }
@@ -165,8 +166,9 @@ export function readProject(runner, dir) {
       : [];
   const known = (mc) => runner.VERSIONS.some((v) => v.mc === mc);
   const minecraft = known(data.minecraft) ? data.minecraft : runner.DEFAULT_MC;
+  // what "all" means: an opt-in mod (vhcctweaks) is only on when ticked
   const available = runner.ADDONS.filter(
-    (a) => a.versions[minecraft] !== undefined,
+    (a) => a.versions[minecraft] !== undefined && !a.optIn,
   ).map((a) => a.id);
   const spec = data.addons;
   let listed;
@@ -221,8 +223,9 @@ export function saveProject(runner, dir, change = {}) {
   const minecraft = change.minecraft ?? before.minecraft;
   if (!runner.VERSIONS.some((v) => v.mc === minecraft))
     throw new Error(`unknown Minecraft version ${minecraft}`);
+  // what "all" means: an opt-in mod (vhcctweaks) is only on when ticked
   const available = runner.ADDONS.filter(
-    (a) => a.versions[minecraft] !== undefined,
+    (a) => a.versions[minecraft] !== undefined && !a.optIn,
   ).map((a) => a.id);
   // "all" stays "all" across a version change; a hand-picked list keeps what the new version has
   const wasAll = old.addons === undefined || old.addons === "all" || !hasFile;

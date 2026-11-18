@@ -62,6 +62,8 @@ export const ADDON_SUMMARIES: Readonly<Record<string, string>> = {
     "XP collector and bottler, crafter, loom and beehive interfaces, card manipulator.",
   "classic-peripherals":
     "Cryptographic accelerator, radio tower, NFC reader and RFID scanner.",
+  vhcctweaks:
+    "Vault Hunters server mod (1.18.2, opt-in): ccvault tokens, vhcc files, linked ender modems.",
 };
 
 /** The plain line for a mod, or "" when it has none. */

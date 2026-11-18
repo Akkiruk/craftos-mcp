@@ -42,6 +42,7 @@ export async function loadPackData() {
       versions: { ...a.versions },
       types: [...a.types],
       requires: [...(a.requires ?? [])],
+      ...(a.optIn ? { optIn: true } : {}),
     })),
   };
 }

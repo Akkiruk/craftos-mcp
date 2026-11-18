@@ -57,7 +57,9 @@ export interface PlayerSpec extends PlethoraPlayerFields {
   name: string;
   /** Player UUID. Default 00000000-0000-4000-8000-<index as 12 hex digits>. */
   uuid?: string;
-  /** Online on this server. Default true. */
+  /** Vault token balance (Dog's PlayerShops). */
+  balance?: number;
+  /** Offline players can still be hosts or have balances. Default true. */
   online?: boolean;
   /** Game mode; CC: Androids passes over a creative or spectator player. @default "survival" */
   gamemode?: "survival" | "creative" | "adventure" | "spectator";
@@ -77,6 +79,206 @@ export interface PlayerSpec extends PlethoraPlayerFields {
   health?: number;
   /** Most health points. Default 20. */
   maxHealth?: number;
+  /** Vault Hunters level, read by 2.2.36's ccvault.getPlayerVaultLevel. Omit for a player with no vault data. */
+  vaultLevel?: number;
+  /** What the player wears and holds, read by 2.2.36's ccvault.getPlayerEquipment. Items as in chests. */
+  equipment?: EquipmentSpec;
+  /**
+   * 2.2.36: online on another server of the network. The economy knows them (balances, vault level), but this server
+   * treats them as offline.
+   */
+  onOtherServer?: boolean;
+  /**
+   * 2.2.37: what the player's six combat slots score, read by ccvault.getPlayerGearPower. Vault Hunters' scorer is not
+   * modelled: the world gives the slot scores and the emulator works out the rest as the game does.
+   */
+  gearPower?: GearPowerSpec;
+  /** 2.2.37: the player's Temper and Dust, read by ccvault.getPlayerTemper (and Gear Power's multipliers). */
+  temper?: TemperSpec;
+  /** 2.2.37: reputation with each vault god, read by ccvault.getPlayerReputation. Each defaults to 0. */
+  reputation?: {
+    /** Reputation with Velara. */
+    velara?: number;
+    /** Reputation with Tenos. */
+    tenos?: number;
+    /** Reputation with Wendarr. */
+    wendarr?: number;
+    /** Reputation with Idona. */
+    idona?: number;
+  };
+  /** 2.2.37: the player's greed tier. Default 0. @integer @minimum 0 */
+  greedTier?: number;
+  /**
+   * 2.2.37: the player's skill trees, read by ccvault.getPlayerSkills (online, or from the saved profile). `false`:
+   * Vault Hunters cannot read them ("skills not available").
+   */
+  skills?: SkillsSpec | false;
+  /**
+   * 2.2.37: the stat screen's numbers by attribute id, read by ccvault.getPlayerStats for a player on this server.
+   * A number is the stat's value. `false`: "stats not available".
+   */
+  stats?: Record<string, number | StatSpec> | false;
+}
+
+/** One learned skill (2.2.37 getPlayerSkills). */
+export interface SkillSpec {
+  /** Vault Hunters' id of the skill. */
+  id: string;
+  /** What the skill screen shows. @default the id in title case */
+  name?: string;
+  /** Points the player put in. Only skills with more than 0 are listed. @default level */
+  learned?: number;
+  /** The level that works, gear bonuses included; only online. @default learned */
+  level?: number;
+  /** The most points the skill takes. @default learned (at least 1) */
+  maxLevel?: number;
+  /** Abilities: the chosen specialization's id. @default the ability's id */
+  specialization?: string;
+  /** Abilities: the specialization's name. @default the ability's name for index 0 */
+  specializationName?: string;
+  /** Abilities: the specialization's index, 0 for the plain ability. @default 0 */
+  specializationIndex?: number;
+  /** Abilities: on the player's ability key (only online). */
+  selected?: boolean;
+}
+
+/** A player's skill trees (2.2.37). A tree set to `false` cannot be read and is left out of the answer. */
+export interface SkillsSpec {
+  /** Learned abilities, in the skill tree's order. */
+  abilities?: SkillSpec[] | false;
+  /** Learned talents. */
+  talents?: SkillSpec[] | false;
+  /** Learned expertises. */
+  expertises?: SkillSpec[] | false;
+  /** Learned prestige powers. */
+  prestige?: SkillSpec[] | false;
+  /** The id of the ability on the player's ability key (or `selected` on the ability). */
+  selectedAbility?: string;
+  /** Points spent per tree. @default the sum of `learned` in the tree */
+  spentPoints?: {
+    /** Ability points. */
+    abilities?: number;
+    /** Talent points. */
+    talents?: number;
+    /** Expertise points. */
+    expertises?: number;
+    /** Prestige points. */
+    prestige?: number;
+  };
+}
+
+/** One stat of the Vault Hunters stat screen (2.2.37 getPlayerStats). */
+export interface StatSpec {
+  /** The number; for a capped stat, the value before the cap when `uncapped` is not given. */
+  value?: number;
+  /** A capped stat's value before the cap; the answer's value is the smaller of it and the limit. */
+  uncapped?: number;
+  /** A capped stat's own cap. @default the stat's base cap, never above its max (getLimits statCaps) */
+  limit?: number;
+  /** The stat's name on the screen. @default the id in title case */
+  name?: string;
+  /** How the screen writes it. @default from the value: a percentage to one decimal place, else two */
+  display?: string;
+  /** The value is a fraction shown as a percentage. @default true for the capped stats */
+  percent?: boolean;
+  /** Listed only because the player has it from gear. */
+  extra?: boolean;
+}
+
+/** Vault Hunters' word for a Gear Power slot. Only a COUNTED slot scores above 0. */
+export type GearSlotStatus =
+  | "COUNTED"
+  | "EMPTY"
+  | "NO_WEAPON"
+  | "NOT_VAULT_GEAR"
+  | "NOT_COMBAT_GEAR"
+  | "INERT"
+  | "GREED_TIER_LOCKED"
+  | "NO_TIER_CONFIG";
+
+/** What Vault Hunters says about one Gear Power slot (2.2.37 slotDetails). The score comes from `slots`. */
+export interface GearSlotDetailSpec {
+  /** Default COUNTED for a score above 0, otherwise EMPTY (NO_WEAPON for the weapon slot). */
+  status?: GearSlotStatus;
+  /** Registry name of the item in the slot. Default: the piece in the player's `equipment` (never for the weapon). */
+  item?: string;
+  /** Display name of the item in the slot. Default: that of the piece in `equipment`. */
+  name?: string;
+  /** Weapon only: which hotbar slot holds the weapon that counts. @integer @minimum 1 @maximum 9 */
+  hotbarSlot?: number;
+  /** Weapon only: how many weapons were on the hotbar to choose from. @integer @minimum 0 */
+  hotbarWeapons?: number;
+}
+
+/** A player's Gear Power as the world gives it (2.2.37). Gear Score, Gear Power and temper are derived. */
+export interface GearPowerSpec {
+  /** Slot scores, 0 to 1500 each; a slot left out scores 0. `weapon` is the best weapon on the hotbar. */
+  slots?: {
+    /** Helmet slot score. @minimum 0 @maximum 1500 */
+    head?: number;
+    /** Chestplate slot score. @minimum 0 @maximum 1500 */
+    chest?: number;
+    /** Leggings slot score. @minimum 0 @maximum 1500 */
+    legs?: number;
+    /** Boots slot score. @minimum 0 @maximum 1500 */
+    feet?: number;
+    /** Score of the best weapon on the hotbar. @minimum 0 @maximum 1500 */
+    weapon?: number;
+    /** Offhand slot score. @minimum 0 @maximum 1500 */
+    offhand?: number;
+  };
+  /**
+   * Per slot, why it scores what it does. `false`: Vault Hunters could not explain the slots, so getPlayerGearPower
+   * leaves slotDetails out.
+   */
+  slotDetails?:
+    | false
+    | {
+        /** Helmet slot. */
+        head?: GearSlotDetailSpec;
+        /** Chestplate slot. */
+        chest?: GearSlotDetailSpec;
+        /** Leggings slot. */
+        legs?: GearSlotDetailSpec;
+        /** Boots slot. */
+        feet?: GearSlotDetailSpec;
+        /** The best weapon on the hotbar. */
+        weapon?: GearSlotDetailSpec;
+        /** Offhand slot. */
+        offhand?: GearSlotDetailSpec;
+      };
+  /** The highest Gear Power the player ever reached (peakGearPower). Default 0; the emulator never raises it. @integer @minimum 0 */
+  peak?: number;
+}
+
+/** One Temper category (2.2.37). The ladder from levels to multipliers is Vault Hunters' own: the world gives both. */
+export interface TemperCategorySpec {
+  /** Levels bought. Default 0. @integer @minimum 0 @maximum 400 */
+  level?: number;
+  /** What the category multiplies Gear Power by. Default 1 at level 0; above that it is left out unless given. */
+  multiplier?: number;
+  /** What the category multiplies its effect by inside a vault. Default 1 at level 0; above that left out unless given. */
+  power?: number;
+}
+
+/** A player's Temper (2.2.37). */
+export interface TemperSpec {
+  /** Dust in hand. Default 0. @integer @minimum 0 */
+  dust?: number;
+  /** Might. The better of Might and Magic counts for Gear Power. */
+  might?: TemperCategorySpec;
+  /** Magic. */
+  magic?: TemperCategorySpec;
+  /** Vigor: averaged with the better of Might and Magic. */
+  vigor?: TemperCategorySpec;
+  /** Has a multiplier too, but does not count for Gear Power. */
+  tool?: TemperCategorySpec;
+  /** Band bosses beaten (online players only). Default 0. @integer @minimum 0 */
+  bossesBeaten?: number;
+  /** The furthest trial room reached. Default 0. @integer @minimum 0 */
+  trialsRecord?: number;
+  /** Altar favors taken (online players only). Default 0. @integer @minimum 0 */
+  favorsUsed?: number;
 }
 
 /** Worn and held items. `curios` is slot type (as Curios names it, e.g. "ring") to index (from 1) to item. */
@@ -95,6 +297,18 @@ export interface EquipmentSpec {
   offhand?: ItemSpec;
   /** Curios slot type (e.g. "ring") to index (from 1) to item. */
   curios?: Record<string, Record<string, ItemSpec>>;
+  /**
+   * 2.2.37: hotbar slot (1-9) to item. Given, the held slot's item is `mainhand` in getPlayerEquipment. Default: the
+   * held slot holds `mainhand`.
+   */
+  hotbar?: Record<string, ItemSpec>;
+  /** 2.2.37: the hotbar slot the player holds, 1 to 9. @default 1 */
+  selectedHotbarSlot?: number;
+  /**
+   * 2.2.37: the hotbar slot of the weapon Gear Power counts, overriding the emulator's pick (the best Gear Score among
+   * identified main-hand gear on the hotbar, the held slot first on a tie).
+   */
+  weaponHotbarSlot?: number;
 }
 
 /** Item stack in a virtual inventory; extra fields (vaultData, nbt, ...) are passed to getItemDetail. */
@@ -109,6 +323,28 @@ export interface ItemSpec {
   maxCount?: number;
   /** getItemDetail's display name. @default the registry name in title case */
   displayName?: string;
+  /**
+   * vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with
+   * `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.
+   */
+  contents?: Record<string, ItemSpec>;
+  /** 2.2.37: the container's slot count. @default backpacks by tier (27, 54, 81, 108, 120), shulker boxes 27, the wooden vault barrel 36, other vault barrels 45 */
+  containerSlots?: number;
+  /** 2.2.37: another mod's bag with a Forge item handler: a container like a backpack (its nbt stays when its contents change). */
+  itemHandler?: boolean;
+  /** 2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason. */
+  outputFilter?: {
+    /** Item ids that may leave; when given, nothing else may. */
+    allow?: string[];
+    /** Item ids that may never leave. */
+    deny?: string[];
+  };
+  /** 2.2.37: a shulker box's other BlockEntityTag keys: it keeps a tag (an nbt hash) once emptied. */
+  blockEntityTag?: Record<string, unknown>;
+  /** 2.2.37 identify: the vaultData the piece has once identified. Default: a seeded, plausible roll that keeps the level and rarity rules. */
+  identifiesTo?: Record<string, unknown>;
+  /** 2.2.37 identify: false is an item Vault Hunters cannot identify even with a vaultData state. */
+  identifiable?: boolean;
   /** Any other field reaches getItemDetail as it is. */
   [extra: string]: unknown;
 }
@@ -204,6 +440,11 @@ export interface VirtualPeripheralSpec {
    * `{ name, amount, displayName?, nbt?, tags?, craftable? }`.
    */
   items?: Record<string, ItemSpec> | Record<string, unknown>[];
+  /**
+   * vhcctweaks 2.2.37: `false` is an inventory that does not let its slots be set or hands out copies: pushContents,
+   * inner moves and identify give "can't change items in this inventory"; listContents still works. Default true.
+   */
+  canChangeItems?: boolean;
   /** X coordinate of the block. */
   x?: number;
   /** Y coordinate of the block. */
@@ -580,10 +821,26 @@ export interface WorldConfig {
   motd?: boolean;
   /** Players on the simulated server: who player detectors, chat boxes and inventory managers see. */
   players?: PlayerSpec[];
+  /** Computer owner ("host" in ccvault). Omit for an unowned computer. */
+  host?: string;
+  /** Player currently using the computer ("player" in ccvault). */
+  interacting?: string;
+  /** Approve ccvault.requestAuth() immediately, as if the player clicked [APPROVE]. */
+  autoApprove?: boolean;
+  /** false simulates Dog's PlayerShops being absent. */
+  economyAvailable?: boolean;
   /** The computer's id (os.getComputerID). Give each computer on a network its own. @default 0 @integer @minimum 0 */
   computerId?: number;
-  /** "pocket" computers get the pocket computer's 26x20 terminal unless `terminal` says otherwise. */
+  /**
+   * "pocket" computers do not claim ownership on first interaction and get the pocket
+   * computer's 26x20 terminal unless `terminal` says otherwise.
+   */
   kind?: "block" | "pocket";
+  /**
+   * Keep the interaction fresh as if the player kept the computer's GUI open. Default
+   * true for pocket computers; block computers expire after 30 s without a click.
+   */
+  holdInteraction?: boolean;
   /** false: a normal computer or pocket computer, with no colour (default advanced). Turtles use `turtle.advanced`. */
   advanced?: boolean;
   /** Terminal size in characters (default 51x19, or 26x20 for pocket computers). */
@@ -593,8 +850,18 @@ export interface WorldConfig {
     /** Height in characters. @integer @minimum 1 @maximum 255 */
     height: number;
   };
-  /** Overrides of the server config. */
+  /** Overrides of the vhcctweaks server config. */
   config?: {
+    /** ccvault nonce lifetime, seconds. */
+    nonceExpirySeconds?: number;
+    /** ccvault approval idle timeout, minutes. */
+    authIdleTimeoutMinutes?: number;
+    /** Largest ccvault transfer. */
+    maxTransferAmount?: number;
+    /** Seconds before an interaction goes stale. */
+    interactionStaleSeconds?: number;
+    /** Most ccvault history results. */
+    maxHistoryResults?: number;
     /** computercraft-server.toml modem_range: wireless range low down. @default 64 */
     modemRange?: number;
     /** modem_high_altitude_range: wireless range at the top of the world. @default 384 */
@@ -605,7 +872,72 @@ export interface WorldConfig {
     modemHighAltitudeRangeDuringStorm?: number;
     /** Height of the world for the high altitude range. Default 320 (256 in the nether and the end). */
     modemWorldTop?: number;
+    /** vhcctweaks 2.2.36: links.maxLinksPerComputer, default 64. */
+    maxLinksPerComputer?: number;
+    /** inventory.maxBatchMoves, default 256. */
+    maxBatchMoves?: number;
+    /** inventory.batchTimeBudgetMicros, default 2000. */
+    batchTimeBudgetMicros?: number;
+    /** inventory.maxWatchesPerComputer, default 64. */
+    maxWatchesPerComputer?: number;
+    /** ccvault.maxAllowanceMinutes, default 240. */
+    maxAllowanceMinutes?: number;
+    /**
+     * Emulator only: what one moveMany move costs against batchTimeBudgetMicros, default 10. The batch stops after
+     * the move that takes it past the budget, so cost 1000 and budget 2000 stop every batch after 3 moves.
+     */
+    batchMoveCostMicros?: number;
+    /** vhcctweaks 2.2.37: vaultDetails.gearScore, default true. false: identified gear gets no Gear Score fields. */
+    gearScore?: boolean;
+    /** vhcctweaks 2.2.37: vaultDetails.gearScoreLines, default true. false: modifiers get no score fields. */
+    gearScoreLines?: boolean;
+    /**
+     * vhcctweaks 2.2.37: inventory.containerItems, default true. false: listContents, pushContents, inner moves and
+     * identify with an inner slot give "container items are turned off".
+     */
+    containerItems?: boolean;
+    /** vhcctweaks 2.2.37: inventory.identify, default true. false: identify gives "identify is turned off". */
+    identify?: boolean;
+    /** vhcctweaks 2.2.37: vhccFiles.maxBytesPerComputer, what vhcc.getUsage reports as the limit. Default 16777216. */
+    maxBytesPerComputer?: number;
+    /**
+     * Emulator only (2.2.37): Vault Hunters' own gear_power.json minLevel, the vault level Gear Power starts at.
+     * Default 100.
+     */
+    gearPowerMinLevel?: number;
   };
+  /**
+   * Which vhcctweaks (github.com/Akkiruk/vhcctweaks, a Vault Hunters server mod for Minecraft 1.18.2 only) the
+   * server runs: an opt-in addon. Default off (`false`), or "2.2.36" when world.addons, craftos.json's addons or
+   * CRAFTOS_ADDONS name `vhcctweaks` ("all" leaves it out). "2.2.36": linked ender modems, listDetailed/moveMany,
+   * inventory watches, spending allowances, money calls on the economy thread and the rest (docs/vhcctweaks.md).
+   * "2.2.35" opts out, for comparisons with measurements made before 2.2.36; such a computer takes no part in links.
+   * "2.2.37" is 2.2.36 plus the 2.2.37 API as the emulator models it from the mod's spec: getPlayerGearPower/getPlayerTemper/getPlayerReputation,
+   * getPlayerSkills/getPlayerStats, the hotbar and counted weapon in getPlayerEquipment, getLimits (statCaps too), vhcc.getUsage, moveMany's expectName and the Gear Score fields in item details, and on every inventory
+   * listContents/pushContents/moveMany `inner` (backpacks, shulker boxes and vault barrels in a slot) and identify.
+   * `false`: no vhcctweaks at all, as does a ROM without /rom/ccsim/vhcc.lua. The server is plain CC:Tweaked 1.101.3,
+   * Advanced Peripherals 0.7.31r and Mekanism on their own defaults: no ccvault, vhcc or lockdown, a plain ender modem,
+   * AP's hidden "$" chat channel, working sendFormatted* chat box methods, a 100 ms chat cooldown and real isSlimeChunk.
+   */
+  vhcctweaks?: "2.2.35" | "2.2.36" | "2.2.37" | false;
+  /**
+   * 2.2.37: whether the server's Vault Hunters has Gear Power and Temper (3.21.74 or newer). Default true. `false` is
+   * an older one: getPlayerGearPower and getPlayerTemper answer "gear power not available" and "temper not available"
+   * for a player on this server, a saved Temper has no multipliers, and gear gets no Gear Score fields.
+   */
+  gearPowerAvailable?: boolean;
+  /**
+   * 2.2.37, emulator only: `false` is a server whose Vault Hunters cannot identify from a computer, so an inventory's
+   * identify gives "identify not available" once every other check passed. Default true.
+   */
+  identifyAvailable?: boolean;
+  /**
+   * 2.2.36: server ticks the economy thread takes per money call (transfer, getPlayerBalance, getBalance of someone not
+   * online here). Default 0: the answer comes at the next timer. Raise it to hold calls open in a test.
+   */
+  economyDelayTicks?: number;
+  /** 2.2.36 tests: ccvault function name -> how many calls answer `nil, "internal error"` (-1: every call). */
+  internalErrors?: Record<string, number>;
   /** Where the computer stands. Default x 0, y 64, z 0 in the overworld. */
   position?: ComputerPosition;
   /**
@@ -658,7 +990,10 @@ export interface WorldConfig {
     radiationUnit?: string;
     /** What getRadiationRaw() returns. @default 1e-7 */
     radiationRaw?: number;
-    /** World seed for isSlimeChunk. A long past 2^53 goes as a decimal string. Default 0. */
+    /**
+     * World seed for isSlimeChunk when vhcctweaks is off (on, it is always false). A long past 2^53 goes as a decimal
+     * string. Default 0.
+     */
     seed?: number | string;
   };
   /** Living entities that scanEntities can see (players are added automatically). */
@@ -815,6 +1150,11 @@ export interface WorldConfig {
   createLogistics?: CreateLogisticsWorld;
   /** CC: LiftLink: elevator columns, contacts and pulleys (docs/cc-liftlink.md). */
   liftlink?: LiftLinkWorld;
+  /**
+   * Name of a persistent vhcc_data store shared between runs. Omit for a fresh,
+   * empty store per run.
+   */
+  vhccStore?: string;
   /** Make this computer a turtle (docs/turtle.md). Its world is `blocks`, `fills` and `ground`. */
   turtle?: TurtleSpec;
   /** CC: Androids: make this computer an android in the block world (docs/cc-androids.md). */
@@ -1026,6 +1366,46 @@ export function worldVersion(world: WorldConfig | undefined): ResolvedVersion {
   return resolveVersion(world?.version);
 }
 
+/** The one Minecraft version vhcctweaks exists for. */
+export const VHCC_MC = "1.18.2";
+
+/** Whether the vhcctweaks server mod exists on this version (it is a 1.18.2 mod). */
+export function vhccExists(version: ResolvedVersion): boolean {
+  return version.mc === VHCC_MC;
+}
+
+/** vhcctweaks is an opt-in addon: on only when a world names it (addons) or gives it a version (vhcctweaks). */
+const VHCC_DEFAULT_ON: boolean = false;
+
+/**
+ * Which vhcctweaks a world runs, or false for none: `world.vhcctweaks` when it names a release (false turns it off),
+ * else "2.2.36" when the addon "vhcctweaks" is on (world.addons, craftos.json, CRAFTOS_ADDONS; "all" leaves it out).
+ * It only exists on Minecraft 1.18.2: naming a release on another version is an error, the addon there is refused by
+ * resolveAddons. `addons`: the world's resolved addon list, when the caller has it.
+ */
+export function vhccVersion(
+  world: WorldConfig | undefined,
+  version: ResolvedVersion = worldVersion(world),
+  addons?: readonly string[],
+): "2.2.35" | "2.2.36" | "2.2.37" | false {
+  const asked = world?.vhcctweaks;
+  if (asked === false) return false;
+  if (!vhccExists(version)) {
+    if (typeof asked === "string")
+      throw new Error(
+        `world.vhcctweaks ${JSON.stringify(asked)}: vhcctweaks only exists for Minecraft ${VHCC_MC}, this world is on ${version.mc}. Add "version": "${VHCC_MC}" to the world`,
+      );
+    return false;
+  }
+  if (typeof asked === "string") return asked;
+  const on =
+    VHCC_DEFAULT_ON ||
+    (addons ?? resolveAddons(world?.addons, process.env, version.mc)).includes(
+      "vhcctweaks",
+    );
+  return on ? "2.2.36" : false;
+}
+
 /** The world as the Lua sim reads it (engine peripherals are created separately). */
 export function worldJson(world: WorldConfig | undefined): string {
   // A computer alone is a network of one; linked computers arrive already resolved
@@ -1046,6 +1426,9 @@ export function worldJson(world: WorldConfig | undefined): string {
     addonSource(resolved?.addons, process.env),
   );
   copy["addons"] = addons;
+  // vhcctweaks is a 1.18.2 server mod: other versions run plain CC:Tweaked. The sim gets the release, or false.
+  copy["vhcctweaks"] = vhccVersion(resolved, version, addons);
+  delete copy["vhccStore"];
   delete copy["deploy"];
   delete copy["$schema"]; // an editor's key (world files point at schemas/world.schema.json)
   copy["peripherals"] = (resolved?.peripherals ?? []).filter(
@@ -1068,22 +1451,19 @@ export function enginePeripheralLua(world: WorldConfig | undefined): string {
     .join("\n");
 }
 
+/** Reject names that could escape the runtime directory. */
+export function safeStoreName(name: string): string {
+  if (!/^[\w.-]{1,64}$/.test(name) || name.startsWith(".")) {
+    throw new Error(
+      `vhccStore must match [\\w.-]{1,64} and not start with a dot: ${name}`,
+    );
+  }
+  return name;
+}
+
 /** What the sim keeps in state.json for itself (what a reboot reads back), never part of a result. */
 const INTERNAL_STATE = ["survives"];
-// the server-mod fields the sim still writes (always empty here) go too
-const HIDDEN_STATE = [
-  ...INTERNAL_STATE,
-  "balances",
-  "vaultLevels",
-  "equipment",
-  "ledger",
-  "rejections",
-  "host",
-  "interacting",
-  "authenticated",
-  "terminalLocked",
-  "pendingApprovals",
-];
+const HIDDEN_STATE = INTERNAL_STATE;
 
 /**
  * The sim state as results show it (craftos_sim_state, a run's `sim`): without the sim's own bookkeeping
@@ -1127,6 +1507,16 @@ export interface SimState {
   vaultLevels?: Record<string, number>;
   /** 2.2.36: what players wear and hold. */
   equipment?: Record<string, EquipmentSpec>;
+  /** 2.2.37: what Vault Hunters knows about each player that has any of it. */
+  vaultStats?: Record<
+    string,
+    {
+      gearPower?: GearPowerSpec;
+      temper?: TemperSpec;
+      reputation?: PlayerSpec["reputation"];
+      greedTier?: number;
+    }
+  >;
   ledger?: Record<string, unknown>[];
   rejections?: Record<string, unknown>[];
   chat?: {
@@ -1179,7 +1569,59 @@ export interface SimState {
 
 /** Commands the host can send to a running sim. */
 export type SimCommand =
-  | { cmd: "addPlayer"; name: string; online?: boolean }
+  | { cmd: "interact"; player: string }
+  | { cmd: "approve"; player?: string; nonce?: string }
+  /**
+   * A player runs code on the computer through the mod (/vhcc pc exec): it gets `vhcc_rc_exec(request, code)` and
+   * answers with `vhcc.rcReply(request, result)`, which sends the player `[vhcc-rc] {...}` in chat. `request` picks
+   * the id (default random hex).
+   */
+  | { cmd: "rcExec"; player: string; code: string; request?: string }
+  /** /ccvault revoke: that player's approval here (all players' without one); on 2.2.36 their allowances too. */
+  | { cmd: "revoke"; player?: string }
+  | { cmd: "setBalance"; player: string; balance: number }
+  /** 2.2.36: a player's vault level changes; null leaves them with no vault data. */
+  | { cmd: "setVaultLevel"; player: string; level: number | null }
+  /** 2.2.36: the player moves to another server of the network (true) or comes back here (false). */
+  | { cmd: "setOnOtherServer"; player: string; onOtherServer: boolean }
+  /** 2.2.37: the player's slot scores, slot details and peak change; null takes them away. */
+  | { cmd: "setGearPower"; player: string; gearPower: GearPowerSpec | null }
+  /** 2.2.37: the player's Temper and Dust change; null takes them away. */
+  | { cmd: "setTemper"; player: string; temper: TemperSpec | null }
+  /** 2.2.37: the player's god reputation changes; null puts every god back to 0. */
+  | {
+      cmd: "setReputation";
+      player: string;
+      reputation: PlayerSpec["reputation"] | null;
+    }
+  /** 2.2.37: the player's greed tier changes; null puts it back to 0. */
+  | { cmd: "setGreedTier"; player: string; greedTier: number | null }
+  /** 2.2.37: the player's skill trees change; null takes them away. */
+  | { cmd: "setSkills"; player: string; skills: SkillsSpec | null }
+  /** 2.2.37: the player's stats change; null takes them away. */
+  | {
+      cmd: "setStats";
+      player: string;
+      stats: Record<string, number | StatSpec> | null;
+    }
+  /** 2.2.36: the next `times` (default 1, -1 every, 0 none) calls of a ccvault function answer nil, "internal error". */
+  | { cmd: "internalError"; function: string; times?: number }
+  /** 2.2.36: server ticks per economy-thread call from now on (economyDelayTicks). */
+  | { cmd: "setEconomyDelay"; ticks: number }
+  /**
+   * 2.2.36: change what a player wears or holds: `slot` (head, chest, legs, feet, mainhand, offhand) or `curio` and
+   * `index`, with `item` (null takes it off); or `equipment` to replace everything.
+   */
+  | {
+      cmd: "setEquipment";
+      player: string;
+      slot?: "head" | "chest" | "legs" | "feet" | "mainhand" | "offhand";
+      curio?: string;
+      index?: number;
+      item?: ItemSpec | null;
+      equipment?: EquipmentSpec;
+    }
+  | { cmd: "addPlayer"; name: string; balance?: number; online?: boolean }
   | { cmd: "join" | "leave"; player: string }
   | {
       cmd: "setPlayerPos";
@@ -1191,6 +1633,10 @@ export type SimCommand =
       pitch?: number;
       dimension?: string;
     }
+  | { cmd: "setHost"; player?: string | null }
+  | { cmd: "setEconomy"; available: boolean }
+  /** The economy refuses the next `times` transfers (default 1, -1 every one, 0 none again); each is logged as REJECTED. */
+  | { cmd: "refuseTransfers"; times?: number }
   /**
    * The server crashes and comes back: the computer restarts and the sessions, last touch, approvals and allowances
    * the server held in memory are gone. `onReboot`: the next reboot of this computer, whatever causes it, is that crash.

@@ -17,13 +17,13 @@ import { loadPackData } from "../../pack-data.mjs";
 
 const data = await loadPackData();
 
-test("the build reads 3 Minecraft versions and 38 addons with their names", () => {
+test("the build reads 3 Minecraft versions and 39 addons with their names", () => {
   assert.deepEqual(
     data.versions.map((v) => `${v.mc}=${v.cc}`),
     ["1.18.2=1.101.3", "1.20.1=1.121.0", "1.21.1=1.121.0"],
   );
   assert.equal(data.newest, "1.21.1");
-  assert.equal(data.addons.length, 38);
+  assert.equal(data.addons.length, 39);
   const ap = data.addons.find((a) => a.id === "advanced-peripherals");
   assert.equal(ap.name, "Advanced Peripherals");
   assert.ok(ap.types.includes("playerDetector"));
@@ -133,5 +133,18 @@ test("the status bar summary", () => {
   assert.equal(
     packLabel(data, { mc: "", addons: "none" }),
     "1.21.1 · 0/19 addons",
+  );
+  // vhcctweaks is opt-in: never in "all", and counted once named
+  assert.equal(
+    packLabel(data, { mc: "1.18.2", addons: "all,vhcctweaks" }),
+    "1.18.2",
+  );
+  assert.equal(
+    addonSpec(
+      data,
+      [...enabledAddons(data, "all", "1.18.2").on, "vhcctweaks"],
+      "1.18.2",
+    ),
+    "all,vhcctweaks",
   );
 });

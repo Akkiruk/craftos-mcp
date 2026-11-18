@@ -9,9 +9,16 @@
 // The web extension (package.json `browser`, src/web) is a second bundle, dist/web/extension.js, for VS Code's web
 // extension host (a Web Worker: no Node). web-assets.mjs lays out what it loads besides: the ROM overlay and the
 // browser engine.
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { build, context } from "esbuild";
 import { loadPackData } from "./pack-data.mjs";
 import { buildWebAssets } from "./web-assets.mjs";
@@ -82,7 +89,7 @@ if (existsSync(ADDONS_SOURCE)) {
     `data:text/javascript;base64,${Buffer.from(out.outputFiles[0].text).toString("base64")}`
   );
   const addons = ADDONS.map(
-    ({ id, name, versions, types, worldKeys, requires, docs }) => ({
+    ({ id, name, versions, types, worldKeys, requires, docs, optIn }) => ({
       id,
       name,
       versions,
@@ -90,6 +97,7 @@ if (existsSync(ADDONS_SOURCE)) {
       ...(worldKeys ? { worldKeys } : {}),
       ...(requires ? { requires } : {}),
       ...(docs ? { docs } : {}),
+      ...(optIn ? { optIn } : {}),
     }),
   );
   writeFileSync(
@@ -104,6 +112,33 @@ if (existsSync(ADDONS_SOURCE)) {
   );
 }
 
+// - the agent instruction files (AGENTS.md, the skills, Copilot's, Cursor's and Gemini's), as __CRAFTOS_AGENT_DOCS__
+//   for Add Agent Instructions to Workspace (src/agentDocs.ts). scripts/build-agent-docs.mjs names them and writes
+//   them, to scripts/public/ in the private tree and to the root of the public copy. Without it the command says it
+//   has none.
+const AGENT_DOCS_SCRIPT = join(repo, "scripts", "build-agent-docs.mjs");
+const agentDocs = [];
+if (existsSync(AGENT_DOCS_SCRIPT)) {
+  const { TARGETS, defaultOutDir, forWorkspace } = await import(
+    pathToFileURL(AGENT_DOCS_SCRIPT).href
+  );
+  const dir = defaultOutDir(repo);
+  for (const { id, label, detail, path, append } of TARGETS) {
+    const file = join(dir, path);
+    if (!existsSync(file)) {
+      console.warn(
+        `no ${file}: run node scripts/build-agent-docs.mjs (left out of Add Agent Instructions)`,
+      );
+      continue;
+    }
+    const content = forWorkspace(readFileSync(file, "utf8"));
+    agentDocs.push({ id, label, detail, path, append, content });
+  }
+} else
+  console.warn(
+    `no ${AGENT_DOCS_SCRIPT}: Add Agent Instructions has nothing to add`,
+  );
+
 const watch = process.argv.includes("--watch");
 const ctx = await context({
   entryPoints: ["src/extension.ts", "src/supervisor.ts"],
@@ -113,7 +148,10 @@ const ctx = await context({
   platform: "node",
   target: "node20",
   external: ["vscode"],
-  define: { __CRAFTOS_PACK__: JSON.stringify(await loadPackData()) },
+  define: {
+    __CRAFTOS_PACK__: JSON.stringify(await loadPackData()),
+    __CRAFTOS_AGENT_DOCS__: JSON.stringify(agentDocs),
+  },
   sourcemap: true,
   minify: !watch,
   logLevel: "info",

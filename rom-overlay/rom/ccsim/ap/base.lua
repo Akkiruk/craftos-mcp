@@ -1,8 +1,10 @@
 -- ccsim ap/base: shared plumbing for the Advanced Peripherals emulation.
 --
 -- Written from AdvancedPeripherals 0.7.30r source (BasePeripheral, OperationAbility,
--- FuelAbility, LuaConverter) and checked against the 0.7.31r jar. Server config defaults are the ones
--- 0.7.31r ships (PeripheralsConfig, SimpleFreeOperation, SphereOperation); world.ap.config overrides them.
+-- FuelAbility, LuaConverter) and checked against the 0.7.31r jar. Server config
+-- defaults are the ones 0.7.31r ships (PeripheralsConfig, SimpleFreeOperation, SphereOperation); with the vhcctweaks
+-- addon on (core.vhcc) they are those of the vhcctweaks server it was measured on, which differ only in the chat
+-- cooldown (1 s). world.ap.config overrides them.
 return function(core)
   local B = {}
 
@@ -11,7 +13,7 @@ return function(core)
     enablePlayerPosFunction = true,
     morePlayerInformation = true,
     defaultChatBoxPrefix = "AP",
-    chatMessageCooldown = 100,
+    chatMessageCooldown = core.vhcc and 1000 or 100,
     energyDetectorMaxFlow = 2147483647,
     nbtStorageMaxSize = 1048576,
     energyToFuelRate = 575,

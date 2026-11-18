@@ -1,10 +1,11 @@
 -- ccsim wiredrelay: one block on a wired network, shared by every computer on that cable, as in plain CC:Tweaked.
+-- Loaded on every computer unless its world says `vhcctweaks: "2.2.35"`, with or without the vhcctweaks mod.
 --
 -- Every computer publishes a directory entry (id, boot, loaded, peripherals) to the runner's relay, which hands the
 -- full directory to every computer that uses it. The runner names the computer that holds each peripheral on a
 -- cable (packages/runner/src/wired.ts); the others call it as requests through the relay, which run on the holder
 -- between its own events, the caller waiting for the answer the way CC waits for a main-thread task
--- (`task_complete`).
+-- (`task_complete`). ccsim/link.lua (vhcctweaks 2.2.36 linked ender modems and watches) builds on this.
 return function(core, host, modems)
   local R = {}
 
@@ -125,13 +126,14 @@ return function(core, host, modems)
       end
     end
     ownerWaits[task] = nil
-    for _, ev in ipairs(kept) do queueEvent(table.unpack(ev, 1, ev.n)) end
+    for _, ev in ipairs(kept) do core.keepFor(ev) end
   end
 
   -- ===== requests to other computers =====
 
-  --- Run a request on computer `id` and return its results. `keep`: events that arrive meanwhile are kept (a call
-  --- that runs on the computer thread); otherwise they are lost, as in a main-thread call.
+  --- Run a request on computer `id` and return its results. `keep`: events that arrive meanwhile are kept for this
+  --- coroutine's next waits (a call that runs on the computer thread, core.keepFor); otherwise they are lost to it, as in
+  --- a main-thread call. The program's other coroutines get them as usual either way.
   function R.request(id, msg, keep)
     local entry = entryFor(id)
     if (not entry or not entry.loaded) and holderCount[id] then
@@ -164,7 +166,7 @@ return function(core, host, modems)
       end
     end
     pending[msg.rid] = nil
-    for _, ev in ipairs(kept) do queueEvent(table.unpack(ev, 1, ev.n)) end
+    for _, ev in ipairs(kept) do core.keepFor(ev) end
     if not waiting.ok then error(waiting.err, 0) end
     return table.unpack(waiting.values, 1, waiting.values.n)
   end
@@ -225,6 +227,16 @@ return function(core, host, modems)
     return moved
   end
   function ops.size(msg) return inventoryOf(msg.name).size() end
+  -- 2.2.37: a container item in one of this computer's inventories (vhcc237.lua inv.__inner)
+  function ops.inner(msg)
+    local inner = inventoryOf(msg.name).__inner
+    local fn = inner and inner[msg.fn]
+    if not fn then error("Target '" .. tostring(msg.name) .. "' is not an inventory", 0) end
+    local args = msg.args or { n = 0 }
+    local results = table.pack(fn(msg.slot, msg.inner, table.unpack(args, 1, args.n or #args)))
+    if msg.fn ~= "blocked" and msg.fn ~= "peek" then core.touch() end
+    return table.unpack(results, 1, results.n)
+  end
 
   handleRequest = function(msg)
     if msg.kind == "evt" then

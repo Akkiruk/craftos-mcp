@@ -18,6 +18,17 @@ on:
         description: "Only publish this existing release (a tag such as v0.3.0) to npm; leave empty for a full build"
         required: false
         default: ""
+      tag:
+        description: "With engines_from: the release to make (v1.2.3), at the commit this runs on (main)"
+        required: false
+        default: ""
+      engines_from:
+        # A release whose engine did not change (nothing under engine/ since): reuse that release's engine zips
+        # instead of building them again on four runners. Everything else (desktop installers, npm, the registry)
+        # is built from this commit as usual.
+        description: "Reuse the engine zips of this earlier release (a tag such as v0.4.1); needs tag"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -28,7 +39,7 @@ env:
 
 jobs:
   build:
-    if: ${{ !inputs.npm_only }}
+    if: ${{ !inputs.npm_only && !inputs.engines_from }}
     strategy:
       fail-fast: false
       matrix:
@@ -206,9 +217,38 @@ jobs:
             dist-release/*.zip.sha256
           if-no-files-found: error
 
+  # engines_from: the earlier release's zips under this release's names, as the build job's artifacts would be
+  reuse:
+    if: ${{ inputs.engines_from != '' && startsWith(inputs.tag, 'v') && !inputs.npm_only }}
+    strategy:
+      matrix:
+        platform: [windows-x64, linux-x64, macos-arm64, macos-x64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch and rename
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FROM: ${{ inputs.engines_from }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p old dist-release
+          gh release download "$FROM" --repo "$GITHUB_REPOSITORY" --dir old             --pattern "craftos-mcp-$FROM-${{ matrix.platform }}.zip" --pattern "craftos-mcp-$FROM-${{ matrix.platform }}.zip.sha256"
+          (cd old && sha256sum -c *.sha256)
+          name="craftos-mcp-$TAG-${{ matrix.platform }}.zip"
+          cp "old/craftos-mcp-$FROM-${{ matrix.platform }}.zip" "dist-release/$name"
+          (cd dist-release && sha256sum "$name" > "$name.sha256" && cat "$name.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            dist-release/*.zip
+            dist-release/*.zip.sha256
+          if-no-files-found: error
+
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, reuse]
+    if: ${{ always() && (needs.build.result == 'success' || needs.reuse.result == 'success') && (startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -221,15 +261,17 @@ jobs:
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           ls -l dist-release
           # every zip has its checksum, and it holds
           for z in dist-release/*.zip; do test -f "$z.sha256" || { echo "no checksum for $z" >&2; exit 1; }; done
           (cd dist-release && sha256sum -c *.zip.sha256)
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist-release/*.zip dist-release/*.zip.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/*.zip dist-release/*.zip.sha256 --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$GITHUB_REF_NAME" dist-release/*.zip dist-release/*.zip.sha256 --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+            # on a tag push the tag is there; from engines_from it is made here, at this run's commit
+            gh release create "$TAG" dist-release/*.zip dist-release/*.zip.sha256 --repo "$GITHUB_REPOSITORY" --title "$TAG" --target "$GITHUB_SHA" --generate-notes
           fi
 
   # The desktop app (apps/desktop): an installer per platform with its own runtime, that platform's engine (from the
@@ -239,8 +281,8 @@ jobs:
   # is installed, used and uninstalled. A separate job from the engine zips, so a desktop problem never holds back
   # the zips or the npm package.
   desktop:
-    needs: build
-    if: ${{ !inputs.npm_only }}
+    needs: [build, reuse]
+    if: ${{ always() && !inputs.npm_only && (needs.build.result == 'success' || needs.reuse.result == 'success') }}
     strategy:
       fail-fast: false
       matrix:
@@ -309,10 +351,11 @@ jobs:
       - name: Attach the installers, then check every one is there
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           ls -l dist-desktop
-          gh release upload "$GITHUB_REF_NAME" dist-desktop/* --clobber --repo "$GITHUB_REPOSITORY"
-          version="${GITHUB_REF_NAME#v}"
+          gh release upload "$TAG" dist-desktop/* --clobber --repo "$GITHUB_REPOSITORY"
+          version="${TAG#v}"
           missing=0
           # latest.yml and latest-linux.yml are what the installed app reads to update itself
           for want in \
@@ -321,7 +364,7 @@ jobs:
             "CraftOS-$version-linux-x64.AppImage" "CraftOS-$version-linux-x64.deb" latest-linux.yml; do
             if [ ! -s "dist-desktop/$want" ]; then echo "missing: $want" >&2; missing=1; fi
           done
-          on_release="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets -q '[.assets[].name | select(startswith("CraftOS-") or startswith("latest"))] | length')"
+          on_release="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '[.assets[].name | select(startswith("CraftOS-") or startswith("latest"))] | length')"
           echo "$on_release desktop files on the release"
           if [ "$on_release" -lt 8 ]; then echo "the release has $on_release desktop files, expected 8" >&2; missing=1; fi
           exit "$missing"
@@ -337,7 +380,7 @@ jobs:
       contents: read
       id-token: write
     env:
-      TAG: ${{ inputs.npm_only || github.ref_name }}
+      TAG: ${{ inputs.npm_only || inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

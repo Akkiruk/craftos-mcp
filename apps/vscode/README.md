@@ -68,6 +68,12 @@ block world, and peripherals from Create, Mekanism, Advanced Peripherals, Tom's 
   add a `craftos` entry to `.cursor/mcp.json`, `~/.cursor/mcp.json` or `~/.codeium/windsurf/mcp_config.json`. It
   never overwrites an entry that is already there. Run in CraftOS and the Testing view work the same in both.
 - **Copy MCP Server JSON** for Claude Desktop or any other MCP client.
+- **Add Agent Instructions to Workspace** writes the guide that teaches an agent the emulator's tools, its test loop
+  and the addons into your folder, for the agents you pick: `AGENTS.md` (Codex, Cursor, Copilot and others), the
+  `cc-tweaked-dev` skill for Codex (`.agents/skills/`), Copilot (`.github/skills/`) and Claude Code
+  (`.claude/skills/`), `.github/copilot-instructions.md`, a Cursor rule in `.cursor/rules/` and `GEMINI.md`. A file
+  that is already there is never changed without asking: append to it (where that makes sense), overwrite it or skip
+  it.
 - **Lua autocomplete for CC:Tweaked.** With the [Lua extension](https://marketplace.visualstudio.com/items?itemName=sumneko.lua)
   (`sumneko.lua`) installed, every CC:Tweaked API, the peripherals, the mod peripherals the emulator knows and
   `ccunit` complete, show their docs on hover and get type checked, instead of a wall of "Undefined global `term`".
@@ -267,7 +273,8 @@ that, pick **Not Here** and use a `.luarc.json` pointing at your own copy of the
 
 Run in CraftOS, Debug in CraftOS, New Test for This File, New World for This File, Open in World Editor, Pick
 Minecraft Version, Pick Addons, Set Up Lua Types, Remove Lua Types, Watch the Agent's Computers, Restart MCP Server,
-Show Log, Add to Claude Code, Add to Cursor / Windsurf MCP Config, Copy MCP Server JSON, Refresh Tests, Open
+Show Log, Add to Claude Code, Add to Cursor / Windsurf MCP Config, Copy MCP Server JSON, Add Agent Instructions to
+Workspace, Refresh Tests, Open
 Settings, Show Menu and Get Started, all under `craftos-mcp:` in the Command Palette. Most are in the status bar
 item's menu too.
 

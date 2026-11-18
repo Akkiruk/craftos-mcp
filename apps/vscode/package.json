@@ -168,6 +168,11 @@
         "category": "craftos-mcp"
       },
       {
+        "command": "craftos-mcp.addAgentInstructions",
+        "title": "Add Agent Instructions to Workspace",
+        "category": "craftos-mcp"
+      },
+      {
         "command": "craftos-mcp.newTest",
         "title": "New Test for This File",
         "category": "craftos-mcp"
@@ -415,6 +420,10 @@
         {
           "command": "craftos-mcp.addToEditor",
           "when": "!isWeb"
+        },
+        {
+          "command": "craftos-mcp.addAgentInstructions",
+          "when": "!isWeb && workspaceFolderCount > 0"
         },
         {
           "command": "craftos-mcp.pickMinecraftVersion",

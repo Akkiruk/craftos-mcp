@@ -155,6 +155,7 @@ export async function runProject(project, options) {
   /** A plain CC:Tweaked computer: no other mod, on the Minecraft version asked for. */
   const worldOf = (spec, computerId) => ({
     addons: "none",
+    vhcctweaks: false,
     version: options.mc,
     // Lua at the speed of CC:Tweaked's own VM, about 8 times slower than the engine's: demos and games time
     // themselves, and some pick a code path by how fast the computer is

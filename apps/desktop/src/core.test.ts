@@ -75,7 +75,10 @@ describe("a project folder", () => {
     expect(p.tests).toEqual(["tests/a.test.lua"]);
     expect(p.run).toBe("");
     expect(p.addons).toEqual(
-      runner.addonsFor(runner.DEFAULT_MC).map((a: { id: string }) => a.id),
+      runner
+        .addonsFor(runner.DEFAULT_MC)
+        .filter((a: { optIn?: boolean }) => !a.optIn)
+        .map((a: { id: string }) => a.id),
     );
     expect(existsSync(join(dir, "craftos.json"))).toBe(false);
   });

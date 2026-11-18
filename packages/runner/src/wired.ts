@@ -232,13 +232,15 @@ export function resolveWired(
   );
   const blockPos = (m: WiredModem): BlockPos => m.spec.block!;
 
-  // A peripheral on a cable is one block, so one computer holds it and the others call it through the relay
-  // (ccsim/wiredrelay.lua): the first running computer on that network.
+  // A peripheral on a cable is one block, so one computer holds it and the others call it through the relay: the first
+  // running computer on that network that uses the relay (ccsim/wiredrelay.lua): 2.2.36 or vhcctweaks off, as plain
+  // CC:Tweaked shares the block too. Only 2.2.35 computers keep a copy each.
   const owners = new Map<string, number>();
   for (const modem of modems) {
     const { world, running } = computers[modem.computer]!;
     const net = union.find(modem.key);
-    if (running === false || owners.has(net)) continue;
+    if (running === false || world.vhcctweaks === "2.2.35" || owners.has(net))
+      continue;
     owners.set(net, world.computerId ?? 0);
   }
 

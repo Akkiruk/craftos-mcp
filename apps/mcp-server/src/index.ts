@@ -305,9 +305,13 @@ export function unknownKey(key: string): string {
   );
 }
 
+const VHCC_DEFAULT =
+  'Default: off (false), or "2.2.36" when the world\'s addons (or CRAFTOS_ADDONS) name vhcctweaks: it is an opt-in addon, never part of "all"';
+
 const playerSchema = z.object({
   name: z.string(),
   uuid: z.string().optional(),
+  balance: z.number().int().min(0).optional().describe("Vault token balance."),
   online: z.boolean().optional().describe("Default true."),
   x: z.number().optional(),
   y: z.number().optional(),
@@ -317,6 +321,61 @@ const playerSchema = z.object({
   dimension: z.string().optional(),
   health: z.number().optional(),
   maxHealth: z.number().optional(),
+  vaultLevel: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Vault Hunters level for 2.2.36's ccvault.getPlayerVaultLevel; omit for no vault data.",
+    ),
+  onOtherServer: z
+    .boolean()
+    .optional()
+    .describe(
+      "2.2.36: online on another server of the network; the economy knows them, this server treats them as offline.",
+    ),
+  equipment: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "What the player wears and holds, for 2.2.36's ccvault.getPlayerEquipment: head, chest, legs, feet, mainhand, offhand (items as in chests, vaultData and nbt included) and curios {slotType: {index: item}}. 2.2.37 adds hotbar {1-9: item}, selectedHotbarSlot (default 1; mainhand is that slot's item) and weaponHotbarSlot (overrides the counted weapon, otherwise the best Gear Score among identified main-hand gear on the hotbar).",
+    ),
+  gearPower: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "2.2.37, for ccvault.getPlayerGearPower: {slots: {head, chest, legs, feet, weapon, offhand} (scores 0-1500), slotDetails: {slot: {status, item, name, hotbarSlot, hotbarWeapons}} or false, peak}. The scores are the world's; gearScore, gearPower and temper are derived.",
+    ),
+  temper: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "2.2.37, for ccvault.getPlayerTemper: {dust, might, magic, vigor, tool: {level, multiplier, power}, bossesBeaten, trialsRecord, favorsUsed}. The multipliers are the world's (the Temper ladder is not modelled).",
+    ),
+  reputation: z
+    .record(z.string(), z.number())
+    .optional()
+    .describe(
+      "2.2.37, for ccvault.getPlayerReputation: {velara, tenos, wendarr, idona}, each default 0.",
+    ),
+  greedTier: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("2.2.37: the player's greed tier, default 0."),
+  skills: z
+    .union([z.record(z.string(), z.unknown()), z.literal(false)])
+    .optional()
+    .describe(
+      '2.2.37, for ccvault.getPlayerSkills: {abilities, talents, expertises, prestige: [{id, name?, learned, level? (gear bonuses included), maxLevel?, specialization?, specializationName?, specializationIndex?, selected?}] or false (unreadable), selectedAbility?, spentPoints?}. Offline players get level = learned and no selected. false: "skills not available".',
+    ),
+  stats: z
+    .union([z.record(z.string(), z.unknown()), z.literal(false)])
+    .optional()
+    .describe(
+      '2.2.37, for ccvault.getPlayerStats: attribute id to a number or {value | uncapped, limit?, name?, display?, percent?, extra?}. Capped stats (cooldown reduction, block, resistance, area of effect, durability wear reduction, lucky hit) get limit (default the base cap), uncapped and hitLimit. false: "stats not available".',
+    ),
 });
 
 const peripheralSchema = z
@@ -374,11 +433,34 @@ const worldSchema = z
         `Mods besides CC:Tweaked this world has: ${ADDONS.map((a) => a.id).join(", ")}, or "all" / "none". Default: the server's CRAFTOS_ADDONS setting (see craftos_info). Using a peripheral of an addon that is off is an error, so a program cannot lean on a mod the pack does not have.`,
       ),
     players: z.array(playerSchema).optional(),
+    host: z
+      .string()
+      .optional()
+      .describe(
+        'Computer owner ("host" in ccvault). Omit for an unowned computer.',
+      ),
+    interacting: z
+      .string()
+      .optional()
+      .describe('Player currently using the computer ("player" in ccvault).'),
+    autoApprove: z
+      .boolean()
+      .optional()
+      .describe(
+        "Approve ccvault.requestAuth() at once, like clicking [APPROVE].",
+      ),
+    economyAvailable: z.boolean().optional(),
     computerId: z.number().int().min(0).optional(),
     kind: z
       .enum(["block", "pocket"])
       .optional()
-      .describe('"pocket" gives a 26x20 terminal.'),
+      .describe('"pocket" gives a 26x20 terminal and no auto-ownership.'),
+    holdInteraction: z
+      .boolean()
+      .optional()
+      .describe(
+        "Keep the player's interaction fresh like an open GUI (default true for pocket computers; block computers expire after 30 s without a click or monitor touch).",
+      ),
     terminal: z
       .object({
         width: z.number().int().min(1).max(255),
@@ -387,13 +469,96 @@ const worldSchema = z
       .optional(),
     config: z
       .object({
+        nonceExpirySeconds: z.number().optional(),
+        authIdleTimeoutMinutes: z.number().optional(),
+        maxTransferAmount: z.number().optional(),
+        interactionStaleSeconds: z.number().optional(),
+        maxHistoryResults: z.number().optional(),
         modemRange: z.number().optional(),
         modemHighAltitudeRange: z.number().optional(),
         modemRangeDuringStorm: z.number().optional(),
         modemHighAltitudeRangeDuringStorm: z.number().optional(),
         modemWorldTop: z.number().optional(),
+        maxLinksPerComputer: z.number().optional(),
+        maxBatchMoves: z.number().optional(),
+        batchTimeBudgetMicros: z.number().optional(),
+        maxWatchesPerComputer: z.number().optional(),
+        maxAllowanceMinutes: z.number().optional(),
+        batchMoveCostMicros: z
+          .number()
+          .optional()
+          .describe(
+            "Emulator only (2.2.36): what one moveMany move costs against batchTimeBudgetMicros, default 10.",
+          ),
+        gearScore: z
+          .boolean()
+          .optional()
+          .describe(
+            "2.2.37 vaultDetails.gearScore, default true: Gear Score fields on identified gear.",
+          ),
+        gearScoreLines: z
+          .boolean()
+          .optional()
+          .describe(
+            "2.2.37 vaultDetails.gearScoreLines, default true: score fields on each modifier.",
+          ),
+        containerItems: z
+          .boolean()
+          .optional()
+          .describe(
+            '2.2.37 inventory.containerItems, default true. false: listContents, pushContents, moveMany inner moves and identify with an inner slot give "container items are turned off".',
+          ),
+        identify: z
+          .boolean()
+          .optional()
+          .describe(
+            '2.2.37 inventory.identify, default true. false: an inventory\'s identify gives "identify is turned off".',
+          ),
+        maxBytesPerComputer: z
+          .number()
+          .optional()
+          .describe(
+            "vhccFiles.maxBytesPerComputer, default 16777216; 2.2.37's vhcc.getUsage reports it.",
+          ),
+        gearPowerMinLevel: z
+          .number()
+          .optional()
+          .describe(
+            "Emulator only (2.2.37): the vault level Gear Power starts at, default 100.",
+          ),
       })
       .optional(),
+    economyDelayTicks: z
+      .number()
+      .min(0)
+      .optional()
+      .describe(
+        "2.2.36: server ticks the economy thread takes per money call (transfer, getPlayerBalance, getBalance of someone not online here); the caller waits for vhcc_economy_done. Default 0.",
+      ),
+    internalErrors: z
+      .record(z.string(), z.number().int())
+      .optional()
+      .describe(
+        '2.2.36 tests: ccvault function name to how many calls answer nil, "internal error" (-1: every call).',
+      ),
+    gearPowerAvailable: z
+      .boolean()
+      .optional()
+      .describe(
+        '2.2.37: false is a server whose Vault Hunters is older than 3.21.74: "gear power not available", "temper not available", no Gear Score fields on gear. Default true.',
+      ),
+    identifyAvailable: z
+      .boolean()
+      .optional()
+      .describe(
+        'Emulator only (2.2.37): false is a server whose Vault Hunters cannot identify from a computer: identify gives "identify not available" once every other check passed. Default true.',
+      ),
+    vhcctweaks: z
+      .union([z.enum(["2.2.35", "2.2.36", "2.2.37"]), z.literal(false)])
+      .optional()
+      .describe(
+        `Which vhcctweaks the server runs (Minecraft 1.18.2 only). ${VHCC_DEFAULT}. With it: linked ender modems (link/unlink/getLinks, remote peripherals as <id>:<name>), listDetailed/moveMany, inventory watch()/inventory_changed, allowances, getPlayerVaultLevel/getPlayerEquipment, money calls that wait for the economy thread; see docs/vhcctweaks.md. "2.2.35" opts out (only for comparing with old measurements). "2.2.37" is 2.2.36 plus the 2.2.37 API as the emulator models it from the mod's spec: getPlayerGearPower/getPlayerTemper/getPlayerReputation/getPlayerSkills/getPlayerStats, getPlayerEquipment hotbar and counted weapon, getLimits (statCaps too), vhcc.getUsage, moveMany expectName, Gear Score in item details, and on every inventory listContents(slot [, detailed]), pushContents(to, slot, innerSlot [, limit [, toSlot]]), moveMany moves with inner = n (items inside a backpack, shulker box or vault barrel in a slot: give the item contents = {innerSlot: item}, optional containerSlots, itemHandler, outputFilter {allow, deny}; a peripheral canChangeItems: false refuses changes) and identify(slot, player [, innerSlot]) for vaultData state UNIDENTIFIED pieces (needs the player online and approved on this computer; identifiesTo or vaultData.rollPool say what it rolls, otherwise a seeded plausible roll). false: no vhcctweaks at all, plain CC:Tweaked with Advanced Peripherals and Mekanism behaving as shipped.`,
+      ),
     position: z
       .object({
         x: z.number().optional(),
@@ -443,6 +608,12 @@ const worldSchema = z
       .passthrough()
       .optional()
       .describe("Overrides of the Advanced Peripherals server config."),
+    vhccStore: z
+      .string()
+      .optional()
+      .describe(
+        "Persistent vhcc_data store shared between runs; omit for a fresh one.",
+      ),
     turtle: z
       .object({
         x: z.number().optional(),
@@ -544,7 +715,7 @@ const worldSchema = z
   .passthrough()
   .optional()
   .describe(
-    "Simulated world around the computer: players, virtual inventories, Advanced Peripherals and Mekanism blocks, modems, environment, and a turtle's block world.",
+    "Simulated world around the computer: players, virtual inventories, Advanced Peripherals and Mekanism blocks, modems, environment, and a turtle's block world. With the opt-in vhcctweaks addon (Minecraft 1.18.2: world.vhcctweaks or addons naming vhcctweaks) also token balances, the computer's host, who is interacting, and the ccvault and vhcc APIs with that mod's behaviour (docs/vhcctweaks.md).",
   );
 
 /** The world's JSON Schema with every field described: craftos_help {topic:"world"} and craftos://schema/world. */
@@ -1314,11 +1485,28 @@ const deltaSchema = z
   .describe("Return only what changed since the previous call.");
 
 const SIM_COMMANDS = [
+  "interact",
+  "approve",
+  "revoke",
+  "setBalance",
+  "setVaultLevel",
+  "setEquipment",
+  "setOnOtherServer",
+  "setGearPower",
+  "setTemper",
+  "setReputation",
+  "setGreedTier",
+  "setSkills",
+  "setStats",
+  "internalError",
+  "setEconomyDelay",
   "addPlayer",
   "join",
   "leave",
   "setPlayerPos",
   "setComputerPos",
+  "setHost",
+  "setEconomy",
   "chat",
   "playerClick",
   "setItem",
@@ -1353,7 +1541,7 @@ const SIM_COMMANDS = [
 tool(
   "craftos_sim_command",
   {
-    description: `Change the simulated world while a session runs. Commands: addPlayer {name}, join/leave {player}, setPlayerPos {player, x, y, z, dimension?}, setComputerPos {x?, y?, z?, dimension?} (move this computer, modems included; on a network use craftos_network_update), unload / load (the computer's chunk unloads and it stops; load boots it afresh), chat {player, message} (fires a chat event), playerClick {player}, setItem {peripheral, slot, item|null}, setEnergy {peripheral, energy} (what a generic energy_storage holds), setFluid {peripheral, tank? (1-based, default 1), fluid {name, amount}|null} (what one tank holds), setEnergyTransferRate {peripheral, rate}, setRedstoneInput {peripheral, side, level}, completeCraft {peripheral, name?} (finish an ME/RS crafting job), setNetworkConnected {peripheral, connected}, setEnvironment {values:{time, raining, thunder, ...}}, addEntity {entity}, attachPeripheral / detachPeripheral / resizeMonitor, insertDisk {peripheral, disk} / ejectDisk {peripheral} (a player puts a floppy into a drive or takes it out: disk / disk_eject), Mekanism QIO: qioSetPowered {block, powered}, qioSetDrive {block, slot, drive|null}, qioSetSecurity {block, mode}, qioSetUpgrades {block, speed}, qioInsert/qioExtract {frequency, item}, Quantum Entangloporter: qeInsert {frequency, item, public?, owner?}, qeExtract {frequency, count?}, qeSetLoaded {block, loaded} (see docs/mekanism-qio.md), seed {value} (pin math.random), advance {seconds} (jump the virtual clock and fire due timers). Returns the sim state, or with delta:true only what changed. Commands are applied when the program next waits for an event; this call returns once they are.`,
+    description: `Change the simulated world while a session runs. Commands: addPlayer {name}, join/leave {player}, setPlayerPos {player, x, y, z, dimension?}, setComputerPos {x?, y?, z?, dimension?} (move this computer, modems included; on a network use craftos_network_update), unload / load (the computer's chunk unloads and it stops; load boots it afresh), chat {player, message} (fires a chat event), playerClick {player}, setItem {peripheral, slot, item|null}, setEnergy {peripheral, energy} (what a generic energy_storage holds), setFluid {peripheral, tank? (1-based, default 1), fluid {name, amount}|null} (what one tank holds), setEnergyTransferRate {peripheral, rate}, setRedstoneInput {peripheral, side, level}, completeCraft {peripheral, name?} (finish an ME/RS crafting job), setNetworkConnected {peripheral, connected}, setEnvironment {values:{time, raining, thunder, ...}}, addEntity {entity}, attachPeripheral / detachPeripheral / resizeMonitor, insertDisk {peripheral, disk} / ejectDisk {peripheral} (a player puts a floppy into a drive or takes it out: disk / disk_eject), Mekanism QIO: qioSetPowered {block, powered}, qioSetDrive {block, slot, drive|null}, qioSetSecurity {block, mode}, qioSetUpgrades {block, speed}, qioInsert/qioExtract {frequency, item}, Quantum Entangloporter: qeInsert {frequency, item, public?, owner?}, qeExtract {frequency, count?}, qeSetLoaded {block, loaded} (see docs/mekanism-qio.md), seed {value} (pin math.random), advance {seconds} (jump the virtual clock and fire due timers). With the vhcctweaks addon also: interact {player} (right-click the computer), approve {player?, nonce?} (click [APPROVE]), revoke {player?}, setBalance {player, balance}, setHost {player?}, setEconomy {available}, rcExec {player, code}, setVaultLevel / setEquipment / setOnOtherServer (2.2.36), setGearPower / setTemper / setReputation / setGreedTier / setSkills / setStats (2.2.37), internalError {function, times?}, setEconomyDelay {ticks}, refuseTransfers {times?}; craftos_help {topic:"world"} has their shapes. Returns the sim state, or with delta:true only what changed. Commands are applied when the program next waits for an event; this call returns once they are.`,
     inputSchema: {
       id: sessionId,
       command: z
@@ -1397,7 +1585,7 @@ tool(
   "craftos_sim_state",
   {
     description:
-      "Read the simulated world state of a session: chat messages, the computer's own redstone (redstone.outputs per side, inputs, bundledOutputs), virtual inventory contents, peripheral state (speakers, detectors, ME/RS bridges, QIO), the turtle and its block world. delta:true returns only what changed since the previous sim call (changed values as {from,to}, new chat entries as `appended`), which is usually a few lines.",
+      "Read the simulated world state of a session: chat messages, the computer's own redstone (redstone.outputs per side, inputs, bundledOutputs), virtual inventory contents, peripheral state (speakers, detectors, ME/RS bridges, QIO), the turtle and its block world; with the vhcctweaks addon also token balances, the transaction ledger, the host and who is authenticated. delta:true returns only what changed since the previous sim call (changed values as {from,to}, new chat and ledger entries as `appended`), which is usually a few lines.",
     inputSchema: { id: sessionId, delta: deltaSchema },
   },
   async ({ id, delta }) => {

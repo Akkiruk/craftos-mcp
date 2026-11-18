@@ -243,6 +243,17 @@ return function(core, B)
       end)
     end
 
+    if core.vhcc then
+      -- vhcctweaks cancels both formatted-message methods before AP runs them (no cooldown used)
+      function m.sendFormattedMessage()
+        return nil, "sendFormattedMessage is disabled on this server for security"
+      end
+
+      function m.sendFormattedMessageToPlayer()
+        return nil, "sendFormattedMessageToPlayer is disabled on this server for security"
+      end
+      return self
+    end
 
     -- Advanced Peripherals' own formatted messages: the message is a JSON text component (Component.Serializer). The
     -- chat log keeps its plain text (text, translate or keybind of each part, then its extras), after the prefix.

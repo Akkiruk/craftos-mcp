@@ -79,7 +79,8 @@
               "finer-peripherals",
               "ducky-peripherals",
               "more-peripherals",
-              "classic-peripherals"
+              "classic-peripherals",
+              "vhcctweaks"
             ]
           },
           "uniqueItems": true

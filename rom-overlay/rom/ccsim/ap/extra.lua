@@ -15,6 +15,9 @@
 -- turtle placed. docs/advanced-peripherals.md ("Geo scanner, block reader, inventory manager, chunky turtle").
 return function(core, B)
   local F = {}
+  -- The vhcctweaks server the addon was measured on turns all four off in its config: with the addon on none of them
+-- exists (docs/advanced-peripherals.md).
+  if core.vhcc then return F end
 
   local floor = math.floor
   local SPHERE = "de.srendi.advancedperipherals.common.addons.computercraft.operations.SphereOperation"

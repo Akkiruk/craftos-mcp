@@ -32,6 +32,7 @@ import {
   romDirFor,
   startWebApp,
   terminalSize,
+  vhccVersion,
   worldJson,
   versionChoices,
   worldVersion,
@@ -506,6 +507,11 @@ async function openOne(
   const resultsDir = join(dir, "results");
   mkdirSync(resultsDir, { recursive: true });
   writeFileSync(join(resultsDir, "world.json"), worldText);
+  const vhccOn =
+    vhccVersion(world, version) !== false &&
+    existsSync(join(romDir, "rom", "ccsim", "vhcc.lua"));
+  const vhccDir = join(dir, "vhcc_data");
+  if (vhccOn) mkdirSync(vhccDir, { recursive: true });
   const size = terminalSize(world);
   mkdirSync(join(dir, "config"), { recursive: true });
   writeFileSync(
@@ -569,6 +575,7 @@ async function openOne(
     // as the headless runs: the sim can mount a mod's drive writable
     "-o",
     "mount_mode=ro",
+    ...(vhccOn ? ["--mount-rw", `.vhcc_data=${vhccDir}`] : []),
     ...(speed !== 1 ? ["--time-scale", String(speed)] : []),
     "--script",
     bootPath,

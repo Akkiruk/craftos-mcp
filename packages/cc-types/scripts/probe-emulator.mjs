@@ -62,6 +62,8 @@ async function probe(label, world, timeoutMs = 600_000) {
     program: "probe.lua",
     world: {
       ...world,
+      // only the mods this file is about
+      vhcctweaks: false,
     },
     monitors: [{ name: "monitor_0", width: 2, height: 2 }],
     timeoutMs,

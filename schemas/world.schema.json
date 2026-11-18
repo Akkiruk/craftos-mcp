@@ -61,7 +61,8 @@
             "finer-peripherals",
             "ducky-peripherals",
             "more-peripherals",
-            "classic-peripherals"
+            "classic-peripherals",
+            "vhcctweaks"
           ],
           "enumDescriptions": [
             "Every addon that has a release for the world's Minecraft version.",
@@ -103,7 +104,8 @@
             "Finer Peripherals",
             "Ducky Peripherals",
             "More Peripherals",
-            "Classic Peripherals"
+            "Classic Peripherals",
+            "vhcctweaks"
           ]
         },
         {
@@ -147,7 +149,8 @@
               "finer-peripherals",
               "ducky-peripherals",
               "more-peripherals",
-              "classic-peripherals"
+              "classic-peripherals",
+              "vhcctweaks"
             ]
           },
           "uniqueItems": true
@@ -155,7 +158,7 @@
         {
           "type": "string",
           "description": "Addon ids separated by commas.",
-          "pattern": "^\\s*(?:advanced-peripherals|mekanism|mekanism-generators|create|create-additions|toms-peripherals|bigger-reactors|extreme-reactors|unlimited-peripheral-works|metaphysics|some-peripherals|cloud-solutions|cccbridge|create-cc-logistics|cc-liftlink|cc-vs|cc-shops|cc-androids|ac-drones|cc-drones|cc-drones-plus|advanced-math|lectern-hub|crickets-peripherals|cctech|embedded-computer|lakes-cc-additions|sc-peripherals|ccsecureboot|ccx|directgpu|cide|plethora|cc-link|finer-peripherals|ducky-peripherals|more-peripherals|classic-peripherals)(?:\\s*,\\s*(?:advanced-peripherals|mekanism|mekanism-generators|create|create-additions|toms-peripherals|bigger-reactors|extreme-reactors|unlimited-peripheral-works|metaphysics|some-peripherals|cloud-solutions|cccbridge|create-cc-logistics|cc-liftlink|cc-vs|cc-shops|cc-androids|ac-drones|cc-drones|cc-drones-plus|advanced-math|lectern-hub|crickets-peripherals|cctech|embedded-computer|lakes-cc-additions|sc-peripherals|ccsecureboot|ccx|directgpu|cide|plethora|cc-link|finer-peripherals|ducky-peripherals|more-peripherals|classic-peripherals))*\\s*$"
+          "pattern": "^\\s*(?:advanced-peripherals|mekanism|mekanism-generators|create|create-additions|toms-peripherals|bigger-reactors|extreme-reactors|unlimited-peripheral-works|metaphysics|some-peripherals|cloud-solutions|cccbridge|create-cc-logistics|cc-liftlink|cc-vs|cc-shops|cc-androids|ac-drones|cc-drones|cc-drones-plus|advanced-math|lectern-hub|crickets-peripherals|cctech|embedded-computer|lakes-cc-additions|sc-peripherals|ccsecureboot|ccx|directgpu|cide|plethora|cc-link|finer-peripherals|ducky-peripherals|more-peripherals|classic-peripherals|vhcctweaks)(?:\\s*,\\s*(?:advanced-peripherals|mekanism|mekanism-generators|create|create-additions|toms-peripherals|bigger-reactors|extreme-reactors|unlimited-peripheral-works|metaphysics|some-peripherals|cloud-solutions|cccbridge|create-cc-logistics|cc-liftlink|cc-vs|cc-shops|cc-androids|ac-drones|cc-drones|cc-drones-plus|advanced-math|lectern-hub|crickets-peripherals|cctech|embedded-computer|lakes-cc-additions|sc-peripherals|ccsecureboot|ccx|directgpu|cide|plethora|cc-link|finer-peripherals|ducky-peripherals|more-peripherals|classic-peripherals|vhcctweaks))*\\s*$"
         }
       ]
     },
@@ -229,6 +232,22 @@
         "$ref": "#/definitions/PlayerSpec"
       }
     },
+    "host": {
+      "description": "Computer owner (\"host\" in ccvault). Omit for an unowned computer.",
+      "type": "string"
+    },
+    "interacting": {
+      "description": "Player currently using the computer (\"player\" in ccvault).",
+      "type": "string"
+    },
+    "autoApprove": {
+      "description": "Approve ccvault.requestAuth() immediately, as if the player clicked [APPROVE].",
+      "type": "boolean"
+    },
+    "economyAvailable": {
+      "description": "false simulates Dog's PlayerShops being absent.",
+      "type": "boolean"
+    },
     "computerId": {
       "description": "The computer's id (os.getComputerID). Give each computer on a network its own.",
       "type": "integer",
@@ -236,12 +255,16 @@
       "minimum": 0
     },
     "kind": {
-      "description": "\"pocket\" computers get the pocket computer's 26x20 terminal unless `terminal` says otherwise.",
-      "markdownDescription": "\"pocket\" computers get the pocket computer's 26x20 terminal unless `terminal` says otherwise.",
+      "description": "\"pocket\" computers do not claim ownership on first interaction and get the pocket computer's 26x20 terminal unless `terminal` says otherwise.",
+      "markdownDescription": "\"pocket\" computers do not claim ownership on first interaction and get the pocket computer's 26x20 terminal unless `terminal` says otherwise.",
       "enum": [
         "block",
         "pocket"
       ]
+    },
+    "holdInteraction": {
+      "description": "Keep the interaction fresh as if the player kept the computer's GUI open. Default true for pocket computers; block computers expire after 30 s without a click.",
+      "type": "boolean"
     },
     "advanced": {
       "description": "false: a normal computer or pocket computer, with no colour (default advanced). Turtles use `turtle.advanced`.",
@@ -272,9 +295,29 @@
       "additionalProperties": false
     },
     "config": {
-      "description": "Overrides of the server config.",
+      "description": "Overrides of the vhcctweaks server config.",
       "type": "object",
       "properties": {
+        "nonceExpirySeconds": {
+          "description": "ccvault nonce lifetime, seconds.",
+          "type": "number"
+        },
+        "authIdleTimeoutMinutes": {
+          "description": "ccvault approval idle timeout, minutes.",
+          "type": "number"
+        },
+        "maxTransferAmount": {
+          "description": "Largest ccvault transfer.",
+          "type": "number"
+        },
+        "interactionStaleSeconds": {
+          "description": "Seconds before an interaction goes stale.",
+          "type": "number"
+        },
+        "maxHistoryResults": {
+          "description": "Most ccvault history results.",
+          "type": "number"
+        },
         "modemRange": {
           "description": "computercraft-server.toml modem_range: wireless range low down.",
           "type": "number",
@@ -298,9 +341,89 @@
         "modemWorldTop": {
           "description": "Height of the world for the high altitude range. Default 320 (256 in the nether and the end).",
           "type": "number"
+        },
+        "maxLinksPerComputer": {
+          "description": "vhcctweaks 2.2.36: links.maxLinksPerComputer, default 64.",
+          "type": "number"
+        },
+        "maxBatchMoves": {
+          "description": "inventory.maxBatchMoves, default 256.",
+          "type": "number"
+        },
+        "batchTimeBudgetMicros": {
+          "description": "inventory.batchTimeBudgetMicros, default 2000.",
+          "type": "number"
+        },
+        "maxWatchesPerComputer": {
+          "description": "inventory.maxWatchesPerComputer, default 64.",
+          "type": "number"
+        },
+        "maxAllowanceMinutes": {
+          "description": "ccvault.maxAllowanceMinutes, default 240.",
+          "type": "number"
+        },
+        "batchMoveCostMicros": {
+          "description": "Emulator only: what one moveMany move costs against batchTimeBudgetMicros, default 10. The batch stops after the move that takes it past the budget, so cost 1000 and budget 2000 stop every batch after 3 moves.",
+          "type": "number"
+        },
+        "gearScore": {
+          "description": "vhcctweaks 2.2.37: vaultDetails.gearScore, default true. false: identified gear gets no Gear Score fields.",
+          "type": "boolean"
+        },
+        "gearScoreLines": {
+          "description": "vhcctweaks 2.2.37: vaultDetails.gearScoreLines, default true. false: modifiers get no score fields.",
+          "type": "boolean"
+        },
+        "containerItems": {
+          "description": "vhcctweaks 2.2.37: inventory.containerItems, default true. false: listContents, pushContents, inner moves and identify with an inner slot give \"container items are turned off\".",
+          "type": "boolean"
+        },
+        "identify": {
+          "description": "vhcctweaks 2.2.37: inventory.identify, default true. false: identify gives \"identify is turned off\".",
+          "type": "boolean"
+        },
+        "maxBytesPerComputer": {
+          "description": "vhcctweaks 2.2.37: vhccFiles.maxBytesPerComputer, what vhcc.getUsage reports as the limit. Default 16777216.",
+          "type": "number"
+        },
+        "gearPowerMinLevel": {
+          "description": "Emulator only (2.2.37): Vault Hunters' own gear_power.json minLevel, the vault level Gear Power starts at. Default 100.",
+          "type": "number"
         }
       },
       "additionalProperties": false
+    },
+    "vhcctweaks": {
+      "description": "Which vhcctweaks (github.com/Akkiruk/vhcctweaks, a Vault Hunters server mod for Minecraft 1.18.2 only) the server runs: an opt-in addon. Default off (`false`), or \"2.2.36\" when world.addons, craftos.json's addons or CRAFTOS_ADDONS name `vhcctweaks` (\"all\" leaves it out). \"2.2.36\": linked ender modems, listDetailed/moveMany, inventory watches, spending allowances, money calls on the economy thread and the rest (docs/vhcctweaks.md). \"2.2.35\" opts out, for comparisons with measurements made before 2.2.36; such a computer takes no part in links. \"2.2.37\" is 2.2.36 plus the 2.2.37 API as the emulator models it from the mod's spec: getPlayerGearPower/getPlayerTemper/getPlayerReputation, getPlayerSkills/getPlayerStats, the hotbar and counted weapon in getPlayerEquipment, getLimits (statCaps too), vhcc.getUsage, moveMany's expectName and the Gear Score fields in item details, and on every inventory listContents/pushContents/moveMany `inner` (backpacks, shulker boxes and vault barrels in a slot) and identify. `false`: no vhcctweaks at all, as does a ROM without /rom/ccsim/vhcc.lua. The server is plain CC:Tweaked 1.101.3, Advanced Peripherals 0.7.31r and Mekanism on their own defaults: no ccvault, vhcc or lockdown, a plain ender modem, AP's hidden \"$\" chat channel, working sendFormatted* chat box methods, a 100 ms chat cooldown and real isSlimeChunk.",
+      "markdownDescription": "Which vhcctweaks (github.com/Akkiruk/vhcctweaks, a Vault Hunters server mod for Minecraft 1.18.2 only) the server runs: an opt-in addon. Default off (`false`), or \"2.2.36\" when world.addons, craftos.json's addons or CRAFTOS_ADDONS name `vhcctweaks` (\"all\" leaves it out). \"2.2.36\": linked ender modems, listDetailed/moveMany, inventory watches, spending allowances, money calls on the economy thread and the rest (docs/vhcctweaks.md). \"2.2.35\" opts out, for comparisons with measurements made before 2.2.36; such a computer takes no part in links. \"2.2.37\" is 2.2.36 plus the 2.2.37 API as the emulator models it from the mod's spec: getPlayerGearPower/getPlayerTemper/getPlayerReputation, getPlayerSkills/getPlayerStats, the hotbar and counted weapon in getPlayerEquipment, getLimits (statCaps too), vhcc.getUsage, moveMany's expectName and the Gear Score fields in item details, and on every inventory listContents/pushContents/moveMany `inner` (backpacks, shulker boxes and vault barrels in a slot) and identify. `false`: no vhcctweaks at all, as does a ROM without /rom/ccsim/vhcc.lua. The server is plain CC:Tweaked 1.101.3, Advanced Peripherals 0.7.31r and Mekanism on their own defaults: no ccvault, vhcc or lockdown, a plain ender modem, AP's hidden \"$\" chat channel, working sendFormatted* chat box methods, a 100 ms chat cooldown and real isSlimeChunk.",
+      "enum": [
+        false,
+        "2.2.35",
+        "2.2.36",
+        "2.2.37"
+      ]
+    },
+    "gearPowerAvailable": {
+      "description": "2.2.37: whether the server's Vault Hunters has Gear Power and Temper (3.21.74 or newer). Default true. `false` is an older one: getPlayerGearPower and getPlayerTemper answer \"gear power not available\" and \"temper not available\" for a player on this server, a saved Temper has no multipliers, and gear gets no Gear Score fields.",
+      "markdownDescription": "2.2.37: whether the server's Vault Hunters has Gear Power and Temper (3.21.74 or newer). Default true. `false` is an older one: getPlayerGearPower and getPlayerTemper answer \"gear power not available\" and \"temper not available\" for a player on this server, a saved Temper has no multipliers, and gear gets no Gear Score fields.",
+      "type": "boolean"
+    },
+    "identifyAvailable": {
+      "description": "2.2.37, emulator only: `false` is a server whose Vault Hunters cannot identify from a computer, so an inventory's identify gives \"identify not available\" once every other check passed. Default true.",
+      "markdownDescription": "2.2.37, emulator only: `false` is a server whose Vault Hunters cannot identify from a computer, so an inventory's identify gives \"identify not available\" once every other check passed. Default true.",
+      "type": "boolean"
+    },
+    "economyDelayTicks": {
+      "description": "2.2.36: server ticks the economy thread takes per money call (transfer, getPlayerBalance, getBalance of someone not online here). Default 0: the answer comes at the next timer. Raise it to hold calls open in a test.",
+      "type": "number"
+    },
+    "internalErrors": {
+      "description": "2.2.36 tests: ccvault function name -> how many calls answer `nil, \"internal error\"` (-1: every call).",
+      "markdownDescription": "2.2.36 tests: ccvault function name -> how many calls answer `nil, \"internal error\"` (-1: every call).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
     },
     "position": {
       "description": "Where the computer stands. Default x 0, y 64, z 0 in the overworld.",
@@ -438,7 +561,7 @@
           "default": 1e-7
         },
         "seed": {
-          "description": "World seed for isSlimeChunk. A long past 2^53 goes as a decimal string. Default 0.",
+          "description": "World seed for isSlimeChunk when vhcctweaks is off (on, it is always false). A long past 2^53 goes as a decimal string. Default 0.",
           "anyOf": [
             {
               "type": "string"
@@ -919,6 +1042,10 @@
           "$ref": "#/definitions/LiftLinkWorld"
         }
       ]
+    },
+    "vhccStore": {
+      "description": "Name of a persistent vhcc_data store shared between runs. Omit for a fresh, empty store per run.",
+      "type": "string"
     },
     "turtle": {
       "description": "Make this computer a turtle (docs/turtle.md). Its world is `blocks`, `fills` and `ground`.",
@@ -8166,12 +8293,12 @@
         "editMode": {
           "description": "Container edit mode.",
           "enum": [
+            "EMPTY",
             "BOTH",
             "FILL",
-            "EMPTY",
+            "empty",
             "both",
-            "fill",
-            "empty"
+            "fill"
           ],
           "default": "BOTH"
         },
@@ -9403,6 +9530,88 @@
         },
         "moonPhase": {
           "description": "Not read: getMoonId always answers 0, as the real block does.",
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "EquipmentSpec": {
+      "description": "Worn and held items. `curios` is slot type (as Curios names it, e.g. \"ring\") to index (from 1) to item.",
+      "type": "object",
+      "properties": {
+        "head": {
+          "description": "Helmet slot.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          ]
+        },
+        "chest": {
+          "description": "Chestplate slot.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          ]
+        },
+        "legs": {
+          "description": "Leggings slot.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          ]
+        },
+        "feet": {
+          "description": "Boots slot.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          ]
+        },
+        "mainhand": {
+          "description": "Held in the main hand.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          ]
+        },
+        "offhand": {
+          "description": "Held in the offhand.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          ]
+        },
+        "curios": {
+          "description": "Curios slot type (e.g. \"ring\") to index (from 1) to item.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ItemSpec"
+            }
+          }
+        },
+        "hotbar": {
+          "description": "2.2.37: hotbar slot (1-9) to item. Given, the held slot's item is `mainhand` in getPlayerEquipment. Default: the held slot holds `mainhand`.",
+          "markdownDescription": "2.2.37: hotbar slot (1-9) to item. Given, the held slot's item is `mainhand` in getPlayerEquipment. Default: the held slot holds `mainhand`.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ItemSpec"
+          }
+        },
+        "selectedHotbarSlot": {
+          "description": "2.2.37: the hotbar slot the player holds, 1 to 9.",
+          "type": "number",
+          "default": 1
+        },
+        "weaponHotbarSlot": {
+          "description": "2.2.37: the hotbar slot of the weapon Gear Power counts, overriding the emulator's pick (the best Gear Score among identified main-hand gear on the hotbar, the held slot first on a tie).",
           "type": "number"
         }
       },
@@ -10864,12 +11073,12 @@
         "editMode": {
           "description": "Container edit mode.",
           "enum": [
+            "EMPTY",
             "BOTH",
             "FILL",
-            "EMPTY",
+            "empty",
             "both",
-            "fill",
-            "empty"
+            "fill"
           ],
           "default": "BOTH"
         },
@@ -11838,6 +12047,175 @@
         "dimension": {}
       },
       "additionalProperties": false
+    },
+    "GearPowerSpec": {
+      "description": "A player's Gear Power as the world gives it (2.2.37). Gear Score, Gear Power and temper are derived.",
+      "type": "object",
+      "properties": {
+        "slots": {
+          "description": "Slot scores, 0 to 1500 each; a slot left out scores 0. `weapon` is the best weapon on the hotbar.",
+          "markdownDescription": "Slot scores, 0 to 1500 each; a slot left out scores 0. `weapon` is the best weapon on the hotbar.",
+          "type": "object",
+          "properties": {
+            "head": {
+              "description": "Helmet slot score.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1500
+            },
+            "chest": {
+              "description": "Chestplate slot score.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1500
+            },
+            "legs": {
+              "description": "Leggings slot score.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1500
+            },
+            "feet": {
+              "description": "Boots slot score.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1500
+            },
+            "weapon": {
+              "description": "Score of the best weapon on the hotbar.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1500
+            },
+            "offhand": {
+              "description": "Offhand slot score.",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1500
+            }
+          },
+          "additionalProperties": false
+        },
+        "slotDetails": {
+          "description": "Per slot, why it scores what it does. `false`: Vault Hunters could not explain the slots, so getPlayerGearPower leaves slotDetails out.",
+          "markdownDescription": "Per slot, why it scores what it does. `false`: Vault Hunters could not explain the slots, so getPlayerGearPower leaves slotDetails out.",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "head": {
+                  "description": "Helmet slot.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GearSlotDetailSpec"
+                    }
+                  ]
+                },
+                "chest": {
+                  "description": "Chestplate slot.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GearSlotDetailSpec"
+                    }
+                  ]
+                },
+                "legs": {
+                  "description": "Leggings slot.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GearSlotDetailSpec"
+                    }
+                  ]
+                },
+                "feet": {
+                  "description": "Boots slot.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GearSlotDetailSpec"
+                    }
+                  ]
+                },
+                "weapon": {
+                  "description": "The best weapon on the hotbar.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GearSlotDetailSpec"
+                    }
+                  ]
+                },
+                "offhand": {
+                  "description": "Offhand slot.",
+                  "allOf": [
+                    {
+                      "$ref": "#/definitions/GearSlotDetailSpec"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "peak": {
+          "description": "The highest Gear Power the player ever reached (peakGearPower). Default 0; the emulator never raises it.",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "GearSlotDetailSpec": {
+      "description": "What Vault Hunters says about one Gear Power slot (2.2.37 slotDetails). The score comes from `slots`.",
+      "type": "object",
+      "properties": {
+        "status": {
+          "description": "Default COUNTED for a score above 0, otherwise EMPTY (NO_WEAPON for the weapon slot).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GearSlotStatus"
+            }
+          ]
+        },
+        "item": {
+          "description": "Registry name of the item in the slot. Default: the piece in the player's `equipment` (never for the weapon).",
+          "markdownDescription": "Registry name of the item in the slot. Default: the piece in the player's `equipment` (never for the weapon).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name of the item in the slot. Default: that of the piece in `equipment`.",
+          "markdownDescription": "Display name of the item in the slot. Default: that of the piece in `equipment`.",
+          "type": "string"
+        },
+        "hotbarSlot": {
+          "description": "Weapon only: which hotbar slot holds the weapon that counts.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9
+        },
+        "hotbarWeapons": {
+          "description": "Weapon only: how many weapons were on the hotbar to choose from.",
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "GearSlotStatus": {
+      "enum": [
+        "COUNTED",
+        "EMPTY",
+        "NO_WEAPON",
+        "NOT_VAULT_GEAR",
+        "NOT_COMBAT_GEAR",
+        "INERT",
+        "GREED_TIER_LOCKED",
+        "NO_TIER_CONFIG"
+      ]
     },
     "GenericStorageSpecFields": {
       "description": "Any generic block: a chest, a tank, a battery, or a modded block with a mix of the three. A block of an unknown type is generic when it has any of size, items, tanks, fluid, energy or energyCapacity.",
@@ -12850,6 +13228,56 @@
         "displayName": {
           "description": "getItemDetail's display name. Default: the registry name in title case.",
           "type": "string"
+        },
+        "contents": {
+          "description": "vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.",
+          "markdownDescription": "vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ItemSpec"
+          }
+        },
+        "containerSlots": {
+          "description": "2.2.37: the container's slot count. Default: backpacks by tier (27, 54, 81, 108, 120), shulker boxes 27, the wooden vault barrel 36, other vault barrels 45.",
+          "type": "number"
+        },
+        "itemHandler": {
+          "description": "2.2.37: another mod's bag with a Forge item handler: a container like a backpack (its nbt stays when its contents change).",
+          "type": "boolean"
+        },
+        "outputFilter": {
+          "description": "2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason.",
+          "markdownDescription": "2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason.",
+          "type": "object",
+          "properties": {
+            "allow": {
+              "description": "Item ids that may leave; when given, nothing else may.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deny": {
+              "description": "Item ids that may never leave.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "blockEntityTag": {
+          "description": "2.2.37: a shulker box's other BlockEntityTag keys: it keeps a tag (an nbt hash) once emptied.",
+          "type": "object"
+        },
+        "identifiesTo": {
+          "description": "2.2.37 identify: the vaultData the piece has once identified. Default: a seeded, plausible roll that keeps the level and rarity rules.",
+          "type": "object"
+        },
+        "identifiable": {
+          "description": "2.2.37 identify: false is an item Vault Hunters cannot identify even with a vaultData state.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -16525,6 +16953,56 @@
         "displayName": {
           "description": "getItemDetail's display name. Default: the registry name in title case.",
           "type": "string"
+        },
+        "contents": {
+          "description": "vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.",
+          "markdownDescription": "vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ItemSpec"
+          }
+        },
+        "containerSlots": {
+          "description": "2.2.37: the container's slot count. Default: backpacks by tier (27, 54, 81, 108, 120), shulker boxes 27, the wooden vault barrel 36, other vault barrels 45.",
+          "type": "number"
+        },
+        "itemHandler": {
+          "description": "2.2.37: another mod's bag with a Forge item handler: a container like a backpack (its nbt stays when its contents change).",
+          "type": "boolean"
+        },
+        "outputFilter": {
+          "description": "2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason.",
+          "markdownDescription": "2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason.",
+          "type": "object",
+          "properties": {
+            "allow": {
+              "description": "Item ids that may leave; when given, nothing else may.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deny": {
+              "description": "Item ids that may never leave.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "blockEntityTag": {
+          "description": "2.2.37: a shulker box's other BlockEntityTag keys: it keeps a tag (an nbt hash) once emptied.",
+          "type": "object"
+        },
+        "identifiesTo": {
+          "description": "2.2.37 identify: the vaultData the piece has once identified. Default: a seeded, plausible roll that keeps the level and rarity rules.",
+          "type": "object"
+        },
+        "identifiable": {
+          "description": "2.2.37 identify: false is an item Vault Hunters cannot identify even with a vaultData state.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -22082,8 +22560,12 @@
           "description": "Player UUID. Default 00000000-0000-4000-8000-<index as 12 hex digits>.",
           "type": "string"
         },
+        "balance": {
+          "description": "Vault token balance (Dog's PlayerShops).",
+          "type": "number"
+        },
         "online": {
-          "description": "Online on this server. Default true.",
+          "description": "Offline players can still be hosts or have balances. Default true.",
           "type": "boolean"
         },
         "gamemode": {
@@ -22127,6 +22609,104 @@
         "maxHealth": {
           "description": "Most health points. Default 20.",
           "type": "number"
+        },
+        "vaultLevel": {
+          "description": "Vault Hunters level, read by 2.2.36's ccvault.getPlayerVaultLevel. Omit for a player with no vault data.",
+          "type": "number"
+        },
+        "equipment": {
+          "description": "What the player wears and holds, read by 2.2.36's ccvault.getPlayerEquipment. Items as in chests.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/EquipmentSpec"
+            }
+          ]
+        },
+        "onOtherServer": {
+          "description": "2.2.36: online on another server of the network. The economy knows them (balances, vault level), but this server treats them as offline.",
+          "type": "boolean"
+        },
+        "gearPower": {
+          "description": "2.2.37: what the player's six combat slots score, read by ccvault.getPlayerGearPower. Vault Hunters' scorer is not modelled: the world gives the slot scores and the emulator works out the rest as the game does.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GearPowerSpec"
+            }
+          ]
+        },
+        "temper": {
+          "description": "2.2.37: the player's Temper and Dust, read by ccvault.getPlayerTemper (and Gear Power's multipliers).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TemperSpec"
+            }
+          ]
+        },
+        "reputation": {
+          "description": "2.2.37: reputation with each vault god, read by ccvault.getPlayerReputation. Each defaults to 0.",
+          "type": "object",
+          "properties": {
+            "velara": {
+              "description": "Reputation with Velara.",
+              "type": "number"
+            },
+            "tenos": {
+              "description": "Reputation with Tenos.",
+              "type": "number"
+            },
+            "wendarr": {
+              "description": "Reputation with Wendarr.",
+              "type": "number"
+            },
+            "idona": {
+              "description": "Reputation with Idona.",
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "greedTier": {
+          "description": "2.2.37: the player's greed tier. Default 0.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "skills": {
+          "description": "2.2.37: the player's skill trees, read by ccvault.getPlayerSkills (online, or from the saved profile). `false`: Vault Hunters cannot read them (\"skills not available\").",
+          "markdownDescription": "2.2.37: the player's skill trees, read by ccvault.getPlayerSkills (online, or from the saved profile). `false`: Vault Hunters cannot read them (\"skills not available\").",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "$ref": "#/definitions/SkillsSpec"
+            }
+          ]
+        },
+        "stats": {
+          "description": "2.2.37: the stat screen's numbers by attribute id, read by ccvault.getPlayerStats for a player on this server. A number is the stat's value. `false`: \"stats not available\".",
+          "markdownDescription": "2.2.37: the stat screen's numbers by attribute id, read by ccvault.getPlayerStats for a player on this server. A number is the stat's value. `false`: \"stats not available\".",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "$ref": "#/definitions/StatSpec"
+                  }
+                ]
+              }
+            }
+          ]
         },
         "inventory": {
           "description": "Plethora: the 36 main slots, slot (1-based) to item.",
@@ -25481,6 +26061,153 @@
       },
       "additionalProperties": false
     },
+    "SkillSpec": {
+      "description": "One learned skill (2.2.37 getPlayerSkills).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Vault Hunters' id of the skill.",
+          "type": "string"
+        },
+        "name": {
+          "description": "What the skill screen shows. Default: the id in title case.",
+          "type": "string"
+        },
+        "learned": {
+          "description": "Points the player put in. Only skills with more than 0 are listed. Default: level.",
+          "type": "number"
+        },
+        "level": {
+          "description": "The level that works, gear bonuses included; only online. Default: learned.",
+          "type": "number"
+        },
+        "maxLevel": {
+          "description": "The most points the skill takes. Default: learned (at least 1).",
+          "type": "number"
+        },
+        "specialization": {
+          "description": "Abilities: the chosen specialization's id. Default: the ability's id.",
+          "type": "string"
+        },
+        "specializationName": {
+          "description": "Abilities: the specialization's name. Default: the ability's name for index 0.",
+          "type": "string"
+        },
+        "specializationIndex": {
+          "description": "Abilities: the specialization's index, 0 for the plain ability.",
+          "type": "number",
+          "default": 0
+        },
+        "selected": {
+          "description": "Abilities: on the player's ability key (only online).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "SkillsSpec": {
+      "description": "A player's skill trees (2.2.37). A tree set to `false` cannot be read and is left out of the answer.",
+      "type": "object",
+      "properties": {
+        "abilities": {
+          "description": "Learned abilities, in the skill tree's order.",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SkillSpec"
+              }
+            }
+          ]
+        },
+        "talents": {
+          "description": "Learned talents.",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SkillSpec"
+              }
+            }
+          ]
+        },
+        "expertises": {
+          "description": "Learned expertises.",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SkillSpec"
+              }
+            }
+          ]
+        },
+        "prestige": {
+          "description": "Learned prestige powers.",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SkillSpec"
+              }
+            }
+          ]
+        },
+        "selectedAbility": {
+          "description": "The id of the ability on the player's ability key (or `selected` on the ability).",
+          "markdownDescription": "The id of the ability on the player's ability key (or `selected` on the ability).",
+          "type": "string"
+        },
+        "spentPoints": {
+          "description": "Points spent per tree. Default: the sum of `learned` in the tree.",
+          "markdownDescription": "Points spent per tree. Default: the sum of `learned` in the tree.",
+          "type": "object",
+          "properties": {
+            "abilities": {
+              "description": "Ability points.",
+              "type": "number"
+            },
+            "talents": {
+              "description": "Talent points.",
+              "type": "number"
+            },
+            "expertises": {
+              "description": "Expertise points.",
+              "type": "number"
+            },
+            "prestige": {
+              "description": "Prestige points.",
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "SolarGeneratorSpecFields": {
       "description": "Mekanism solar or advanced solar generator.",
       "type": "object",
@@ -26490,6 +27217,42 @@
       },
       "additionalProperties": false
     },
+    "StatSpec": {
+      "description": "One stat of the Vault Hunters stat screen (2.2.37 getPlayerStats).",
+      "type": "object",
+      "properties": {
+        "value": {
+          "description": "The number; for a capped stat, the value before the cap when `uncapped` is not given.",
+          "markdownDescription": "The number; for a capped stat, the value before the cap when `uncapped` is not given.",
+          "type": "number"
+        },
+        "uncapped": {
+          "description": "A capped stat's value before the cap; the answer's value is the smaller of it and the limit.",
+          "type": "number"
+        },
+        "limit": {
+          "description": "A capped stat's own cap. Default: the stat's base cap, never above its max (getLimits statCaps).",
+          "type": "number"
+        },
+        "name": {
+          "description": "The stat's name on the screen. Default: the id in title case.",
+          "type": "string"
+        },
+        "display": {
+          "description": "How the screen writes it. Default: from the value: a percentage to one decimal place, else two.",
+          "type": "string"
+        },
+        "percent": {
+          "description": "The value is a fraction shown as a percentage. Default: true for the capped stats.",
+          "type": "boolean"
+        },
+        "extra": {
+          "description": "Listed only because the player has it from gear.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
     "StockCheckingBlockSpecFields": {
       "description": "Stock ticker (stockcheckingblock).",
       "type": "object",
@@ -26657,6 +27420,86 @@
         "y": {},
         "z": {},
         "dimension": {}
+      },
+      "additionalProperties": false
+    },
+    "TemperCategorySpec": {
+      "description": "One Temper category (2.2.37). The ladder from levels to multipliers is Vault Hunters' own: the world gives both.",
+      "type": "object",
+      "properties": {
+        "level": {
+          "description": "Levels bought. Default 0.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 400
+        },
+        "multiplier": {
+          "description": "What the category multiplies Gear Power by. Default 1 at level 0; above that it is left out unless given.",
+          "type": "number"
+        },
+        "power": {
+          "description": "What the category multiplies its effect by inside a vault. Default 1 at level 0; above that left out unless given.",
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TemperSpec": {
+      "description": "A player's Temper (2.2.37).",
+      "type": "object",
+      "properties": {
+        "dust": {
+          "description": "Dust in hand. Default 0.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "might": {
+          "description": "Might. The better of Might and Magic counts for Gear Power.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TemperCategorySpec"
+            }
+          ]
+        },
+        "magic": {
+          "description": "Magic.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TemperCategorySpec"
+            }
+          ]
+        },
+        "vigor": {
+          "description": "Vigor: averaged with the better of Might and Magic.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TemperCategorySpec"
+            }
+          ]
+        },
+        "tool": {
+          "description": "Has a multiplier too, but does not count for Gear Power.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TemperCategorySpec"
+            }
+          ]
+        },
+        "bossesBeaten": {
+          "description": "Band bosses beaten (online players only). Default 0.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "trialsRecord": {
+          "description": "The furthest trial room reached. Default 0.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "favorsUsed": {
+          "description": "Altar favors taken (online players only). Default 0.",
+          "type": "integer",
+          "minimum": 0
+        }
       },
       "additionalProperties": false
     },
@@ -27665,6 +28508,11 @@
               }
             }
           ]
+        },
+        "canChangeItems": {
+          "description": "vhcctweaks 2.2.37: `false` is an inventory that does not let its slots be set or hands out copies: pushContents, inner moves and identify give \"can't change items in this inventory\"; listContents still works. Default true.",
+          "markdownDescription": "vhcctweaks 2.2.37: `false` is an inventory that does not let its slots be set or hands out copies: pushContents, inner moves and identify give \"can't change items in this inventory\"; listContents still works. Default true.",
+          "type": "boolean"
         },
         "x": {
           "description": "X coordinate of the block.",

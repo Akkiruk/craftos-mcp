@@ -2,8 +2,8 @@
 --
 -- The environment comes from world.environment (global) merged with the peripheral's own
 -- `environment` table: time, raining, thunder, biome, skyLight, blockLight, moonPhase,
--- dimensions, entities, seed. isSlimeChunk is vanilla's answer for the detector's chunk and the world `seed`
--- (default 0).
+-- dimensions, entities, seed. isSlimeChunk always returns false while vhcctweaks is on: its mixin forces it. With the
+-- mod off it is vanilla's answer for the detector's chunk and the world `seed` (default 0).
 return function(core, B)
   local F = {}
 
@@ -135,6 +135,7 @@ return function(core, B)
 
     function m.getTime() return dayTime() end
     function m.isSlimeChunk()
+      if core.vhcc then return false end -- vhcctweaks' mixin forces it
       return slimeChunk(env().seed, math.floor(origin.x / 16), math.floor(origin.z / 16))
     end
     -- Measured on the real block: Advanced Peripherals reads the name of the dimension *registry*, not of the

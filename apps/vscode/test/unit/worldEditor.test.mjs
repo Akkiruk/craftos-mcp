@@ -258,7 +258,7 @@ test("the validator words problems as VS Code does and puts them on the right pa
     'version: Value is not accepted. Valid values: "1.18.2", "1.20.1", "1.21.1".',
   ]);
   assert.deepEqual(problems({ addons: 5 }), [
-    'addons: Value is not accepted. Valid values: "all", "none", "advanced-peripherals", "mekanism", "mekanism-generators", "create", "create-additions", "toms-peripherals", "bigger-reactors", "extreme-reactors", "unlimited-peripheral-works", "metaphysics" and 28 more.',
+    'addons: Value is not accepted. Valid values: "all", "none", "advanced-peripherals", "mekanism", "mekanism-generators", "create", "create-additions", "toms-peripherals", "bigger-reactors", "extreme-reactors", "unlimited-peripheral-works", "metaphysics" and 29 more.',
   ]);
   assert.deepEqual(problems({ version: { mc: "1.20.1", cc: "2" } }), [
     'version.cc: Value is not accepted. Valid values: "1.101.3", "1.121.0".',
