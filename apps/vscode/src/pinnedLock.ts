@@ -1,9 +1,9 @@
-// Written by pin-lock.mjs from `npm install craftos-mcp@0.6.0`: do not edit. What src/pinned.ts downloads, each tarball checked
+// Written by pin-lock.mjs from `npm install craftos-mcp@0.6.1`: do not edit. What src/pinned.ts downloads, each tarball checked
 // against the integrity hash the npm registry gives for it.
 import type { PinnedLock } from "./pinned.ts";
 
 export const PINNED_LOCK: PinnedLock = {
-  spec: "craftos-mcp@0.6.0",
+  spec: "craftos-mcp@0.6.1",
   bin: "scripts/npm/craftos-mcp.mjs",
   packages: [
     {
@@ -122,11 +122,11 @@ export const PINNED_LOCK: PinnedLock = {
     },
     {
       path: "node_modules/craftos-mcp",
-      version: "0.6.0",
+      version: "0.6.1",
       resolved:
-        "https://registry.npmjs.org/craftos-mcp/-/craftos-mcp-0.6.0.tgz",
+        "https://registry.npmjs.org/craftos-mcp/-/craftos-mcp-0.6.1.tgz",
       integrity:
-        "sha512-Gv/vvOb4bxc+Td/ZyjU6lMYR/kRLdhW2xFXcloxy4rj/XRo+dOR/L+/rD5n0cxcKSYXHbfCwW6+pZFKHd1W9aQ==",
+        "sha512-cQPBNUV8wPfJiNasrK1XMVtGdYNzlO9bF/Tsx+erfJ5TwGuB+RMTH/uZSZM54u37Oja9FRnTOH34uCUAltIQmA==",
     },
     {
       path: "node_modules/cross-spawn",

@@ -2,8 +2,9 @@
 
 ## 0.6.0
 
-Runs craftos-mcp 0.6.0.
+Runs craftos-mcp 0.6.1.
 
+- Big vaults are far faster. A test with 15,000 items in chests used to take 41 minutes, now it's 93 seconds
 - No more crash pop-ups from the emulator. If the engine dies you get an error in the run with the path to a crash
   report, and the Windows engine ships its symbols now so the report actually says where
 - Linked computers (vhcctweaks ender modem links) talk to each other without going through files. A linked monitor
