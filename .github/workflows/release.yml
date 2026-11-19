@@ -324,7 +324,7 @@ jobs:
             gh release upload "$TAG" dist-release/*.zip dist-release/*.zip.sha256 --clobber --repo "$GITHUB_REPOSITORY"
           else
             # on a tag push the tag is there; from engines_from it is made here, at this run's commit
-            gh release create "$TAG" dist-release/*.zip dist-release/*.zip.sha256 --repo "$GITHUB_REPOSITORY" --title "$TAG" --target "$GITHUB_SHA" --generate-notes
+            gh release create "$TAG" dist-release/*.zip dist-release/*.zip.sha256 --repo "$GITHUB_REPOSITORY" --title "$TAG" --target "$GITHUB_SHA" --generate-notes --notes "Windows builds: see the [code signing policy](https://github.com/Akkiruk/craftos-mcp#code-signing-policy)."
           fi
 
   # The desktop app (apps/desktop): an installer per platform with its own runtime, that platform's engine (from the

@@ -981,6 +981,25 @@ docs/          Architecture, security model, peripherals, turtles, conformance
 - Lua runs in a scratch directory per run, but the engine is not sandboxed by the OS. Only run code you trust; see
   [docs/security.md](docs/security.md).
 
+## Code signing policy
+
+Windows releases (the engine, `craftos.exe`, and the desktop app) are to be signed: free code signing provided by
+[SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org). Signed files are
+built by GitHub Actions from this repository's source ([release.yml](.github/workflows/release.yml)), and each
+release is approved by hand before it is signed.
+
+- Committers and reviewers: the repository's [contributors](https://github.com/Akkiruk/craftos-mcp/graphs/contributors)
+  (one maintainer, who reviews every outside pull request)
+- Approvers: the [repository's owner](https://github.com/Akkiruk/craftos-mcp)
+
+The engine is a fork of [CraftOS-PC 2](https://github.com/MCJack123/craftos2) (see [engine/UPSTREAM.md](engine/UPSTREAM.md)
+for the commit it is based on).
+
+**Privacy:** this program will not transfer any information to other networked systems unless specifically requested
+by the user or the person installing or operating it. On first run it downloads its engine from this repository's
+GitHub releases and CC:Tweaked's jar to build the ROM; Lua programs reach the network only when they use the `http`
+API themselves.
+
 ## Credits
 
 The engine is a fork of [CraftOS-PC 2](https://github.com/MCJack123/craftos2) by JackMacWindows (MIT).
