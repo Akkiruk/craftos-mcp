@@ -3,7 +3,7 @@
   "name": "io.github.Akkiruk/craftos-mcp",
   "title": "craftos-mcp",
   "description": "CC:Tweaked (ComputerCraft) emulator: run, test and screenshot Lua programs, monitors and turtles.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "repository": {
     "url": "https://github.com/Akkiruk/craftos-mcp",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "craftos-mcp",
-      "version": "0.6.0",
+      "version": "0.6.1",
       "runtimeHint": "npx",
       "runtimeArguments": [{ "type": "positional", "value": "-y" }],
       "transport": { "type": "stdio" },

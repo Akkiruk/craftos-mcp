@@ -429,8 +429,37 @@ function M.recordInteraction(uuid, at)
   if M.sessions[uuid] then M.sessions[uuid].last = at end
 end
 
+-- A state that takes long to write (a node holding thousands of pieces: seconds) is written at most once in twice the
+-- time its last write took, and at least 200 ms apart, by a timer rather than at every call and every wait: a linked
+-- call to such a computer cost a whole-state write each time, a second or more where the game spends one tick
+-- (deviation 167). A cheap state is written as it always was. Commands, shutdown and reboot always write it at once.
+local SLOW_SAVE_MS = 50
+local flushTimer
+local function slowState() return (M.saveCost or 0) >= SLOW_SAVE_MS end
+local function saveWait()
+  return math.max(200, 2 * (M.saveCost or 0)) - (M.nowMs() - (M.lastSaveEnd or 0))
+end
+local function deferSave()
+  M.dirty = true
+  if flushTimer then return end
+  flushTimer = M.after(math.max(0.05, saveWait() / 1000), function()
+    flushTimer = nil
+    if M.dirty then M.save() end
+  end)
+end
+--- The state changed and should be written when it can: now, or (for a slow state) once its wait is over.
+function M.flush()
+  if not M.dirty then return end
+  if not slowState() or saveWait() <= 0 then M.save() else deferSave() end
+end
+
 --- Write state now if it has been quiet for 200 ms, otherwise flush at the next event or shutdown.
 function M.touch()
+  if slowState() then
+    M.dirty = true
+    M.flush()
+    return
+  end
   if M.nowMs() - (M.lastSave or 0) > 200 then M.save() else M.dirty = true end
 end
 
@@ -503,9 +532,13 @@ function M.save()
   -- One instant for the whole snapshot: every machine and the tick count it reports come from the same moment, even
   -- when the host is slow enough for a tick to pass while the state is gathered.
   local outer = M.frozenMs ~= nil
-  M.frozenMs = M.frozenMs or os.epoch("utc")
+  local started = os.epoch("utc")
+  M.frozenMs = M.frozenMs or started
   local ok, err = pcall(M.saveNow)
   if not outer then M.frozenMs = nil end
+  -- what a write costs here, for how often a slow one may be repeated (M.flush)
+  M.lastSaveEnd = os.epoch("utc")
+  M.saveCost = M.lastSaveEnd - started
   if not ok then error(err, 0) end
 end
 
@@ -1151,7 +1184,7 @@ function M.installEventHook()
         publishBeacon()
       end
       if M.flushHost then M.flushHost() end -- the block changes held back go out before the wait (ccsim/modem.lua)
-      if M.dirty then M.save() end -- a change inside the 200 ms window (a redstone output) is written when the program waits
+      M.flush() -- a change inside the 200 ms window (a redstone output) is written when the program waits (a slow state: soon after)
       local kept = keptFor[co]
       local event
       if kept and kept[1] then
@@ -1159,7 +1192,7 @@ function M.installEventHook()
       else
         event = table.pack(rawPull())
       end
-      if M.dirty then M.save() end
+      M.flush()
       local inner = deepest()
       local isProgram = inner == nil or rec.depth >= inner.depth
       waiting[co] = nil

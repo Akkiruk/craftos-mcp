@@ -317,7 +317,7 @@ return function(core, host, modems)
     end
     if entries then onDirectory(entries) end
     -- what other computers did here shows in state.json at once, not at this computer's next event
-    if core.dirty then core.save() end
+    if core.flush then core.flush() elseif core.dirty then core.save() end
   end
 
   return R

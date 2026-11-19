@@ -1,9 +1,9 @@
-// Written by pin-lock.mjs from `npm install craftos-mcp@0.5.0`: do not edit. What src/pinned.ts downloads, each tarball checked
+// Written by pin-lock.mjs from `npm install craftos-mcp@0.6.0`: do not edit. What src/pinned.ts downloads, each tarball checked
 // against the integrity hash the npm registry gives for it.
 import type { PinnedLock } from "./pinned.ts";
 
 export const PINNED_LOCK: PinnedLock = {
-  spec: "craftos-mcp@0.5.0",
+  spec: "craftos-mcp@0.6.0",
   bin: "scripts/npm/craftos-mcp.mjs",
   packages: [
     {
@@ -122,11 +122,11 @@ export const PINNED_LOCK: PinnedLock = {
     },
     {
       path: "node_modules/craftos-mcp",
-      version: "0.5.0",
+      version: "0.6.0",
       resolved:
-        "https://registry.npmjs.org/craftos-mcp/-/craftos-mcp-0.5.0.tgz",
+        "https://registry.npmjs.org/craftos-mcp/-/craftos-mcp-0.6.0.tgz",
       integrity:
-        "sha512-I8fYy7/TFd9mrpOiPXTblpTEFw8OLkewdQ3U/NeWAytWk0eEwuYnJGhGTh1O9k7Xt3lGglP8ANrzNQSD9nN1kQ==",
+        "sha512-Gv/vvOb4bxc+Td/ZyjU6lMYR/kRLdhW2xFXcloxy4rj/XRo+dOR/L+/rD5n0cxcKSYXHbfCwW6+pZFKHd1W9aQ==",
     },
     {
       path: "node_modules/cross-spawn",
@@ -235,11 +235,11 @@ export const PINNED_LOCK: PinnedLock = {
     },
     {
       path: "node_modules/express-rate-limit",
-      version: "8.7.4",
+      version: "8.7.5",
       resolved:
-        "https://registry.npmjs.org/express-rate-limit/-/express-rate-limit-8.7.4.tgz",
+        "https://registry.npmjs.org/express-rate-limit/-/express-rate-limit-8.7.5.tgz",
       integrity:
-        "sha512-LKBXzX700wz3zAGNNmVnjRI5mEbYkLv7UbMI4+9Xa+JPcg2UZh6AgY/2CZh9RrJjFM5ttC/N1lD+KzyFoZITCw==",
+        "sha512-wi+v38cx2EqD0JnhE/e74o5tFqKWUOAPFJIgyEiqJ8v2MNpoOAA3kI2hXYOI+YM+HE5yqbdAlVxm2GqOIeYOgA==",
     },
     {
       path: "node_modules/express/node_modules/content-type",

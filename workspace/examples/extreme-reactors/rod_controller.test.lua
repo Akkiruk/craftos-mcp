@@ -65,7 +65,10 @@ local seen = {}
 local function scenario()
   waitFor(function() return screenText():find("ONLINE", 1, true) end, 20)
   seen.screen = screenText()
-  seen.startFill, seen.startRods = fill(), rods()
+  -- the controller's first decision and the reading it made it on, as below: a busy host can wake this coroutine
+  -- after the clock has moved on and the controller has already pulled the rods out
+  local first = decisions[1]
+  seen.startFill, seen.startRods = first and first.fill or fill(), first and first.rods or rods()
 
   -- A town switches on: demand far above what the reactor makes. The buffer empties.
   sim({ cmd = "erSetLoad", peripheral = "BigReactors-Reactor_0", rate = 3000 })

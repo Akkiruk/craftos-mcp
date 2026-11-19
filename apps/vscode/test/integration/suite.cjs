@@ -746,16 +746,18 @@ exports.run = async function run() {
       await vscode.window.showTextDocument(clock);
       await vscode.commands.executeCommand("craftos-mcp.newTest");
       const made = join(project, "clock.test.lua");
+      // open in an editor (visible, not necessarily active: VS Code may show the MCP server's output channel meanwhile)
+      const isMade = (e) =>
+        e.document.uri.fsPath.toLowerCase() === made.toLowerCase();
       await until(
-        () =>
-          vscode.window.activeTextEditor?.document.uri.fsPath.toLowerCase() ===
-          made.toLowerCase(),
+        () => vscode.window.visibleTextEditors.some(isMade),
         "the new test open",
       );
-      const text = vscode.window.activeTextEditor.document.getText();
+      const doc = vscode.window.visibleTextEditors.find(isMade).document;
+      const text = doc.getText();
       assert.match(text, /shell\.run\("clock\.lua"\)/);
       assert.match(text, /clock\.world\.json/);
-      await vscode.window.activeTextEditor.document.save();
+      await doc.save();
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       rmSync(made);
       await api.tests.discover();
@@ -792,14 +794,14 @@ exports.run = async function run() {
   );
 
   await step(
-    "the MCP server definition is the supervisor running npx craftos-mcp@0.5.0 serve in the project",
+    "the MCP server definition is the supervisor running npx craftos-mcp@0.6.0 serve in the project",
     async () => {
       const def = api.serverDefinition();
       assert.ok(def instanceof vscode.McpStdioServerDefinition);
       assert.equal(def.command, process.execPath);
       assert.match(def.args[0], /dist[\\/]supervisor\.js$/);
       const supervise = JSON.parse(def.env.CRAFTOS_SUPERVISE);
-      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.5.0"]);
+      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.6.0"]);
       assert.deepEqual(supervise.sub, ["serve"]);
       assert.ok(supervise.pipe, "no restart channel");
       assert.equal(def.cwd.fsPath.toLowerCase(), project.toLowerCase());
@@ -991,11 +993,11 @@ exports.run = async function run() {
           api.serverEvents().filter((e) => e.supervisor === child.pid);
         const started = () => mine().filter((e) => e.type === "started");
         await until(() => started().length >= 1, "started event");
-        // two starts already while craftos-mcp@0.5.0 is not on npm: it, then the 0.4.1 fallback
+        // two starts already while craftos-mcp@0.6.0 is not on npm: it, then the 0.5.0 fallback
         const base = started().length;
         const fellBack = mine().some((e) => e.type === "fallback");
         console.log(
-          `       ${fellBack ? "fell back to 0.4.1" : "runs the pinned version"}`,
+          `       ${fellBack ? "fell back to 0.5.0" : "runs the pinned version"}`,
         );
         const killLatest = () => killTreeByPid(started().at(-1).pid);
 
@@ -1364,7 +1366,9 @@ exports.run = async function run() {
       assert.equal(marks[0].line, 2);
       assert.match(marks[0].text, /breaks: .*expected 3 but got 2/);
       // an edit takes the mark away
-      const editor = vscode.window.activeTextEditor;
+      // the test's own editor, not whatever is active: VS Code may have put the MCP server's output channel there after
+      // the restart steps above
+      const editor = await vscode.window.showTextDocument(uri);
       await editor.edit((e) => e.insert(new vscode.Position(4, 0), "\n"));
       assert.equal(api.testLens.failureMarks().length, 0);
       await vscode.commands.executeCommand("workbench.action.files.revert");
