@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+Runs craftos-mcp 0.6.1.
+
+- Claude Code users get the tools without hunting for a command. Claude Code doesn't see VS Code's own MCP servers,
+  so if you have the Claude Code extension installed (or install it later) you get asked once whether to add craftos
+  to it, for all projects or just this one
+- Add to Claude Code works with only the Claude Code extension installed. It used to need the `claude` command on
+  your PATH, which the extension doesn't set up, so it failed with "not found"
+
 ## 0.6.0
 
 Runs craftos-mcp 0.6.1.

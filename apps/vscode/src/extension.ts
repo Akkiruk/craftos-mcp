@@ -13,6 +13,7 @@ import { registerScaffold } from "./scaffold";
 import { Status, menuItems, showMenu } from "./status";
 import {
   addToClaudeCode,
+  offerClaudeCode,
   addToEditor,
   copyMcpJson,
   hasMcpApi,
@@ -154,6 +155,8 @@ export function activate(context: vscode.ExtensionContext): CraftosApi {
     void addToEditor(context, output, "offer").catch((error: Error) =>
       output.appendLine(`editor MCP config: ${error.message}`),
     );
+  if (!editorKind(vscode.env.appName))
+    context.subscriptions.push(offerClaudeCode(context, output));
   void firstRun(context, output, status).catch((error: Error) =>
     output.appendLine(`first-run setup: ${error.message}`),
   );

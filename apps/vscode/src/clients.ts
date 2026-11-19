@@ -1,6 +1,6 @@
 // The MCP server for VS Code itself, and the commands that hand it to other clients (Claude Code, a JSON snippet).
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { type Socket, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -430,26 +430,111 @@ function pickFolder(): Promise<vscode.WorkspaceFolder | undefined> {
 }
 
 const CLAUDE_INSTALL = "https://docs.claude.com/en/docs/claude-code/setup";
+const CLAUDE_EXTENSION = "anthropic.claude-code";
+const OFFERED_CLAUDE = "craftos-mcp.claudeCodeOffered";
+
+/**
+ * The `claude` to run. The Claude Code extension ships its own binary and does not put `claude` on PATH, so a
+ * user with only the extension has no `claude` command: use the extension's copy when it is there.
+ */
+function claudeBinary(): string[] {
+  const ext = vscode.extensions.getExtension(CLAUDE_EXTENSION);
+  if (ext) {
+    const exe = join(
+      ext.extensionPath,
+      "resources",
+      "native-binary",
+      process.platform === "win32" ? "claude.exe" : "claude",
+    );
+    if (existsSync(exe)) return [exe];
+  }
+  return ["claude"];
+}
+
+function runClaude(
+  args: readonly string[],
+  cwd: string | undefined,
+): Promise<{
+  code: number | null;
+  text: string;
+  error?: NodeJS.ErrnoException;
+}> {
+  return new Promise((done) => {
+    let text = "";
+    let child;
+    try {
+      child = spawnCommand(claudeBinary(), args, cwd ? { cwd } : {});
+    } catch (error) {
+      done({ code: null, text, error: error as NodeJS.ErrnoException });
+      return;
+    }
+    child.stdin?.end();
+    child.stdout?.on("data", (c: Buffer) => (text += c.toString()));
+    child.stderr?.on("data", (c: Buffer) => (text += c.toString()));
+    child.on("error", (error) => done({ code: null, text, error }));
+    child.on("close", (code) => done({ code, text }));
+  });
+}
+
+/**
+ * Claude Code (its VS Code extension included) does not read VS Code's MCP servers, so its agent never sees the
+ * craftos tools on its own. When the Claude Code extension is installed, now or later, offer once to add them.
+ */
+export function offerClaudeCode(
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel,
+): vscode.Disposable {
+  const check = async () => {
+    if (!vscode.extensions.getExtension(CLAUDE_EXTENSION)) return;
+    if (context.globalState.get(OFFERED_CLAUDE)) return;
+    await context.globalState.update(OFFERED_CLAUDE, true);
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // already there (any scope this folder sees): nothing to offer
+    if ((await runClaude(["mcp", "get", "craftos"], folder)).code === 0) return;
+    const picks = folder
+      ? ["All Projects", "This Project", "Not Now"]
+      : ["All Projects", "Not Now"];
+    const choice = await oneAtATime(() =>
+      vscode.window.showInformationMessage(
+        "Claude Code does not see VS Code's MCP servers, so it has no craftos tools yet. Add them to Claude Code?",
+        ...picks,
+      ),
+    );
+    if (choice === "All Projects") await addToClaudeCode(output, "user");
+    if (choice === "This Project") await addToClaudeCode(output, "local");
+  };
+  const run = () =>
+    void check().catch((error: Error) =>
+      output.appendLine(`Claude Code offer: ${error.message}`),
+    );
+  run();
+  return vscode.extensions.onDidChange(run);
+}
 
 export async function addToClaudeCode(
   output: vscode.OutputChannel,
+  preset?: "user" | "local",
 ): Promise<void> {
-  const scope = await vscode.window.showQuickPick(
-    [
-      {
-        label: "local",
-        description: "this project, just for you (Claude Code's default)",
-      },
-      {
-        label: "project",
-        description: "this project, in .mcp.json, for everyone on the repo",
-      },
-      { label: "user", description: "every project you open" },
-    ],
-    { placeHolder: "Where should Claude Code keep the craftos server?" },
-  );
+  const scope = preset
+    ? { label: preset }
+    : await vscode.window.showQuickPick(
+        [
+          {
+            label: "local",
+            description: "this project, just for you (Claude Code's default)",
+          },
+          {
+            label: "project",
+            description: "this project, in .mcp.json, for everyone on the repo",
+          },
+          { label: "user", description: "every project you open" },
+        ],
+        { placeHolder: "Where should Claude Code keep the craftos server?" },
+      );
   if (!scope) return;
-  const folder = await pickFolder();
+  const folder = preset
+    ? vscode.workspace.workspaceFolders?.[0]
+    : await pickFolder();
   const env = settingsEnv();
   const args = [
     "mcp",
@@ -464,37 +549,17 @@ export async function addToClaudeCode(
   ];
   const line = `claude ${args.join(" ")}`;
   output.appendLine(`> ${line}`);
-  const result = await new Promise<{
-    code: number | null;
-    text: string;
-    error?: NodeJS.ErrnoException;
-  }>((done) => {
-    let text = "";
-    let child;
-    try {
-      child = spawnCommand(["claude"], args, {
-        ...(folder ? { cwd: folder.uri.fsPath } : {}),
-      });
-    } catch (error) {
-      done({ code: null, text, error: error as NodeJS.ErrnoException });
-      return;
-    }
-    child.stdin?.end();
-    child.stdout?.on("data", (c: Buffer) => (text += c.toString()));
-    child.stderr?.on("data", (c: Buffer) => (text += c.toString()));
-    child.on("error", (error) => done({ code: null, text, error }));
-    child.on("close", (code) => done({ code, text }));
-  });
+  const result = await runClaude(args, folder?.uri.fsPath);
   output.appendLine(result.text.trim());
   if (result.code === 0) {
     void vscode.window.showInformationMessage(
-      `craftos-mcp added to Claude Code (${scope.label} scope). Start Claude Code in this folder, or run /mcp in a running one, to use it.`,
+      `craftos-mcp added to Claude Code (${scope.label === "user" ? "all projects" : "this project"}). Open a new Claude Code conversation (or run /mcp in an open one) to use it.`,
     );
     return;
   }
   if (commandMissing(result.code, result.text, result.error)) {
     const pick = await vscode.window.showErrorMessage(
-      "Claude Code's `claude` command was not found. Install Claude Code (or put `claude` on your PATH), then run this again.",
+      "Claude Code was not found: neither the Claude Code extension nor a `claude` command on PATH. Install Claude Code, then run this again.",
       "How to Install",
       "Copy Command",
     );
