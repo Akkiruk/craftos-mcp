@@ -62,6 +62,12 @@ jobs:
             triplet: x64-osx
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
+    # Azure trusts this repository's `signing` environment (a federated credential cannot match every v* tag)
+    environment: signing
+    permissions:
+      contents: read
+      # Windows signing logs in to Azure through OIDC (azure/login): no secret key is kept
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
@@ -136,6 +142,51 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: call engine\build.cmd
+
+      # Windows signing (Azure Artifact Signing). Smart App Control blocks unsigned programs outright and SmartScreen
+      # warns about them, so craftos.exe and its DLLs are signed before they are zipped. Off until the repository has
+      # the variable AZURE_SIGNING_ENDPOINT (with AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE) and the secrets
+      # AZURE_CLIENT_ID and AZURE_TENANT_ID; docs/public-release.md has the setup.
+      - name: Log in to Azure for signing (Windows)
+        if: runner.os == 'Windows' && vars.AZURE_SIGNING_ENDPOINT != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          # signing needs no subscription, only the signer role on the signing account
+          allow-no-subscriptions: true
+
+      - name: Sign the engine (Windows)
+        if: runner.os == 'Windows' && vars.AZURE_SIGNING_ENDPOINT != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\engine\build
+          files-folder-filter: exe,dll
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
+      - name: Check every engine file is signed (Windows)
+        if: runner.os == 'Windows' && vars.AZURE_SIGNING_ENDPOINT != ''
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem engine\build -File | Where-Object { $_.Extension -in '.exe', '.dll' } |
+            ForEach-Object { Get-AuthenticodeSignature $_.FullName } | Where-Object { $_.Status -ne 'Valid' }
+          $bad | Format-Table Path, Status -AutoSize
+          if ($bad) { throw "unsigned engine files" }
 
       - name: Build the engine (Linux)
         if: runner.os == 'Linux'
@@ -299,6 +350,10 @@ jobs:
             platform: macos-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
+    environment: signing
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
@@ -318,8 +373,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb
+      # electron-builder signs the app and its installer itself (azureSignOptions in apps/desktop/scripts/build.mjs,
+      # through the Azure CLI login) before it writes latest.yml, so the updater's hashes match the signed files
+      - name: Log in to Azure for signing (Windows)
+        if: runner.os == 'Windows' && vars.AZURE_SIGNING_ENDPOINT != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          # signing needs no subscription, only the signer role on the signing account
+          allow-no-subscriptions: true
       - name: Build the installer
         shell: bash
+        env:
+          CRAFTOS_SIGN_ENDPOINT: ${{ runner.os == 'Windows' && vars.AZURE_SIGNING_ENDPOINT || '' }}
+          CRAFTOS_SIGN_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          CRAFTOS_SIGN_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          CRAFTOS_SIGN_PUBLISHER: ${{ vars.AZURE_SIGNING_PUBLISHER }}
         run: |
           zip="$(ls dist-release/craftos-mcp-*-${{ matrix.platform }}.zip)"
           node apps/desktop/scripts/build.mjs --engine-zip "$zip" --out "$GITHUB_WORKSPACE/dist-desktop"

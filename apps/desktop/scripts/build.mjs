@@ -191,6 +191,20 @@ const config = {
     // running engine on the machine (an MCP server's computers, a test run). check.mjs keeps a craftos.exe running
     // through an install and an uninstall to see this stays fixed.
     executableName: WINDOWS_EXE,
+    // Signed with Azure Artifact Signing when release.yml gives the account (after an azure/login): unsigned, Smart
+    // App Control refuses to start the app and SmartScreen warns about the installer.
+    ...(process.env.CRAFTOS_SIGN_ENDPOINT
+      ? {
+          azureSignOptions: {
+            publisherName: process.env.CRAFTOS_SIGN_PUBLISHER,
+            endpoint: process.env.CRAFTOS_SIGN_ENDPOINT,
+            codeSigningAccountName: process.env.CRAFTOS_SIGN_ACCOUNT,
+            certificateProfileName: process.env.CRAFTOS_SIGN_PROFILE,
+          },
+          // the engine and its DLLs too (signed already in the zip; this keeps them signed if that ever changes)
+          signExts: [".dll"],
+        }
+      : {}),
   },
   nsis: {
     oneClick: true,
