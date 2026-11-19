@@ -46,7 +46,7 @@ jobs:
       # The browser engine for the web extension (package.json `browser`): engine/build-web.sh with emsdk pinned to
       # its EMSDK_VERSION. emsdk (with Emscripten's port cache, SDL2 among them) and the build folder (Poco for wasm32,
       # built once) are cached, so a release only recompiles the engine.
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: mymindstorm/setup-emsdk@v16
         with:
           version: 7.0.0
           actions-cache-folder: emsdk-cache
