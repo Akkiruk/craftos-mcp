@@ -45,10 +45,13 @@
  * (Java does this on the server; the plain fstream refuses with a sharing violation).
  */
 class SharedFstream : public std::fstream {
-    FILE * file;
 public:
-    explicit SharedFstream(FILE * f) : std::fstream(f), file(f) {}
-    ~SharedFstream() override { if (is_open()) close(); if (file) fclose(file); }
+    explicit SharedFstream(FILE * f) : std::fstream(f) {}
+    // craftos-agent: the stream's own close() fcloses the FILE (MSVC's basic_filebuf::close always does, whoever
+    // opened it), so this never closes it again. It used to fclose it a second time: with computers on several threads
+    // (pool mode) the FILE could by then be another computer's newly opened file, which then read as empty (a module of
+    // rom/ccsim on CC 1.109+ came back with nothing in it).
+    ~SharedFstream() override { if (is_open()) close(); }
 };
 
 static std::fstream * openSharedFstream(const path_t& path, bool read, bool write, bool truncate, bool atEnd) {

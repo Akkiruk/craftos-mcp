@@ -57,6 +57,7 @@ find_path(DIRENT_INCLUDE dirent.h REQUIRED)
 set(ENGINE_SOURCES
   src/Computer.cpp
   src/configuration.cpp
+  src/crashreport.cpp
   src/debug_server.cpp
   src/favicon.c
   src/font.c
@@ -100,6 +101,16 @@ set(ENGINE_SOURCES
 # src/platform.cpp includes the per-OS file from src/platform/ itself.
 
 add_executable(craftos ${ENGINE_SOURCES})
+# The craftos-agent commit the engine was built from, for crash reports (crashreport.cpp); read when CMake configures
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE CRAFTOS_AGENT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+if(CRAFTOS_AGENT_COMMIT)
+  set_source_files_properties(src/crashreport.cpp PROPERTIES COMPILE_DEFINITIONS "CRAFTOS_AGENT_COMMIT=\"${CRAFTOS_AGENT_COMMIT}\"")
+endif()
+
 
 target_include_directories(craftos PRIVATE
   api
@@ -125,13 +136,16 @@ endif()
 if(WIN32)
   # The sources use the ANSI Win32 entry points and POSIX string helpers.
   target_compile_options(craftos PRIVATE /UUNICODE /U_UNICODE)
+  # craftos.pdb beside the exe, so a crash report names functions and lines (crashreport.hpp); optimised as before
+  target_compile_options(craftos PRIVATE /Zi)
+  target_link_options(craftos PRIVATE /DEBUG /OPT:REF /OPT:ICF)
   target_compile_definitions(craftos PRIVATE strcasecmp=_stricmp strncasecmp=_strnicmp)
 endif()
 
 if(WIN32)
   target_link_libraries(craftos PRIVATE
     lua52
-    shlwapi ws2_32 crypt32 normaliz iphlpapi comctl32 wer
+    shlwapi ws2_32 crypt32 normaliz iphlpapi comctl32 wer dbghelp
   )
 else()
   target_link_libraries(lua52 PRIVATE m)

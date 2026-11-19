@@ -403,6 +403,19 @@
         "2.2.37"
       ]
     },
+    "linkLatency": {
+      "description": "What a call to a vhcctweaks-linked computer's monitor (or any of its peripherals' computer-thread methods) costs, in ms of game time, as in game (about 30 ms). \"fast\" (or 0) answers at once. Inventory methods wait for the server tick either way. Default CRAFTOS_LINK_LATENCY, else 30.",
+      "anyOf": [
+        {
+          "enum": [
+            "fast"
+          ]
+        },
+        {
+          "type": "number"
+        }
+      ]
+    },
     "gearPowerAvailable": {
       "description": "2.2.37: whether the server's Vault Hunters has Gear Power and Temper (3.21.74 or newer). Default true. `false` is an older one: getPlayerGearPower and getPlayerTemper answer \"gear power not available\" and \"temper not available\" for a player on this server, a saved Temper has no multipliers, and gear gets no Gear Score fields.",
       "markdownDescription": "2.2.37: whether the server's Vault Hunters has Gear Power and Temper (3.21.74 or newer). Default true. `false` is an older one: getPlayerGearPower and getPlayerTemper answer \"gear power not available\" and \"temper not available\" for a player on this server, a saved Temper has no multipliers, and gear gets no Gear Score fields.",

@@ -111,7 +111,7 @@ static void* releaseNotesThread(void* data) {
 #endif
     } catch (std::exception &e) {
         fprintf(stderr, "Uncaught exception while executing computer %d (last C function: %s): %s\n", comp->id, lastCFunction, e.what());
-        queueTask([e](void*t)->void* {const std::string m = std::string("Uh oh, an uncaught exception has occurred! Please report this to https://www.craftos-pc.cc/bugreport. When writing the report, include the following exception message: \"Exception on computer thread: ") + e.what() + "\". The computer will now shut down.";  if (t != NULL) ((Terminal*)t)->showMessage(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str()); else if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str(), NULL); return NULL; }, comp->term);
+        queueTask([e](void*t)->void* {const std::string m = std::string("An uncaught exception has occurred in the emulator. Please report this at https://github.com/Akkiruk/craftos-mcp/issues. When writing the report, include the following exception message: \"Exception on computer thread: ") + e.what() + "\". The computer will now shut down.";  if (t != NULL) ((Terminal*)t)->showMessage(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str()); else if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str(), NULL); return NULL; }, comp->term);
         if (comp->L != NULL) {
             comp->event_lock.notify_all();
             for (library_t ** lib = libraries; *lib != NULL; lib++) if ((*lib)->deinit != NULL) (*lib)->deinit(comp);
@@ -600,6 +600,10 @@ int parseArguments(const std::vector<std::string>& argv) {
         else if (arg == "--gui" || arg == "--sdl" || arg == "--software-sdl") selectedRenderer = 0;
         else if (arg == "--cli" || arg == "-c") { selectedRenderer = 2; checkTTY(); }
         else if (arg == "--raw") { selectedRenderer = 3; checkTTY(); }
+        // craftos-agent: with --raw, start no computer; the host starts as many as it likes (RawTerminal.cpp)
+        else if (arg == "--pool") rawPoolMode = true;
+        // craftos-agent: os.__ccsimHost sends to the host over the raw protocol (RawTerminal.cpp rawHostSend)
+        else if (arg == "--host-channel") rawHostChannel = true;
         else if (arg == "--raw-client") { rawClient = true; checkTTY(); }
         else if (arg == "--raw-websocket") { rawClient = true; rawWebSocketURL = argv[++i]; }
         else if (arg.substr(0, 16) == "--raw-websocket=") { rawClient = true; rawWebSocketURL = arg.substr(16); }
@@ -904,8 +908,8 @@ int main(int argc, char*argv[]) {
         SDL_AddTimer(1, [](Uint32, void*)->Uint32 {darwinPreciseTimers(); return 0;}, NULL);
 #endif
     } catch (std::exception &e) {
-        if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Failed to initialize renderer", ("An error occurred while initializing the renderer: " + std::string(e.what()) + ". See https://www.craftos-pc.cc/docs/error-messages for more info. CraftOS-PC will now close").c_str(), NULL);
-        else fprintf(stderr, "An error occurred while initializing the renderer: %s. See https://www.craftos-pc.cc/docs/error-messages for more info. CraftOS-PC will now close.\n", e.what());
+        if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Failed to initialize renderer", ("An error occurred while initializing the renderer: " + std::string(e.what()) + ". See https://www.craftos-pc.cc/docs/error-messages for more info. The emulator will now close").c_str(), NULL);
+        else fprintf(stderr, "An error occurred while initializing the renderer: %s. See https://www.craftos-pc.cc/docs/error-messages for more info. The emulator will now close.\n", e.what());
         SDL_Quit();
         return 2;
     }
@@ -938,7 +942,8 @@ int main(int argc, char*argv[]) {
     }
     uploadCrashDumps();
 #endif
-    startComputer(manualID ? id : config.initialComputer);
+    if (rawPoolMode && selectedRenderer != 3) rawPoolMode = false; // a pool speaks the raw protocol only
+    if (!rawPoolMode) startComputer(manualID ? id : config.initialComputer);
 #if defined(__EMSCRIPTEN__) && !defined(CRAFTOS_WEB)
     emscripten_set_main_loop(mainLoop, 0, false);
     return 0;
@@ -948,7 +953,7 @@ int main(int argc, char*argv[]) {
         mainLoop();
     } catch (Poco::Exception &e) {
         fprintf(stderr, "Uncaught exception on main thread: %s\n", e.displayText().c_str());
-        if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", ("Uh oh, CraftOS-PC has crashed! Please report this to https://www.craftos-pc.cc/bugreport. When writing the report, include the following exception message: \"Poco exception on main thread: " + e.displayText() + "\". CraftOS-PC will now close.").c_str(), NULL);
+        if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", ("The emulator has crashed. Please report this at https://github.com/Akkiruk/craftos-mcp/issues. When writing the report, include the following exception message: \"Poco exception on main thread: " + e.displayText() + "\". The emulator will now close.").c_str(), NULL);
         for (Computer * c : *computers) {
             c->running = 0;
             c->event_lock.notify_all();
@@ -957,7 +962,7 @@ int main(int argc, char*argv[]) {
         awaitTasks([]()->bool {return computers.locked() || !computers->empty() || !taskQueue->empty();});
     } catch (std::exception &e) {
         fprintf(stderr, "Uncaught exception on main thread: %s\n", e.what());
-        if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", (std::string("Uh oh, CraftOS-PC has crashed! Please report this to https://www.craftos-pc.cc/bugreport. When writing the report, include the following exception message: \"Exception on main thread: ") + e.what() + "\". CraftOS-PC will now close.").c_str(), NULL);
+        if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", (std::string("The emulator has crashed. Please report this at https://github.com/Akkiruk/craftos-mcp/issues. When writing the report, include the following exception message: \"Exception on main thread: ") + e.what() + "\". The emulator will now close.").c_str(), NULL);
         for (Computer * c : *computers) {
             c->running = 0;
             c->event_lock.notify_all();

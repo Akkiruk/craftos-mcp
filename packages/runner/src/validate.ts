@@ -46,6 +46,7 @@ export const WORLD_KEYS: readonly string[] = [
   "identifyAvailable",
   "internalErrors",
   "vhccStore",
+  "linkLatency",
   "computerId",
   "kind",
   "advanced",

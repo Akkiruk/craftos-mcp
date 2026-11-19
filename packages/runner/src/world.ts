@@ -921,6 +921,12 @@ export interface WorldConfig {
    */
   vhcctweaks?: "2.2.35" | "2.2.36" | "2.2.37" | false;
   /**
+   * What a call to a vhcctweaks-linked computer's monitor (or any of its peripherals' computer-thread methods) costs,
+   * in ms of game time, as in game (about 30 ms). "fast" (or 0) answers at once. Inventory methods wait for the server
+   * tick either way. Default CRAFTOS_LINK_LATENCY, else 30.
+   */
+  linkLatency?: number | "fast";
+  /**
    * 2.2.37: whether the server's Vault Hunters has Gear Power and Temper (3.21.74 or newer). Default true. `false` is
    * an older one: getPlayerGearPower and getPlayerTemper answer "gear power not available" and "temper not available"
    * for a player on this server, a saved Temper has no multipliers, and gear gets no Gear Score fields.
@@ -1406,6 +1412,28 @@ export function vhccVersion(
   return on ? "2.2.36" : false;
 }
 
+/** A linked call's cost in game, in ms (deviation 164: 40 setCursorPos on a linked monitor took about 1.2 s). */
+export const LINK_LATENCY_DEFAULT = 30;
+
+/**
+ * The ms a call to a linked computer's peripheral costs: world.linkLatency, else CRAFTOS_LINK_LATENCY, else
+ * LINK_LATENCY_DEFAULT. "fast" is 0.
+ */
+export function linkLatencyMs(
+  world: WorldConfig | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  const raw: unknown = world?.linkLatency ?? env["CRAFTOS_LINK_LATENCY"];
+  if (raw === undefined || raw === "") return LINK_LATENCY_DEFAULT;
+  if (typeof raw === "string" && raw.trim().toLowerCase() === "fast") return 0;
+  const ms = Number(raw);
+  if (!Number.isFinite(ms) || ms < 0)
+    throw new Error(
+      `linkLatency ${JSON.stringify(raw)}: a number of ms (0 or more) or "fast"`,
+    );
+  return ms;
+}
+
 /** What to tell a person once per session when a world uses vhcctweaks' linked computers (linksInUse). */
 export const LINKS_WARNING =
   "vhcctweaks linked computers (ender modem links, remote peripherals) run in real time: on a slow or busy machine " +
@@ -1450,6 +1478,7 @@ export function worldJson(world: WorldConfig | undefined): string {
   copy["addons"] = addons;
   // vhcctweaks is a 1.18.2 server mod: other versions run plain CC:Tweaked. The sim gets the release, or false.
   copy["vhcctweaks"] = vhccVersion(resolved, version, addons);
+  copy["linkLatency"] = linkLatencyMs(resolved);
   delete copy["vhccStore"];
   delete copy["deploy"];
   delete copy["$schema"]; // an editor's key (world files point at schemas/world.schema.json)

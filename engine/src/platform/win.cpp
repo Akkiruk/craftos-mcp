@@ -10,6 +10,11 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <DbgHelp.h>
+#include <werapi.h>
+#include <atomic>
+#include <csignal>
+#include <exception>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -34,6 +39,7 @@
 #include <sys/stat.h>
 #include <zlib.h>
 #include "../platform.hpp"
+#include "../crashreport.hpp"
 #include "../util.hpp"
 
 const wchar_t * base_path = L"%appdata%\\CraftOS-PC";
@@ -261,14 +267,135 @@ void copyImage(SDL_Surface* surf, SDL_Window* win) {
     delete[] bmp;
 }
 
-LONG WINAPI exceptionHandler(PEXCEPTION_POINTERS pExceptionInfo) {
-    if (!loadingPlugin.empty()) MessageBoxA(NULL, std::string("Uh oh, CraftOS-PC has crashed! It appears the plugin \"" + loadingPlugin + "\" may have been responsible for this. Please remove it and try again. CraftOS-PC will now close.").c_str(), "Application Error", MB_OK | MB_ICONSTOP);
-#ifdef CRASHREPORT_API_KEY
-    else if (config.snooperEnabled) MessageBoxA(NULL, "Uh oh, CraftOS-PC has crashed! A crash log has been saved and will be uploaded on next launch. CraftOS-PC will now close.", "Application Error", MB_OK | MB_ICONSTOP);
-#endif
-    else MessageBoxA(NULL, std::string("Uh oh, CraftOS-PC has crashed! Please report this to https://www.craftos-pc.cc/bugreport. When writing the report, attach the latest CraftOS-PC.exe .dmp file located here (you can type this into the File Explorer): '%LOCALAPPDATA%\\CrashDumps'. Add this text to the report as well: \"Last C function: " + std::string(lastCFunction) + "\". CraftOS-PC will now close.").c_str(), "Application Error", MB_OK | MB_ICONSTOP);
-    return EXCEPTION_CONTINUE_SEARCH;
+// craftos-agent: a crash writes our own report (crashreport.hpp): a text file with the native and Lua stacks and a
+// minidump in the crash folder, one line on stderr, and a nonzero exit. A dialog only in the windowed GUI, never in
+// headless use (raw, pool, tests, the MCP server), where nobody is there to close it and the run would hang.
+static const char * exceptionName(DWORD code) {
+    switch (code) {
+        case EXCEPTION_ACCESS_VIOLATION: return "access violation";
+        case EXCEPTION_STACK_OVERFLOW: return "stack overflow";
+        case EXCEPTION_ILLEGAL_INSTRUCTION: return "illegal instruction";
+        case EXCEPTION_INT_DIVIDE_BY_ZERO: return "integer divide by zero";
+        case EXCEPTION_ARRAY_BOUNDS_EXCEEDED: return "array bounds exceeded";
+        case EXCEPTION_IN_PAGE_ERROR: return "in-page error";
+        case EXCEPTION_PRIV_INSTRUCTION: return "privileged instruction";
+        case 0xE06D7363: return "uncaught C++ exception";
+        case 0xC0000409: return "stack buffer overrun / fail fast";
+        case 0xC0000374: return "heap corruption";
+        default: return "exception";
+    }
 }
+
+static std::string moduleOf(DWORD64 addr, DWORD64 * base) {
+    HMODULE mod = NULL;
+    char name[MAX_PATH] = "?";
+    *base = 0;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)addr, &mod) && mod != NULL) {
+        GetModuleFileNameA(mod, name, MAX_PATH);
+        *base = (DWORD64)mod;
+        const char * slash = strrchr(name, '\\');
+        if (slash != NULL) return slash + 1;
+    }
+    return name;
+}
+
+static std::string nativeStack(const CONTEXT * original) {
+    HANDLE process = GetCurrentProcess(), thread = GetCurrentThread();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+    SymInitialize(process, NULL, TRUE);
+    CONTEXT ctx = *original;
+    STACKFRAME64 frame = {};
+    frame.AddrPC.Offset = ctx.Rip; frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = ctx.Rbp; frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = ctx.Rsp; frame.AddrStack.Mode = AddrModeFlat;
+    std::string out;
+    for (int i = 0; i < 48; i++) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread, &frame, &ctx, NULL, SymFunctionTableAccess64, SymGetModuleBase64, NULL)) break;
+        const DWORD64 pc = frame.AddrPC.Offset;
+        if (pc == 0) break;
+        DWORD64 base = 0;
+        const std::string mod = moduleOf(pc, &base);
+        alignas(SYMBOL_INFO) char symbuf[sizeof(SYMBOL_INFO) + 256];
+        SYMBOL_INFO * sym = (SYMBOL_INFO*)symbuf;
+        memset(symbuf, 0, sizeof(symbuf));
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp = 0;
+        IMAGEHLP_LINE64 src = {};
+        src.SizeOfStruct = sizeof(src);
+        DWORD lineDisp = 0;
+        const bool named = SymFromAddr(process, pc, &disp, sym) != FALSE;
+        const bool lined = SymGetLineFromAddr64(process, pc, &lineDisp, &src) != FALSE;
+        const std::string where = lined ? "  " + std::string(src.FileName) + ":" + std::to_string(src.LineNumber) : "";
+        char line[1024];
+        snprintf(line, sizeof(line), "    #%-2d %s+0x%llx  %s%s\n", i, mod.c_str(), (unsigned long long)(pc - base), named ? sym->Name : "?", where.c_str());
+        out += line;
+    }
+    SymCleanup(process);
+    return out;
+}
+
+static std::atomic<bool> crashing(false);
+static std::atomic<DWORD> crashingThread(0);
+/**
+ * Whether this thread reports the crash. In a shared engine several computers' threads can crash at once: the first
+ * reports and ends the process; the others wait for it (up to 30 s) instead of ending it before the report is written.
+ * A crash while reporting, on the reporting thread itself, ends the process at once.
+ */
+static bool claimCrash() {
+    if (!crashing.exchange(true)) {crashingThread = GetCurrentThreadId(); return true;}
+    if (crashingThread != GetCurrentThreadId()) Sleep(30000);
+    TerminateProcess(GetCurrentProcess(), 3);
+    return false;
+}
+
+LONG WINAPI exceptionHandler(PEXCEPTION_POINTERS pExceptionInfo) {
+    if (!claimCrash()) return EXCEPTION_EXECUTE_HANDLER;
+    const DWORD code = pExceptionInfo->ExceptionRecord->ExceptionCode;
+    const DWORD64 addr = (DWORD64)pExceptionInfo->ExceptionRecord->ExceptionAddress;
+    DWORD64 base = 0;
+    const std::string mod = moduleOf(addr, &base);
+    char reason[512];
+    snprintf(reason, sizeof(reason), "%s (0x%08lX) at %s+0x%llx%s%s%s", exceptionName(code), code, mod.c_str(), (unsigned long long)(addr - base),
+        loadingPlugin.empty() ? "" : " while loading the plugin \"", loadingPlugin.c_str(), loadingPlugin.empty() ? "" : "\"");
+    const std::string fileBase = crashreport::newBase();
+    std::string dumpPath = fileBase + ".dmp";
+    const HANDLE dump = CreateFileA(dumpPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (dump != INVALID_HANDLE_VALUE) {
+        MINIDUMP_EXCEPTION_INFORMATION info;
+        info.ThreadId = GetCurrentThreadId();
+        info.ExceptionPointers = pExceptionInfo;
+        info.ClientPointers = FALSE;
+        if (!MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), dump, (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules), &info, NULL, NULL)) dumpPath.clear();
+        CloseHandle(dump);
+    } else dumpPath.clear();
+    const std::string report = crashreport::writeReport(fileBase, reason, nativeStack(pExceptionInfo->ContextRecord), dumpPath);
+    crashreport::announce(reason, report);
+    if (!crashreport::headless()) MessageBoxA(NULL, crashreport::dialogText(reason, report).c_str(), "craftos-mcp: the emulator crashed", MB_OK | MB_ICONSTOP);
+    TerminateProcess(GetCurrentProcess(), code != 0 ? code : 3);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+// abort(), std::terminate (an exception nothing caught), a pure virtual call: the same report, without a dialog of
+// the CRT's own
+static void softCrash(const char * reason) {
+    if (!claimCrash()) return;
+    CONTEXT ctx;
+    RtlCaptureContext(&ctx);
+    const std::string report = crashreport::writeReport(crashreport::newBase(), reason, nativeStack(&ctx), "");
+    crashreport::announce(reason, report);
+    if (!crashreport::headless()) MessageBoxA(NULL, crashreport::dialogText(reason, report).c_str(), "craftos-mcp: the emulator crashed", MB_OK | MB_ICONSTOP);
+    TerminateProcess(GetCurrentProcess(), 3);
+}
+static void abortHandler(int) {softCrash("abort() was called");}
+static void terminateHandler() {
+    std::string reason = "std::terminate: an exception nothing caught";
+    try {
+        if (std::current_exception()) std::rethrow_exception(std::current_exception());
+    } catch (std::exception &e) {reason += std::string(" (") + e.what() + ")";} catch (...) {}
+    softCrash(reason.c_str());
+}
+static void purecallHandler() {softCrash("pure virtual function call");}
 
 // Do nothing. We definitely don't want to crash when there's only an invalid parameter, and I assume functions affected will return some value that won't cause problems. (I know strftime, used in os.date, will be fine.)
 void invalidParameterHandler(const wchar_t * expression, const wchar_t * function, const wchar_t * file, unsigned int line, uintptr_t pReserved) {}
@@ -376,11 +503,19 @@ static bool pushCrashDump(const char * data, const size_t size, const path_t& pa
 }
 #endif
 
-// We're relying on WER to automatically generate a minidump here.
-// If this is an official build with an API key, we'll automatically upload the dump on next start
+// craftos-agent: our own report and minidump (exceptionHandler), not WER's
 void setupCrashHandler() {
     SetUnhandledExceptionFilter(exceptionHandler);
     _set_invalid_parameter_handler(invalidParameterHandler);
+    std::set_terminate(terminateHandler);
+    signal(SIGABRT, abortHandler);
+    _set_purecall_handler(purecallHandler);
+    // headless: no dialog of Windows' own either (Windows Error Reporting's, a missing disk's, the CRT's abort box)
+    if (crashreport::headless()) {
+        SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+        WerSetFlags(WER_FAULT_REPORTING_NO_UI);
+        _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    }
 }
 
 void uploadCrashDumps() {

@@ -749,6 +749,16 @@ function readTraceFile(
   handle: EngineHandle,
   from: number,
 ): { lines: string[]; end: number } {
+  // over the host channel (EngineHandle.hostTrace): `from` counts lines, not bytes
+  const memory = handle.hostTrace;
+  if (memory && (memory.lines.length > 0 || memory.base > 0)) {
+    const end = memory.base + memory.lines.length;
+    if (from >= end) return { lines: [], end: from };
+    return {
+      lines: memory.lines.slice(Math.max(0, from - memory.base)),
+      end,
+    };
+  }
   const file = join(handle.resultsDir, "trace.log");
   try {
     const size = statSync(file).size;

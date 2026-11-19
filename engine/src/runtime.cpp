@@ -186,7 +186,8 @@ void defaultPollEvents() {
 void mainLoop() {
     TerminalFactory * factory = selectedRenderer >= terminalFactories.size() ? NULL : terminalFactories[selectedRenderer];
 #if !defined(__EMSCRIPTEN__) || defined(CRAFTOS_WEB)
-    while (!listenerMode && (rawClient ? !exiting : !computers->empty() || !orphanedTerminals.empty())) {
+    // pool mode: the engine runs on with no computer at all, until the host closes stdin and the last one is gone
+    while (!listenerMode && (rawClient ? !exiting : rawPoolMode ? !(rawPoolClosing && computers->empty()) : !computers->empty() || !orphanedTerminals.empty())) {
 #endif
         if (factory) factory->pollEvents();
         else defaultPollEvents();
@@ -297,11 +298,15 @@ int getNextEvent(lua_State *L, const std::string& filter) {
             if (computer->eventQueue.empty()) {
                 std::mutex m;
                 std::unique_lock<std::mutex> l(m);
+                // parked: blocked here with nothing to do, what the clock's jumps and steps wait for (os.cpp idleNow).
+                // getting_event alone is not enough: it stays set from the pop of an event until Lua runs again.
+                computer->parked = true;
                 while (computer->running == 1 && !termHasEvent(computer)) {
                     // a debugger's pause while the computer waits for an event stops it here (debug_server.cpp)
                     if (debugsrv::pausePending(computer)) {debugsrv::idlePause(computer); continue;}
                     computer->event_lock.wait_for(l, std::chrono::seconds(5), [computer]()->bool{return termHasEvent(computer) || computer->running != 1 || debugsrv::pausePending(computer);});
                 }
+                computer->parked = false;
                 if (computer->running != 1) return 0;
             }
         } while (computer->eventQueue.empty());

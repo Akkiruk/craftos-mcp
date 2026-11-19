@@ -610,6 +610,12 @@ const worldSchema = z
       .passthrough()
       .optional()
       .describe("Overrides of the Advanced Peripherals server config."),
+    linkLatency: z
+      .union([z.number().min(0), z.literal("fast")])
+      .optional()
+      .describe(
+        'vhcctweaks links: ms a call to a linked monitor or other computer-thread peripheral takes, as in game (default CRAFTOS_LINK_LATENCY, else 30). "fast" answers at once.',
+      ),
     vhccStore: z
       .string()
       .optional()
@@ -1138,6 +1144,9 @@ tool(
         content: [
           text({
             ...core,
+            ...(core.crash && {
+              crash: `engine crashed: ${core.crash.reason}, report at ${core.crash.report}`,
+            }),
             ...(stderr ? { stderr } : {}),
             ...(messages.length ? { messages } : {}),
             ...(warnings.length ? { warnings } : {}),
@@ -1266,6 +1275,9 @@ export function compactTests(result: TestRunResult) {
       return {
         file: f.file,
         status: f.status,
+        ...(f.crash && {
+          crash: `engine crashed: ${f.crash.reason}, report at ${f.crash.report}`,
+        }),
         passed: passed.length,
         ...(named && passed.length
           ? { passedTests: passed.map((t) => t.name) }

@@ -10,6 +10,8 @@ export const PacketType = {
   FileResponse: 8,
   FileData: 9,
   Speaker: 10,
+  /** craftos-agent: what the ccsim layer tells the host (engine --host-channel, RawTerminal.cpp rawHostSend). */
+  HostData: 0x45,
 } as const;
 
 export const FeatureBit = {
@@ -85,6 +87,17 @@ export interface SpeakerFrame {
   readonly payload: Uint8Array;
 }
 
+/**
+ * What a computer's ccsim layer tells the host over the engine's stdout (engine started with --host-channel): kind M,
+ * lines for other computers (what /results/modem.out held); B, the input-wait beacon (waiting.json); T, trace lines.
+ */
+export interface HostFrame {
+  readonly type: "host";
+  readonly window: number;
+  readonly kind: string;
+  readonly text: string;
+}
+
 export interface UnknownFrame {
   readonly type: "unknown";
   readonly packetType: number;
@@ -98,6 +111,7 @@ export type ServerFrame =
   | FileResponseFrame
   | FileDataFrame
   | SpeakerFrame
+  | HostFrame
   | UnknownFrame;
 
 function decodeRle(
@@ -222,6 +236,13 @@ export function decodeServerPacket(data: Uint8Array): ServerFrame {
         volume: data[4]!,
         speed: view.getInt8(5),
         payload: data.slice(8, 8 + view.getUint16(6, true)),
+      };
+    case PacketType.HostData:
+      return {
+        type: "host",
+        window,
+        kind: String.fromCharCode(data[2] ?? 0),
+        text: Buffer.from(data.subarray(3)).toString("latin1"),
       };
     default:
       return { type: "unknown", packetType };

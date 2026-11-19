@@ -10,6 +10,7 @@
 
 #ifndef RUNTIME_HPP
 #define RUNTIME_HPP
+#include <atomic>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -49,6 +50,29 @@ extern bool Computer_getEvent(Computer * self, SDL_Event* e);
 extern Uint32 eventTimeoutEvent(Uint32 interval, void* param);
 extern void* computerThread(void* data);
 extern Computer* startComputer(int id);
+
+// craftos-agent pool mode (--pool with --raw, RawTerminal.cpp): one engine runs many unrelated computers, each started
+// by the host with the settings a process of its own would have had on its command line.
+struct PoolSpec {
+    int slot = -1;                       // the host's name for the computer: its packets carry it
+    double timeScale = 1.0;              // --time-scale
+    std::string clockFile;               // CRAFTOS_CLOCK_FILE
+    path_t base;                         // --directory: config/<id>.json
+    path_t computers;                    // the computers folder: <id> and disk/<n>
+    std::string script;                  // --script
+    std::vector<std::tuple<std::string, std::string, int> > mounts; // --mount-ro (0) / --mount-rw (1) / --mount (-1)
+};
+extern bool rawPoolMode;
+extern std::atomic<bool> rawPoolClosing; // stdin closed: the pooled computers quit, and the engine ends after them
+// set while startComputer makes a pooled computer (on that thread)
+extern thread_local const PoolSpec * pendingPoolSpec;
+// the pool slot a terminal being made belongs to (-1: none); set around createTerminal for pooled computers
+extern thread_local int rawPendingSlot;
+// a pooled computer is gone: tell the host, with its os.shutdown code (RawTerminal.cpp)
+extern void rawPoolExited(int slot, int code);
+// --host-channel: the ccsim layer's lines, beacon and trace go to the host over stdout (RawTerminal.cpp)
+extern bool rawHostChannel;
+extern bool rawHostSend(Computer * comp, char kind, const std::string& text);
 extern void queueEvent(Computer *comp, const event_provider& p, void* data);
 extern bool addMount(Computer *comp, const path_t& real_path, const std::string& comp_path, bool read_only);
 extern bool addVirtualMount(Computer * comp, const FileEntry& vfs, const std::string& comp_path);

@@ -3,7 +3,13 @@ import { availableParallelism } from "node:os";
 import { join } from "node:path";
 import { isBlockWorld, startInBlockWorld } from "./blockworld.js";
 import type { RunnerConfig } from "./config.js";
-import { captureScreens, stageWithin, startEngine } from "./engine.js";
+import type { EngineCrash } from "@craftos-mcp/rawterm";
+import {
+  captureScreens,
+  engineCrashOf,
+  stageWithin,
+  startEngine,
+} from "./engine.js";
 import { COPY_SKIP } from "./copy.js";
 import {
   type MonitorSpec,
@@ -38,6 +44,8 @@ export interface TestFileResult {
   readonly tests: TestCase[];
   /** Final terminal text, included when a file did not pass. */
   readonly terminal?: string[] | undefined;
+  /** The engine itself crashed: what happened, and the crash report it wrote ("engine crashed: ..." on stderr). */
+  readonly crash?: EngineCrash;
   readonly durationMs: number;
 }
 
@@ -203,7 +211,21 @@ async function runTestFile(
         : captureScreens(handle.session).flatMap((s) =>
             s.lines.filter((l) => l.length > 0),
           );
-    return { file, status, tests, terminal, durationMs: Date.now() - started };
+    const crash = engineCrashOf(handle);
+    if (crash)
+      tests.push({
+        name: "the engine",
+        passed: false,
+        error: `engine crashed: ${crash.reason}, report at ${crash.report}`,
+      });
+    return {
+      file,
+      status: crash ? "crashed" : status,
+      tests,
+      terminal,
+      ...(crash && { crash }),
+      durationMs: Date.now() - started,
+    };
   } finally {
     request.signal?.removeEventListener("abort", onAbort);
     if (blocks) {

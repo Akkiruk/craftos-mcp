@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isBlockWorld, startInBlockWorld } from "./blockworld.js";
 import type { RunnerConfig } from "./config.js";
+import type { EngineCrash } from "@craftos-mcp/rawterm";
 import {
   type EngineHandle,
   type ScreenCapture,
   captureScreens,
+  engineCrashOf,
   stageWithin,
   startEngine,
 } from "./engine.js";
@@ -51,6 +53,8 @@ export interface RunResult {
   readonly durationMs: number;
   readonly screens: ScreenCapture[];
   readonly stderr: string;
+  /** engine_error from a crash of the engine itself: what happened and the crash report it wrote. */
+  readonly crash?: EngineCrash;
   readonly messages: { title: string; message: string }[];
   /** program_failed: why, with the file and line when the error names them. */
   readonly error?: RunError;
@@ -289,6 +293,7 @@ async function finishRun(
     scale: request.scale ?? 2,
     resultsDir: handle.resultsDir,
   });
+  const crash = engineCrashOf(handle);
   const result: RunResult = {
     status: timedOut
       ? "timed_out"
@@ -301,6 +306,7 @@ async function finishRun(
     durationMs: Date.now() - started,
     screens,
     stderr: handle.stderr.join("").trim(),
+    ...(crash && { crash }),
     messages: session.messages,
     ...(!timedOut &&
       exitCode === 1 && {

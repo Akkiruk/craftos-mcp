@@ -180,6 +180,8 @@ jobs:
           rm -rf "$stage" && mkdir -p "$stage/engine/build"
           if [ "$RUNNER_OS" = Windows ]; then
             cp engine/build/craftos.exe engine/build/*.dll "$stage/engine/build/"
+            # the symbols beside the exe: a crash report names functions and lines (engine/src/crashreport.hpp)
+            if [ -f engine/build/craftos.pdb ]; then cp engine/build/craftos.pdb "$stage/engine/build/"; fi
           else
             cp engine/build/craftos "$stage/engine/build/"
             find engine/build -maxdepth 1 \( -name '*.so*' -o -name '*.dylib' \) -exec cp -P {} "$stage/engine/build/" \;

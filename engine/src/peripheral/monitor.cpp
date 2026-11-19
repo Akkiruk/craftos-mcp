@@ -12,7 +12,7 @@
 #include "../runtime.hpp"
 #include "../termsupport.hpp"
 
-extern double timeScale;
+#include "../simclock.hpp"
 
 namespace {
 struct ResizeEvent {
@@ -39,7 +39,7 @@ Uint32 monitorResizeTimer(Uint32 interval, void* param) {
 void monitor::resized() {
     if (comp == NULL) return;
     const auto now = std::chrono::steady_clock::now();
-    const Uint32 delay = (Uint32)(std::max)(1.0, 50.0 / timeScale);
+    const Uint32 delay = (Uint32)(std::max)(1.0, 50.0 / simclock::scale(comp));
     // one event per tick, however many changes the tick saw
     if (resizeTimer != 0 && now - lastResize < std::chrono::milliseconds(delay)) return;
     lastResize = now;
@@ -54,7 +54,10 @@ monitor::monitor(lua_State *L, const char * side) {
     this->side = side;
     if (SDL_GetCurrentVideoDriver() != NULL && (std::string(SDL_GetCurrentVideoDriver()) == "KMSDRM" || std::string(SDL_GetCurrentVideoDriver()) == "KMSDRM_LEGACY"))
         throw std::runtime_error("Monitors are not available when using the Linux framebuffer");
-    term = (Terminal*)queueTask([](void*side)->void*{
+    // pool mode: the monitor's window belongs to this computer (rawPendingSlot, read by RawTerminal's constructor)
+    const int slot = comp->poolSlot;
+    term = (Terminal*)queueTask([slot](void*side)->void*{
+        struct Owner {Owner(int s) {rawPendingSlot = s;} ~Owner() {rawPendingSlot = -1;}} owner(slot);
         return createTerminal("CraftOS Terminal: Monitor " + std::string((const char*)side));
     }, (void*)side);
     if (term == NULL) throw std::runtime_error("Monitors are not available in this mode");

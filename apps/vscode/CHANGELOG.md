@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+Runs craftos-mcp 0.6.0.
+
+- No more crash pop-ups from the emulator. If the engine dies you get an error in the run with the path to a crash
+  report, and the Windows engine ships its symbols now so the report actually says where
+- Linked computers (vhcctweaks ender modem links) talk to each other without going through files. A linked monitor
+  call costs the game's 30 ms now, steady, instead of anywhere from 30 to 100+ depending on load. Set
+  `"linkLatency": "fast"` in a world if you'd rather not wait
+- `CRAFTOS_POOL=16` in the server's environment puts up to 16 computers in one engine process: about half the
+  memory and a tenth of the threads each. It's off unless you set it, since one crash then takes all of them down
+
 ## 0.5.0
 
 Runs craftos-mcp 0.5.0.

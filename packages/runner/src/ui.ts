@@ -303,11 +303,15 @@ export interface WaitingState {
 }
 
 export function readWaiting(
-  handle: Pick<EngineHandle, "resultsDir">,
+  handle: Pick<EngineHandle, "resultsDir"> & {
+    readonly session?: { readonly hostBeacon?: string | undefined };
+  },
 ): WaitingState | undefined {
   try {
+    // over the host channel when the engine has one (EngineHandle.onHost), else the file the sim writes
     const raw = JSON.parse(
-      readFileSync(join(handle.resultsDir, "waiting.json"), "utf8"),
+      handle.session?.hostBeacon ??
+        readFileSync(join(handle.resultsDir, "waiting.json"), "utf8"),
     ) as Record<string, unknown>;
     // CC's JSON encoder writes an empty table as {}.
     const last = Array.isArray(raw["last"]) ? raw["last"] : [];

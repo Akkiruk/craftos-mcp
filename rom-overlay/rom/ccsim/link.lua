@@ -81,7 +81,7 @@ return function(core, host, modems, relay)
     for _, rname in ipairs(wantOrder) do
       now[rname] = true
       if not have[rname] then
-        host.attachRemote(displayName(id, rname), want[rname], id, rname)
+        host.attachRemote(displayName(id, rname), want[rname], id, rname, true)
         if announce then queueEvent("peripheral", displayName(id, rname)) end
       end
     end

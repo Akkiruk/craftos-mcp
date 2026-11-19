@@ -58,17 +58,24 @@ const wchar_t charsetConversion[256] = {
     0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4, 0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE, 0x00FF
 };
 
+// craftos-agent: a computer's Lua state carries its computer as the allocator's userdata (runComputer:
+// lua_newstate(memAllocator, self)), so that is read first, with no lock and no shared table. The table this used to
+// read first was looked up without its lock while other computers' threads added to it: with many computers starting
+// at once (pool mode) a lookup could meet a rehash and come back with another computer, whose mounts a file then
+// resolved against (a module of rom/ccsim read as empty). Other states (rawFileStack, made by luaL_newstate) keep
+// their computer in the registry, read under the lock.
 Computer * get_comp(lua_State *L) {
-    try {
-        return getCompCache->at(L->l_G);
-    } catch (std::out_of_range &e) {
-        LockGuard lock(getCompCache);
-        lua_rawgeti(L, LUA_REGISTRYINDEX, 1);
-        Computer * retval = (Computer*)lua_touserdata(L, -1);
-        lua_pop(L, 1);
-        getCompCache->insert(std::make_pair(L->l_G, retval));
-        return retval;
-    }
+    void * ud = NULL;
+    lua_getallocf(L, &ud);
+    if (ud != NULL) return (Computer*)ud;
+    LockGuard lock(getCompCache);
+    const auto it = getCompCache->find(L->l_G);
+    if (it != getCompCache->end()) return it->second;
+    lua_rawgeti(L, LUA_REGISTRYINDEX, 1);
+    Computer * retval = (Computer*)lua_touserdata(L, -1);
+    lua_pop(L, 1);
+    getCompCache->insert(std::make_pair(L->l_G, retval));
+    return retval;
 }
 
 void uncache_state(lua_State *L) {

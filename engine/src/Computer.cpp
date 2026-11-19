@@ -26,6 +26,7 @@ extern "C" {
 #include "platform.hpp"
 #include "runtime.hpp"
 #include "simclock.hpp"
+#include "crashreport.hpp"
 #include "terminal/RawTerminal.hpp"
 #include "termsupport.hpp"
 
@@ -40,6 +41,7 @@ extern std::string standaloneBIOS;
 #endif
 
 extern Uint32 eventTimeoutEvent(Uint32 interval, void* param);
+extern void osForgetTimers(Computer * comp);
 extern int term_benchmark(lua_State *L);
 extern int onboardingMode;
 ProtectedObject<std::vector<Computer*> > computers;
@@ -94,11 +96,22 @@ library_t * libraries[] = {
 Computer::Computer(int i, bool debug): isDebugger(debug) {
     id = i;
     ccVersion = ccVersionCode;
+    // a computer the pool host started (--pool): its own folders, script, mounts and clock
+    const PoolSpec * spec = pendingPoolSpec;
+    if (spec != NULL) {
+        poolSlot = spec->slot;
+        basePath = spec->base.native();
+        computersDir = spec->computers.native();
+        scriptFile = spec->script;
+    }
     // Load config
-    const computer_configuration _config = getComputerConfig(id);
+    const computer_configuration _config = getComputerConfig(id, path_t(basePath));
     // Create the terminal
     const std::string term_title = _config.label.empty() ? "CraftOS Terminal: " + std::string(debug ? "Debugger" : "Computer") + " " + std::to_string(id) : "CraftOS Terminal: " + asciify(_config.label);
-    term = createTerminal(term_title);
+    {
+        struct Owner {Owner(int s) {rawPendingSlot = s;} ~Owner() {rawPendingSlot = -1;}} owner(poolSlot);
+        term = createTerminal(term_title);
+    }
     if (selectedRenderer == 3) ((RawTerminal*)term)->computerID = id + 1;
     if (term) {
         term->grayscale = !_config.isColor;
@@ -126,9 +139,19 @@ Computer::Computer(int i, bool debug): isDebugger(debug) {
         }
         if (!ok) fprintf(stderr, "Could not mount custom mount path at %s\n", std::get<1>(m).c_str());
     }
+    if (spec != NULL) for (const auto& m : spec->mounts) {
+        bool ok = false;
+        switch (std::get<2>(m)) {
+            case -1: if (::config.mount_mode != MOUNT_MODE_NONE) ok = addMount(this, std::get<1>(m), std::get<0>(m).c_str(), ::config.mount_mode != MOUNT_MODE_RW); break;
+            case 0: ok = addMount(this, std::get<1>(m), std::get<0>(m).c_str(), true); break;
+            default: ok = addMount(this, std::get<1>(m), std::get<0>(m).c_str(), false); break;
+        }
+        if (!ok) fprintf(stderr, "Could not mount custom mount path at %s\n", std::get<1>(m).c_str());
+    }
     mounter_initializing = false;
     // Get the computer's data directory
-    if (customDataDirs.find(id) != customDataDirs.end()) dataDir = customDataDirs[id];
+    if (spec != NULL) dataDir = path_t(computersDir) / std::to_string(id);
+    else if (customDataDirs.find(id) != customDataDirs.end()) dataDir = customDataDirs[id];
     else dataDir = computerDir / std::to_string(id);
     // Create the root directory
     std::error_code e;
@@ -138,6 +161,7 @@ Computer::Computer(int i, bool debug): isDebugger(debug) {
         throw std::runtime_error("Could not create computer data directory: " + e.message());
     }
     config = new computer_configuration(_config);
+    if (spec != NULL) clockDomain = simclock::acquire(spec->timeScale, spec->clockFile);
 }
 
 // Destructor
@@ -150,7 +174,7 @@ Computer::~Computer() {
         else term->factory->deleteTerminal(term);
     }
     // Save config
-    setComputerConfig(id, *config);
+    setComputerConfig(id, *config, path_t(basePath));
     delete config;
     // Deinitialize all peripherals
     for (const auto& p : peripherals) p.second->getDestructor()(p.second);
@@ -166,6 +190,8 @@ Computer::~Computer() {
         }
         if (c == referencers.end()) break;
     }
+    // Every timer and alarm of this computer goes (osForgetTimers, apis/os.cpp), and the ids still running are marked
+    osForgetTimers(this);
     // Mark all currently running timers as invalid
     {
         LockGuard lock(freedTimers);
@@ -176,6 +202,11 @@ Computer::~Computer() {
     if (eventTimeout != 0) SDL_RemoveTimer(eventTimeout);
     // Stop all open websockets
     while (!openWebsockets.empty()) stopWebsocket(*openWebsockets.begin());
+    // A pooled computer: its windows have closed (above); now the host hears it is gone, with its code
+    if (poolSlot >= 0) {
+        simclock::release(clockDomain);
+        rawPoolExited(poolSlot, exitCode);
+    }
 }
 
 // Cobalt speed (--cobalt-speed N): CC:Tweaked runs Lua on Cobalt, a Lua VM in Java, about 8x slower than native Lua.
@@ -238,7 +269,8 @@ extern "C" {
 
 
 static const char * file_reader(lua_State *L, void * ud, size_t *size) {
-    static char file_read_tmp[4096];
+    // per thread (craftos-agent): computers booting at once each read their own bios.lua
+    thread_local char file_read_tmp[4096];
     std::ifstream * file = (std::ifstream*)ud;
     if (file->eof()) return NULL;
     file->read(file_read_tmp, 4096);
@@ -466,7 +498,7 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         }
         self->colors = 0xF0;
         // on the virtual clock (simclock.hpp), so os.clock starts at 0 after a pause or a change of speed too
-        self->system_start = simclock::now();
+        self->system_start = simclock::now(self);
         if (self->allocator_ctx != NULL) {
             delete self->allocator_ctx;
             self->allocator_ctx = NULL;
@@ -481,6 +513,15 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         lua_setobjallocf(L, objAllocator, self);
         lua_setccversion(L, self->ccVersion);  // the VM's own version pins read this (global_State)
         uncache_state(L);
+        // The collector's pace (craftos-agent): CC programs cannot see Lua's collector (no collectgarbage), so how soon
+        // it runs only changes memory and time. CRAFTOS_GC_PAUSE / CRAFTOS_GC_STEPMUL set lua_gc's pause and step
+        // multiplier (Lua's defaults: 200 and 200); see luaGcPause.
+        {
+            static const int pause = getenv("CRAFTOS_GC_PAUSE") ? atoi(getenv("CRAFTOS_GC_PAUSE")) : 0;
+            static const int stepmul = getenv("CRAFTOS_GC_STEPMUL") ? atoi(getenv("CRAFTOS_GC_STEPMUL")) : 0;
+            if (pause > 0) lua_gc(L, LUA_GCSETPAUSE, pause);
+            if (stepmul > 0) lua_gc(L, LUA_GCSETSTEPMUL, stepmul);
+        }
 
         self->coro = lua_newthread(L);
         self->paramQueue = lua_newthread(L);
@@ -687,11 +728,12 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
             onboardingMode = 0;
             config_save();
         }
-        if (!script_file.empty()) {
+        const std::string& scriptPath = self->scriptFile.empty() ? script_file : self->scriptFile;
+        if (!scriptPath.empty()) {
             std::string script;
-            if (script_file[0] == '\x1b') script = script_file.substr(1);
+            if (scriptPath[0] == '\x1b') script = scriptPath.substr(1);
             else {
-                FILE* in = fopen(script_file.c_str(), "r");
+                FILE* in = fopen(scriptPath.c_str(), "r");
                 if (in != NULL) {
                     char tmp[4096];
                     while (!feof(in)) {
@@ -796,6 +838,12 @@ void runComputer(Computer * self, const path_t& bios_name, const std::string& bi
         if (self->eventTimeout != 0) SDL_RemoveTimer(self->eventTimeout);
         self->eventTimeout = 0;
         debugsrv::computerStopping(self);
+        // CRAFTOS_HEAPLOG=1: how much memory the computer's Lua held as it stopped, and how much of it was live
+        if (getenv("CRAFTOS_HEAPLOG") != NULL) {
+            const int held = lua_gc(L, LUA_GCCOUNT, 0);
+            lua_gc(L, LUA_GCCOLLECT, 0);
+            fprintf(stderr, "heap computer %d: %d KB held, %d KB live\n", self->id, held, lua_gc(L, LUA_GCCOUNT, 0));
+        }
         lua_close(L);   /* Cya, Lua */
         self->L = NULL;
         if (self->rawFileStack) {
@@ -844,6 +892,14 @@ bool Computer_getEvent(Computer * self, SDL_Event* e) {
 // Thread wrapper for running a computer
 void* computerThread(void* data) {
     Computer * comp = (Computer*)data;
+#ifndef __EMSCRIPTEN__ // the browser build has no crash report (engine/web/web.cmake leaves crashreport.cpp out)
+    crashreport::currentComputer = comp; // for the crash report (crashreport.hpp)
+#endif
+    // CRAFTOS_TEST_CRASH=computer: crash here on purpose, for the crash report's own test (rawterm crash.integration.test.ts)
+    {
+        const char * crash = getenv("CRAFTOS_TEST_CRASH");
+        if (crash != NULL && strcmp(crash, "computer") == 0) *(volatile int*)NULL = 1;
+    }
 #ifdef __APPLE__
     pthread_setname_np(std::string("Computer " + std::to_string(comp->id) + " Thread").c_str());
 #endif
@@ -920,7 +976,7 @@ void* computerThread(void* data) {
 #endif
         } catch (Poco::Exception &e) {
             fprintf(stderr, "Uncaught exception while executing computer %d (last C function: %s): %s\n", comp->id, lastCFunction, e.displayText().c_str());
-            queueTask([e](void*t)->void* {const std::string m = "Uh oh, an uncaught exception has occurred! Please report this to https://www.craftos-pc.cc/bugreport. When writing the report, include the following exception message: \"Poco exception on computer thread: " + e.displayText() + "\". The computer will now shut down.";  if (t != NULL) ((Terminal*)t)->showMessage(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str()); else if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str(), NULL); return NULL; }, comp->term);
+            queueTask([e](void*t)->void* {const std::string m = "An uncaught exception has occurred in the emulator. Please report this at https://github.com/Akkiruk/craftos-mcp/issues. When writing the report, include the following exception message: \"Poco exception on computer thread: " + e.displayText() + "\". The computer will now shut down.";  if (t != NULL) ((Terminal*)t)->showMessage(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str()); else if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str(), NULL); return NULL; }, comp->term);
             if (comp->L != NULL) {
                 comp->event_lock.notify_all();
                 // Stop all open websockets
@@ -940,7 +996,7 @@ void* computerThread(void* data) {
             if (selectedRenderer == 1) returnValue = 1;
         } catch (std::exception &e) {
             fprintf(stderr, "Uncaught exception while executing computer %d (last C function: %s): %s\n", comp->id, lastCFunction, e.what());
-            queueTask([e](void*t)->void* {const std::string m = std::string("Uh oh, an uncaught exception has occurred! Please report this to https://www.craftos-pc.cc/bugreport. When writing the report, include the following exception message: \"Exception on computer thread: ") + e.what() + "\". The computer will now shut down.";  if (t != NULL) ((Terminal*)t)->showMessage(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str()); else if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str(), NULL); return NULL; }, comp->term);
+            queueTask([e](void*t)->void* {const std::string m = std::string("An uncaught exception has occurred in the emulator. Please report this at https://github.com/Akkiruk/craftos-mcp/issues. When writing the report, include the following exception message: \"Exception on computer thread: ") + e.what() + "\". The computer will now shut down.";  if (t != NULL) ((Terminal*)t)->showMessage(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str()); else if (selectedRenderer == 0 || selectedRenderer == 5) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Uncaught Exception", m.c_str(), NULL); return NULL; }, comp->term);
             if (comp->L != NULL) {
                 comp->event_lock.notify_all();
                 // Stop all open websockets

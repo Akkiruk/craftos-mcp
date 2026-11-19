@@ -251,6 +251,8 @@ return function(core, host)
     if #heldLines == 0 then return end
     local text = table.concat(heldLines, "\n") .. "\n"
     heldLines = {}
+    -- the host channel (ccsim/core.lua M.host): straight to the runner, no file
+    if core.host then return core.host("M", text) end
     local h = fsOpen(OUTBOX, "a")
     if h then
       h.write(text)
@@ -264,6 +266,7 @@ return function(core, host)
       heldLines[#heldLines + 1] = line
       return flush()
     end
+    if core.host then return core.host("M", line .. "\n") end
     local h = fsOpen(OUTBOX, "a")
     if h then
       h.write(line .. "\n")

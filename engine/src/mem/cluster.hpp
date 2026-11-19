@@ -10,7 +10,10 @@
 
 #include <cstddef>
 
-#define CLUSTER_SIZE 4096
+// craftos-agent: 512, not 4096. A cluster is allocated (and zeroed) whole, and every computer has two allocators
+// (ropes, substrings) with a cluster each from its first string: 4096 elements was about 400 KB per computer before
+// it held a single string. More clusters are chained as needed, and empty ones are freed, as before.
+#define CLUSTER_SIZE 512
 #define CLUSTER_BITMAP_SIZE CLUSTER_SIZE / (sizeof(bitmap_unit) * 8)
 
 class ClusterAllocator {

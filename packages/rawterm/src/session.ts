@@ -25,6 +25,36 @@ export interface SessionOptions {
   readonly env?: NodeJS.ProcessEnv;
 }
 
+/** An engine crash, from the line the engine writes to stderr as it goes (engine/src/crashreport.hpp). */
+export interface EngineCrash {
+  /** What happened, e.g. "access violation (0xC0000005) at craftos.exe+0x1049d" */
+  readonly reason: string;
+  /** The crash report (a text file; a .dmp minidump sits beside it on Windows) */
+  readonly report: string;
+}
+
+const CRASH_LINE = /^engine crashed: (.*); report at (.*)$/m;
+
+/** The engine's crash in its stderr, if it crashed. */
+export function parseEngineCrash(stderr: string): EngineCrash | undefined {
+  const m = CRASH_LINE.exec(stderr);
+  return m ? { reason: m[1]!.trim(), report: m[2]!.trim() } : undefined;
+}
+
+/** How a computer in a shared engine (pool.ts) sends its packets: the pool puts them in its envelope. */
+export interface SessionTransport {
+  /** One packet as a process of its own would get it (window ids the computer's own). */
+  write(payload: Uint8Array): void;
+  /** Stop the computer now, as killing its process would (stop() after its grace). */
+  kill(): void;
+}
+
+export interface PooledSessionOptions {
+  readonly transport: SessionTransport;
+  /** The feature flags the shared engine agreed to. */
+  readonly serverFlags: number;
+}
+
 export interface WindowState {
   readonly id: number;
   /** Computer id for the main terminal; undefined for monitors. */
@@ -82,34 +112,52 @@ export class RawSession extends EventEmitter<{
   payload: [Uint8Array];
   exit: [ExitInfo];
   stderr: [string];
+  /** What the computer's ccsim layer told the host (HostFrame: M lines for other computers, B beacon, T trace). */
+  host: [kind: string, text: string];
 }> {
   readonly windows = new Map<number, WindowState>();
   /** Windows the engine has closed (kept so final screens survive shutdown). */
   readonly closedWindows: WindowState[] = [];
   readonly messages: { title: string; message: string }[] = [];
   exitInfo: ExitInfo | undefined;
+  /** The newest input-wait beacon the computer sent over the host channel (what waiting.json would hold). */
+  hostBeacon: string | undefined;
 
-  private readonly child: ChildProcessWithoutNullStreams;
+  private readonly child: ChildProcessWithoutNullStreams | undefined;
+  /** Set for a computer in a shared engine (pool.ts): packets go through it instead of a process of its own. */
+  private readonly transport: SessionTransport | undefined;
   private readonly parser = new FrameParser({ binaryCrc: false });
   private serverFlags = 0;
   private readonly clientFlags = FeatureBit.WindowsOnHandshake;
 
-  constructor(options: SessionOptions) {
+  constructor(options: SessionOptions | PooledSessionOptions) {
     super();
-    this.child = spawn(options.executable, ["--raw", ...(options.args ?? [])], {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    this.child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
-    this.child.stderr.on("data", (chunk: Buffer) =>
+    if ("transport" in options) {
+      // one computer of a shared engine (pool.ts): the pool reads the engine and hands this session its packets
+      this.child = undefined;
+      this.transport = options.transport;
+      this.serverFlags = options.serverFlags;
+      return;
+    }
+    this.transport = undefined;
+    const child = spawn(
+      options.executable,
+      ["--raw", ...(options.args ?? [])],
+      {
+        cwd: options.cwd,
+        env: options.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    child.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
+    child.stderr.on("data", (chunk: Buffer) =>
       this.emit("stderr", chunk.toString()),
     );
-    this.child.stdin.on("error", () => undefined);
+    child.stdin.on("error", () => undefined);
     // the engine could not start (missing, not executable, blocked by antivirus): an exit with the reason on stderr,
     // never an unhandled error that takes the whole process down
-    this.child.on("error", (error: NodeJS.ErrnoException) => {
+    child.on("error", (error: NodeJS.ErrnoException) => {
       this.emit(
         "stderr",
         `could not start the engine ${options.executable}: ${error.code ?? error.message}\n`,
@@ -121,7 +169,8 @@ export class RawSession extends EventEmitter<{
     // "exit" can come before the last of stdout has been read: the frames the engine drew just before it stopped. Say
     // it has exited once the pipe is drained ("close"), so a caller reading the screens then sees them all. A pipe
     // that some other process holds open never closes, so that wait has a generous limit.
-    this.child.on("exit", (code, signal) => {
+    this.child = child;
+    child.on("exit", (code, signal) => {
       if (this.exitInfo !== undefined) return;
       const info = { code, signal };
       const done = (): void => {
@@ -131,10 +180,29 @@ export class RawSession extends EventEmitter<{
         this.emit("exit", info);
       };
       const limit = setTimeout(done, 5000);
-      if (this.child.stdout.readableEnded) done();
-      else this.child.once("close", done);
+      if (child.stdout.readableEnded) done();
+      else child.once("close", done);
     });
     this.sendPayload(encodeFeatures(this.clientFlags));
+  }
+
+  /** Pool side (pool.ts): one packet the engine sent about this computer, window ids already its own. */
+  receivePooled(payload: Uint8Array): void {
+    if (this.exitInfo) return;
+    const frame = decodeServerPacket(payload);
+    this.track(frame, payload);
+  }
+
+  /** Pool side: the computer is gone (its exit packet), or its engine is. */
+  exitPooled(info: ExitInfo): void {
+    if (this.exitInfo !== undefined) return;
+    this.exitInfo = info;
+    this.emit("exit", info);
+  }
+
+  /** Pool side: what the shared engine wrote to stderr, given to the computers it concerns. */
+  stderrPooled(text: string): void {
+    this.emit("stderr", text);
   }
 
   get running(): boolean {
@@ -146,7 +214,12 @@ export class RawSession extends EventEmitter<{
   }
 
   private sendPayload(payload: Uint8Array): void {
-    if (!this.running || this.child.stdin.destroyed) return;
+    if (!this.running) return;
+    if (this.transport) {
+      this.transport.write(payload);
+      return;
+    }
+    if (!this.child || this.child.stdin.destroyed) return;
     this.child.stdin.write(encodeFrame(payload, { binaryCrc: false }));
   }
 
@@ -176,7 +249,18 @@ export class RawSession extends EventEmitter<{
 
   private onData(chunk: Buffer): void {
     for (const payload of this.parser.push(chunk)) {
-      const frame = decodeServerPacket(payload);
+      this.track(decodeServerPacket(payload), payload);
+    }
+  }
+
+  private track(frame: ServerFrame, payload: Uint8Array): void {
+    if (frame.type === "host") {
+      // the host's own channel: not a screen, and not for raw clients watching
+      if (frame.kind === "B") this.hostBeacon = frame.text;
+      this.emit("host", frame.kind, frame.text);
+      return;
+    }
+    {
       this.apply(frame);
       if (frame.type === "window") {
         if (frame.closing === 0)
@@ -216,7 +300,7 @@ export class RawSession extends EventEmitter<{
           this.windows.delete(frame.window);
         } else {
           // The engine announced quit but keeps its process alive until stdin closes.
-          this.child.stdin.end();
+          if (this.child) this.child.stdin.end();
         }
         break;
       case "terminal": {
@@ -387,7 +471,8 @@ export class RawSession extends EventEmitter<{
     } catch {
       // SIGKILL, not the default SIGTERM: once SDL has opened audio it catches SIGTERM and only queues a quit event,
       // which a program stuck in a loop never reads (seen on macOS; Windows always kills outright).
-      this.child.kill("SIGKILL");
+      if (this.transport) this.transport.kill();
+      else this.child?.kill("SIGKILL");
       return this.waitForExit(5000);
     }
   }

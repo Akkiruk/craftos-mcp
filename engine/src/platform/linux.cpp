@@ -42,6 +42,7 @@ extern "C" {
 #include <execinfo.h>
 #endif
 #include "../platform.hpp"
+#include "../crashreport.hpp"
 #include "../util.hpp"
 
 #ifdef CUSTOM_ROM_DIR
@@ -560,18 +561,16 @@ void crit_err_hdlr(int sig_num, siginfo_t * info, void * ucontext) {
 #else
 #error Unsupported architecture. // TODO: Add support for other arch.
 #endif
-    if (!loadingPlugin.empty()) fprintf(stderr, "Uh oh, CraftOS-PC has crashed! Reason: %s. It appears the plugin \"%s\" may have been responsible for this. Please remove it and try again.\n", strsignal(sig_num), loadingPlugin.c_str());
-    else fprintf(stderr, "Uh oh, CraftOS-PC has crashed! Reason: %s (%d). Please report this to https://www.craftos-pc.cc/bugreport. Paste the following text under the 'Screenshots' section:\n", strsignal(sig_num), sig_num);
-    fprintf(stderr, "OS: Linux\nAddress is %p from %p\nLast C function: %s\n", info->si_addr, (void *)caller_address, lastCFunction);
+    // craftos-agent: our own report in the crash folder and one line on stderr (crashreport.hpp), then a nonzero exit
+    (void)messages; (void)i;
+    char reason[256];
+    snprintf(reason, sizeof(reason), "%s (signal %d) at %p, address %p%s%s%s", strsignal(sig_num), sig_num, (void *)caller_address, info->si_addr,
+        loadingPlugin.empty() ? "" : " while loading the plugin \"", loadingPlugin.c_str(), loadingPlugin.empty() ? "" : "\"");
     size = backtrace(array, 25);
     /* overwrite sigaction with caller's address */
     array[1] = caller_address;
-    messages = backtrace_symbols(array, size);
-    /* skip first stack frame (points here) */
-    for (i = 1; i < size && messages != NULL; ++i) 
-        fprintf(stderr, "[bt]: (%d) %s\n", i, messages[i]);
-    free(messages);
-    signal(sig_num, NULL);
+    crashreport::posixCrash(reason, array, size);
+    _exit(128 + sig_num);
 }
 
 #define setSignalHandler(type) if (sigaction(type, &sigact, (struct sigaction *)NULL) != 0) \

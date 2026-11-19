@@ -18,7 +18,10 @@ import {
   resolve,
 } from "node:path";
 import {
+  type EngineCrash,
+  EnginePool,
   RawSession,
+  parseEngineCrash,
   encodePng,
   renderPng,
   type WindowState,
@@ -72,7 +75,23 @@ export interface EngineHandle {
    * the engines `restart` starts later too.
    */
   clock?(verb: string, arg?: number): number;
+  /**
+   * What the computer's ccsim layer tells the host over the engine's stdout (the host channel, engine --host-channel):
+   * kind M lines for other computers, B the beacon, T trace lines. Lasts across `restart`. Absent: the engine writes
+   * results/modem.out, waiting.json and trace.log instead (another host's engine), and readers fall back to them.
+   */
+  onHost?(listener: (kind: string, text: string) => void): void;
+  /** The trace lines the host channel brought (readTrace reads these instead of trace.log when it is there). */
+  readonly hostTrace?: { base: number; lines: string[] };
 }
+
+/** The host channel (EngineHandle.onHost), on unless CRAFTOS_HOST_CHANNEL=0 (then the sim writes its files as before). */
+function hostChannelArgs(): string[] {
+  return process.env["CRAFTOS_HOST_CHANNEL"] === "0" ? [] : ["--host-channel"];
+}
+
+/** Trace lines kept in memory per computer (the sim itself stops at 5000 a boot). */
+const HOST_TRACE_KEEP = 10_000;
 
 // computer_space_limit on the real server, which raised it from CC:Tweaked's 1 MB default (StartOptions)
 const COMPUTER_SPACE_LIMIT = 25_000_000;
@@ -165,6 +184,50 @@ export interface StartOptions {
    * folder alone. Not with `staged`, or with a block world's own computer folder (`shared.computerDir`).
    */
   readonly liveDir?: string;
+  /**
+   * Run the computer in an engine it shares with others (rawterm's EnginePool) instead of a process of its own: the
+   * same computer for every purpose (its folders, mounts, boot script and clock are its own), at a fraction of the
+   * memory and threads. Default: CRAFTOS_POOL (computers per engine; unset or 0 is off). Never with a debugger or a
+   * live folder, whose engine flags are the computer's own.
+   */
+  readonly pool?: boolean;
+}
+
+/** Computers per shared engine from CRAFTOS_POOL; 0: every computer gets an engine of its own. */
+export function poolCapacity(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env["CRAFTOS_POOL"] ?? 0);
+  return Number.isFinite(n) && n > 1 ? Math.floor(n) : 0;
+}
+
+/** Shared engines, one set per combination of the flags the computers in one engine must have in common. */
+const enginePools = new Map<string, EnginePool>();
+
+function sharedPool(
+  config: RunnerConfig,
+  args: readonly string[],
+  globalJson: string,
+  capacity: number,
+): EnginePool {
+  const key = JSON.stringify([config.engineExe, args, globalJson]);
+  let pool = enginePools.get(key);
+  if (!pool) {
+    // the engine reads config/global.json from its --directory: a folder of its own with this pool's
+    const base = join(
+      config.runtimeDir,
+      `pool-${createHash("sha1").update(key).digest("hex").slice(0, 12)}`,
+    );
+    mkdirSync(join(base, "config"), { recursive: true });
+    writeFileSync(join(base, "config", "global.json"), globalJson);
+    pool = new EnginePool({
+      executable: config.engineExe,
+      args: ["--directory", base, ...args],
+      cwd: base,
+      env: process.env,
+      capacity,
+    });
+    enginePools.set(key, pool);
+  }
+  return pool;
 }
 
 /**
@@ -487,20 +550,18 @@ export function startEngine(
 
   const size = terminalSize(world);
   mkdirSync(join(dir, "config"), { recursive: true });
-  writeFileSync(
-    join(dir, "config", "global.json"),
-    JSON.stringify({
-      computerSpaceLimit,
-      // The ROM's random tip under "CraftOS 1.8" is noise in every captured screen: off, as a server admin can set
-      // it (CC:Tweaked's default_computer_settings). world.motd: true brings it back.
-      ...(world?.motd !== true && {
-        default_computer_settings: "motd.enable=false",
-      }),
-      ...(size && { defaultWidth: size.width, defaultHeight: size.height }),
-      ...(httpRules?.allow && { http_whitelist: httpRules.allow }),
-      ...(httpRules?.deny && { http_blacklist: httpRules.deny }),
+  const globalJson = JSON.stringify({
+    computerSpaceLimit,
+    // The ROM's random tip under "CraftOS 1.8" is noise in every captured screen: off, as a server admin can set
+    // it (CC:Tweaked's default_computer_settings). world.motd: true brings it back.
+    ...(world?.motd !== true && {
+      default_computer_settings: "motd.enable=false",
     }),
-  );
+    ...(size && { defaultWidth: size.width, defaultHeight: size.height }),
+    ...(httpRules?.allow && { http_whitelist: httpRules.allow }),
+    ...(httpRules?.deny && { http_blacklist: httpRules.deny }),
+  });
+  writeFileSync(join(dir, "config", "global.json"), globalJson);
   // A normal turtle or computer has no colour (ServerComputer: family != NORMAL); an advanced one does
   const plain =
     (world?.turtle && !world.turtle.advanced) ||
@@ -525,7 +586,67 @@ export function startEngine(
   );
 
   const stderr: string[] = [];
+  // a shared engine (StartOptions.pool): everything but what its computers have in common goes per computer
+  const capacity = poolCapacity();
+  const pooled =
+    (options.pool ?? capacity > 0) && !debug && !liveDir
+      ? sharedPool(
+          config,
+          [
+            "--rom",
+            romDir,
+            ...engineVersionArgs(version),
+            "-o",
+            "mount_mode=ro",
+            ...hostChannelArgs(),
+            ...(cobaltSlowdown(world) > 1
+              ? ["--cobalt-speed", String(cobaltSlowdown(world))]
+              : []),
+          ],
+          globalJson,
+          Math.max(capacity, 2),
+        )
+      : undefined;
+  // the host channel (engine --host-channel): the sim's packets, beacon and trace come over the engine's stdout
+  const hostListeners: ((kind: string, text: string) => void)[] = [];
+  const hostTrace = { base: 0, lines: [] as string[] };
+  const attachHost = (started: RawSession): void => {
+    started.on("host", (kind, text) => {
+      if (kind === "T") {
+        // the engine sends bytes as latin1; trace.log was read as UTF-8
+        const lines = Buffer.from(text, "latin1")
+          .toString("utf8")
+          .split("\n")
+          .filter(Boolean);
+        hostTrace.lines.push(...lines);
+        const over = hostTrace.lines.length - HOST_TRACE_KEEP;
+        if (over > 0) {
+          hostTrace.lines.splice(0, over);
+          hostTrace.base += over;
+        }
+      }
+      for (const listener of hostListeners) listener(kind, text);
+    });
+  };
   const spawnEngine = (): RawSession => {
+    if (pooled) {
+      const started = pooled.start({
+        id: computerId,
+        base: dir,
+        computers: join(dir, "computer"),
+        script: bootPath,
+        clockFile: join(resultsDir, "clock.json"),
+        timeScale,
+        mounts: [
+          ["ccunit", config.luaLibDir, 0],
+          ["results", resultsDir, 1],
+          ...(vhccOn ? [[".vhcc_data", vhccDir, 1] as const] : []),
+        ],
+      });
+      started.on("stderr", (text) => stderr.push(text));
+      attachHost(started);
+      return started;
+    }
     const started = new RawSession({
       executable: config.engineExe,
       cwd: dir,
@@ -553,6 +674,7 @@ export function startEngine(
         ...(debug ? ["--debug-connect", `127.0.0.1:${debug.port}`] : []),
         "--script",
         bootPath,
+        ...hostChannelArgs(),
       ],
       // the token goes in the environment, not on the command line other users of the machine can read; the clock's
       // state comes back in clock.json (clock.ts)
@@ -563,6 +685,7 @@ export function startEngine(
       },
     });
     started.on("stderr", (text) => stderr.push(text));
+    attachHost(started);
     return started;
   };
   let session = spawnEngine();
@@ -587,7 +710,8 @@ export function startEngine(
   let up = false;
   const held: [number, string][] = [];
   let holding: NodeJS.Timeout | undefined;
-  const simUp = (): boolean => (up ||= existsSync(beaconPath));
+  const simUp = (): boolean =>
+    (up ||= session.hostBeacon !== undefined || existsSync(beaconPath));
   const holdUntilUp = (): void => {
     if (holding) return;
     holding = setInterval(() => {
@@ -610,6 +734,10 @@ export function startEngine(
     computerDir,
     ...(liveDir && { liveDir }),
     stderr,
+    onHost: (listener) => {
+      hostListeners.push(listener);
+    },
+    hostTrace,
     sendCommand: (command) => {
       commandSeq += 1;
       const seq = commandSeq;
@@ -663,6 +791,11 @@ export function startEngine(
     clock: sendClock,
   };
   return handle;
+}
+
+/** The engine's crash, when it crashed (its "engine crashed: ..." line on stderr; engine/src/crashreport.hpp). */
+export function engineCrashOf(handle: EngineHandle): EngineCrash | undefined {
+  return parseEngineCrash(handle.stderr.join(""));
 }
 
 export interface ScreenCapture {

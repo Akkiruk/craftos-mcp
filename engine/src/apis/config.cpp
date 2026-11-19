@@ -177,16 +177,16 @@ static int config_set(lua_State *L) {
     else if (strcmp(name, "isColor") == 0) {
         computer->config->isColor = lua_toboolean(L, 2);
         if (computer->term) computer->term->grayscale = !computer->config->isColor;
-        setComputerConfig(computer->id, *computer->config);
+        setComputerConfig(computer->id, *computer->config, path_t(computer->basePath));
     } else if (strcmp(name, "startFullscreen") == 0) {
         computer->config->startFullscreen = lua_toboolean(L, 2);
-        setComputerConfig(computer->id, *computer->config);
+        setComputerConfig(computer->id, *computer->config, path_t(computer->basePath));
     } else if (strcmp(name, "computerWidth") == 0) {
         computer->config->computerWidth = luaL_checkinteger(L, 2);
-        setComputerConfig(computer->id, *computer->config);
+        setComputerConfig(computer->id, *computer->config, path_t(computer->basePath));
     } else if (strcmp(name, "computerHeight") == 0) {
         computer->config->computerHeight = luaL_checkinteger(L, 2);
-        setComputerConfig(computer->id, *computer->config);
+        setComputerConfig(computer->id, *computer->config, path_t(computer->basePath));
     }
     setConfigSetting(checkUpdates, boolean);
     setConfigSetting(vanilla, boolean);

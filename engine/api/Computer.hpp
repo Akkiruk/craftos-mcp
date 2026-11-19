@@ -14,6 +14,7 @@
 extern "C" {
 #include <lua.h>
 }
+#include <atomic>
 #include <csetjmp>
 #include <cstdint>
 #include <condition_variable>
@@ -35,6 +36,8 @@ extern "C" {
 
 /// This is the type for functions that return event information. This type is used by queueEvent.
 /// To construct the event data, push the values for the event parameters in order and return the name of the event.
+namespace simclock { struct Domain; }
+
 typedef std::function<std::string(lua_State *, void*)> event_provider;
 
 /// This is the type for even hook functions. This type is used for addEventHook.
@@ -140,6 +143,16 @@ struct Computer {
     // craftos-agent: the CC:Tweaked version this computer behaves as (--cc-version), as major*1000000 + minor*1000 +
     // patch. 1.101.3 unless the runner asks for another; read through ccAtLeast() in util.hpp.
     int ccVersion = 1101003;
+
+    // craftos-agent pool mode (--pool, RawTerminal.cpp): a computer the host started in a shared engine. -1: an
+    // ordinary computer, which uses the engine's own settings for everything below.
+    int poolSlot = -1;
+    std::atomic<bool> parked{false};             // blocked waiting for an event, nothing queued (getNextEvent)
+    int exitCode = 0;                            // os.shutdown(code): the pool reports it when the computer is gone
+    struct simclock::Domain * clockDomain = NULL; // its own clock (simclock.hpp); NULL: the engine's
+    _path_t basePath;                            // config/<id>.json lives here (empty: the engine's --directory)
+    _path_t computersDir;                        // <id> and disk/<n> live here (empty: the engine's)
+    std::string scriptFile;                      // --script for this computer (empty: the engine's)
 
 private:
     // The constructor is marked private to avoid having to implement it in this file.

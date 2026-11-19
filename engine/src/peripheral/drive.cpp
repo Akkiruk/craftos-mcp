@@ -150,8 +150,8 @@ int drive::insertDisk(lua_State *L, bool init) {
         comp->mounter_initializing = true;
         try {
             std::error_code e;
-            fs::create_directories(computerDir / "disk" / std::to_string(id), e);
-            if (e || !addMount(comp, computerDir / "disk" / std::to_string(id), mount_path.c_str(), false)) {
+            fs::create_directories((comp->computersDir.empty() ? computerDir : path_t(comp->computersDir)) / "disk" / std::to_string(id), e);
+            if (e || !addMount(comp, (comp->computersDir.empty() ? computerDir : path_t(comp->computersDir)) / "disk" / std::to_string(id), mount_path.c_str(), false)) {
                 diskType = disk_type::DISK_TYPE_NONE;
                 comp->mounter_initializing = false;
                 error = "Could not mount";
@@ -181,7 +181,7 @@ int drive::insertDisk(lua_State *L, bool init) {
                     goto throwError;
                 }
             }
-            path = getBasePath() / "computer" / str.substr(9);
+            path = (comp->computersDir.empty() ? getBasePath() / "computer" : path_t(comp->computersDir)) / str.substr(9);
         }
 #ifdef NO_MOUNTER
         else {

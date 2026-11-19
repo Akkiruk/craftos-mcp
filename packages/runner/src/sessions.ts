@@ -13,6 +13,7 @@ import {
   type StagedRun,
   captureScreens,
   discardStaged,
+  engineCrashOf,
   makeRuntimeDir,
   stageEngine,
   startEngine,
@@ -45,6 +46,8 @@ export interface SessionSummary {
   readonly id: string;
   readonly running: boolean;
   readonly exitCode: number | null | undefined;
+  /** The engine crashed: "engine crashed: <reason>, report at <path>" (engine/src/crashreport.hpp). */
+  readonly crash?: string;
   readonly windows: {
     id: number;
     peripheral: string | undefined;
@@ -328,10 +331,14 @@ export class SessionManager {
 
   summarize(session: Session): SessionSummary {
     const raw = session.handle.session;
+    const crash = raw.running ? undefined : engineCrashOf(session.handle);
     return {
       id: session.id,
       running: raw.running,
       exitCode: raw.exitInfo?.code,
+      ...(crash && {
+        crash: `engine crashed: ${crash.reason}, report at ${crash.report}`,
+      }),
       windows: raw.allWindows().map((w) => ({
         id: w.id,
         peripheral: w.peripheral,

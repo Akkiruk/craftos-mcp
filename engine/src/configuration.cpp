@@ -35,9 +35,9 @@ static void showMessage(const std::string& message) {
     else fprintf(stderr, "%s\n", message.c_str());
 }
 
-struct computer_configuration getComputerConfig(int id) {
+struct computer_configuration getComputerConfig(int id, const path_t& base) {
     struct computer_configuration cfg = {"", true, false, false, 0, 0};
-    std::ifstream in(getBasePath() / "config" / (std::to_string(id) + ".json"));
+    std::ifstream in((base.empty() ? getBasePath() : base) / "config" / (std::to_string(id) + ".json"));
     if (!in.is_open()) return cfg;
     if (in.peek() == std::ifstream::traits_type::eof()) { in.close(); return cfg; } // treat an empty file as if it didn't exist in the first place
     Value root;
@@ -77,7 +77,7 @@ struct computer_configuration getComputerConfig(int id) {
     return cfg;
 }
 
-void setComputerConfig(int id, const computer_configuration& cfg) {
+void setComputerConfig(int id, const computer_configuration& cfg, const path_t& base) {
     if (cfg.loadFailure) return;
     Value root;
     if (!cfg.label.empty()) root["label"] = b64encode(cfg.label);
@@ -86,7 +86,7 @@ void setComputerConfig(int id, const computer_configuration& cfg) {
     root["startFullscreen"] = cfg.startFullscreen;
     root["computerWidth"] = cfg.computerWidth;
     root["computerHeight"] = cfg.computerHeight;
-    std::ofstream out(getBasePath() / "config" / (std::to_string(id) + ".json"));
+    std::ofstream out((base.empty() ? getBasePath() : base) / "config" / (std::to_string(id) + ".json"));
     out << root;
     out.close();
 #ifdef __EMSCRIPTEN__

@@ -12,7 +12,13 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <atomic>
+#include <map>
+#include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 #include <Poco/Checksum.h>
+#include <Poco/JSON/Parser.h>
 #include "RawTerminal.hpp"
 #include "SDLTerminal.hpp"
 #include "../apis.hpp"
@@ -210,18 +216,42 @@ static std::thread * inputThread;
 static bool isVersion1_1 = false;
 static std::string fileWriteRequests[256];
 
-static void sendRawData(const uint8_t type, const uint8_t id, const std::function<void(std::ostream&)>& callback) {
-    std::stringstream output;
-    output.put(type);
-    output.put(id);
-    callback(output);
-    std::string str = b64encode(output.str());
+/*
+ * craftos-agent pool mode (--pool): one engine runs many unrelated computers for one host. Every packet about one of
+ * them travels in an envelope naming the computer's slot (the host's number for it):
+ *   0x40 envelope (either way): [0x40][slot lo][slot hi][the packet as a process of its own would have it]
+ * Inside, window ids are the computer's own (0 for its terminal, its monitors after it), as if it had the engine to
+ * itself; the engine keeps its own ids and translates. Besides those:
+ *   0x41 spawn (host -> engine): [0x41][0][slot lo][slot hi][JSON: id, base, computers, script, clockFile, timeScale,
+ *        mounts: [[name, path, mode]] (mode 0 read-only, 1 read-write, -1 the -o mount_mode)]
+ *   0x42 exited (engine -> host, in the envelope): [0x42][0][int32 os.shutdown code]; -1: it could not start
+ *   0x43 kill (host -> engine, in the envelope): [0x43][0]: stop it now, wherever it is
+ * The computer's quit (terminal change, closing 2, in its envelope) stops that computer only. The host closing stdin
+ * stops all of them, and the engine with them.
+ */
+#define CCPC_RAW_POOL_ENVELOPE 0x40
+#define CCPC_RAW_POOL_SPAWN 0x41
+#define CCPC_RAW_POOL_EXITED 0x42
+#define CCPC_RAW_POOL_KILL 0x43
+bool rawPoolMode = false;
+std::atomic<bool> rawPoolClosing(false); // pool mode: stdin closed, so every computer quits and the engine ends
+thread_local const PoolSpec * pendingPoolSpec = NULL;
+thread_local int rawPendingSlot = -1;
+struct PoolWindow {int slot; unsigned local;};
+static std::mutex poolMu; // guards the two maps
+static std::unordered_map<unsigned, PoolWindow> poolWindows; // engine window id -> (slot, the computer's window id)
+static std::map<std::pair<int, unsigned>, unsigned> poolEngineIds; // (slot, the computer's window id) -> engine's
+static std::mutex rawWriteMu; // one packet at a time on stdout, whichever thread sends it
+
+static void writeRawPacket(const uint8_t type, const std::string& payload) {
+    std::string str = b64encode(payload);
     str.erase(std::remove_if(str.begin(), str.end(), [](char c)->bool {return c == '\n' || c == '\r'; }), str.end());
     Poco::Checksum chk;
-    if (type != CCPC_RAW_FEATURE_FLAGS && (RawTerminal::supportedFeatures & CCPC_RAW_FEATURE_FLAG_BINARY_CHECKSUM)) chk.update(output.str());
+    if (type != CCPC_RAW_FEATURE_FLAGS && (RawTerminal::supportedFeatures & CCPC_RAW_FEATURE_FLAG_BINARY_CHECKSUM)) chk.update(payload);
     else chk.update(str);
     const uint32_t sum = chk.checksum();
     char tmpdata[21];
+    std::lock_guard<std::mutex> lock(rawWriteMu);
     if (str.length() > 65535) {
         if (isVersion1_1) {
             snprintf(tmpdata, 21, "%012zX%08x", str.length(), sum);
@@ -231,6 +261,61 @@ static void sendRawData(const uint8_t type, const uint8_t id, const std::functio
         snprintf(tmpdata, 13, "%04X%08x", (unsigned)str.length(), sum);
         rawWriter("!CPC" + std::string(tmpdata, 4) + str + std::string(tmpdata + 4, 8) + "\n");
     }
+}
+
+/** A packet for one pooled computer, in its envelope; `local` is the computer's own window id. */
+static void sendPoolPacket(int slot, const uint8_t type, unsigned local, const std::function<void(std::ostream&)>& callback) {
+    std::stringstream output;
+    output.put((char)CCPC_RAW_POOL_ENVELOPE);
+    output.put((char)(slot & 0xFF));
+    output.put((char)((slot >> 8) & 0xFF));
+    output.put(type);
+    output.put((char)local);
+    callback(output);
+    writeRawPacket(CCPC_RAW_POOL_ENVELOPE, output.str());
+}
+
+/*
+ * craftos-agent host channel (--host-channel): what the ccsim layer tells the host, as it happens, instead of in files
+ * the host reads over and over (os.__ccsimHost, apis/os.cpp). A packet on the computer's terminal window:
+ *   0x45 host data (engine -> host): [0x45][window][kind byte][text...]
+ *        kind M: lines for other computers (what /results/modem.out held), B: the input-wait beacon (waiting.json),
+ *        T: trace lines (trace.log)
+ * In pool mode it travels in the computer's envelope like everything else about it.
+ */
+bool rawHostChannel = false;
+static void sendRawData(const uint8_t type, const unsigned id, const std::function<void(std::ostream&)>& callback, bool plain = false);
+bool rawHostSend(Computer * comp, char kind, const std::string& text) {
+    if (!rawHostChannel || selectedRenderer != 3 || comp == NULL || comp->term == NULL) return false;
+    sendRawData(0x45, comp->term->id, [kind, &text](std::ostream& out) {
+        out.put(kind);
+        out.write(text.c_str(), text.size());
+    });
+    return true;
+}
+
+void rawPoolExited(int slot, int code) {
+    sendPoolPacket(slot, CCPC_RAW_POOL_EXITED, 0, [code](std::ostream& out) {out.write((const char*)&code, 4);});
+}
+
+// `plain`: about the engine as a whole (feature flags, its quit, a global message), never in an envelope
+static void sendRawData(const uint8_t type, const unsigned id, const std::function<void(std::ostream&)>& callback, bool plain) {
+    if (rawPoolMode && !plain) {
+        PoolWindow owner;
+        {
+            std::lock_guard<std::mutex> lock(poolMu);
+            const auto it = poolWindows.find(id);
+            if (it == poolWindows.end()) return; // a window no pooled computer owns: there is nobody to tell
+            owner = it->second;
+        }
+        sendPoolPacket(owner.slot, type, owner.local, callback);
+        return;
+    }
+    std::stringstream output;
+    output.put(type);
+    output.put((uint8_t)id);
+    callback(output);
+    writeRawPacket(type, output.str());
 }
 
 static void parseIBTTag(std::istream& in, lua_State *L) {
@@ -447,9 +532,101 @@ static lua_CFunction findLibraryFunction(luaL_Reg * lib, const char * name) {
     return NULL;
 }
 
+/** The pooled computer in a slot, or NULL. Lock `computers` first. */
+static Computer * poolComputer(int slot) {
+    for (Computer * c : *computers) if (c->poolSlot == slot) return c;
+    return NULL;
+}
+
+/** Quit every computer (SDL_QUIT, as a closed window does), or only the pooled one in `slot`. */
+static void quitComputers(int slot) {
+    SDL_Event e;
+    memset(&e, 0, sizeof(SDL_Event));
+    e.type = SDL_QUIT;
+    std::unordered_set<simclock::Domain*> clocks;
+    {
+        LockGuard lockc(computers);
+        for (Computer * c : *computers) {
+            if (slot >= 0 && c->poolSlot != slot) continue;
+            clocks.insert(simclock::of(c));
+            std::lock_guard<std::mutex> lock(c->termEventQueueMutex);
+            c->termEventQueue.push(e);
+            c->event_lock.notify_all();
+        }
+    }
+    // the host closes the computer: a paused one must run again to see it (simclock.hpp); outside the computers
+    // lock, which the status write takes. With no computer at all, the engine's own clock, as before.
+    if (slot < 0 && clocks.empty()) clocks.insert(simclock::defaultDomain());
+    for (simclock::Domain * d : clocks) simclock::command(d, "resume");
+}
+
+// pool mode: the host asked for a computer (CCPC_RAW_POOL_SPAWN)
+static void poolSpawn(const std::string& data) {
+    if (data.size() < 4) return;
+    const int slot = (uint8_t)data[2] | ((uint8_t)data[3] << 8);
+    PoolSpec spec;
+    spec.slot = slot;
+    int id = 0;
+    try {
+        Poco::JSON::Parser parser;
+        Poco::JSON::Object::Ptr obj = parser.parse(data.substr(4)).extract<Poco::JSON::Object::Ptr>();
+        id = obj->optValue<int>("id", 0);
+        spec.timeScale = obj->optValue<double>("timeScale", 1.0);
+        spec.clockFile = obj->optValue<std::string>("clockFile", "");
+        spec.base = obj->optValue<std::string>("base", "");
+        spec.computers = obj->optValue<std::string>("computers", "");
+        spec.script = obj->optValue<std::string>("script", "");
+        Poco::JSON::Array::Ptr mounts = obj->getArray("mounts");
+        if (!mounts.isNull()) for (size_t i = 0; i < mounts->size(); i++) {
+            Poco::JSON::Array::Ptr m = mounts->getArray((unsigned)i);
+            if (m.isNull() || m->size() < 3) continue;
+            spec.mounts.push_back(std::make_tuple(m->getElement<std::string>(0), m->getElement<std::string>(1), m->getElement<int>(2)));
+        }
+    } catch (Poco::Exception &e) {
+        fprintf(stderr, "pool: bad spawn request for slot %d: %s\n", slot, e.displayText().c_str());
+        rawPoolExited(slot, -1);
+        return;
+    }
+    if (spec.computers.empty()) spec.computers = spec.base / "computer";
+    pendingPoolSpec = &spec;
+    Computer * comp = startComputer(id);
+    pendingPoolSpec = NULL;
+    if (comp == NULL) rawPoolExited(slot, -1);
+}
+
+// pool mode: stop the computer in `slot` now (CCPC_RAW_POOL_KILL), as a process of its own would be killed
+static void poolKill(int slot) {
+    LockGuard lockc(computers);
+    Computer * c = poolComputer(slot);
+    if (c == NULL) return;
+    c->requestedExit = true;
+    c->running = 0;
+    if (c->L != NULL) lua_halt(c->L);
+    SDL_Event e;
+    memset(&e, 0, sizeof(SDL_Event));
+    e.type = SDL_QUIT;
+    std::lock_guard<std::mutex> lock(c->termEventQueueMutex);
+    c->termEventQueue.push(e);
+    c->event_lock.notify_all();
+}
+
 static void rawInputLoop() {
     while (!exiting) {
-        unsigned char cc = std::cin.get();
+        const int ci = std::cin.get();
+        // stdin closed (the host is gone, or the pool closed it): stop, instead of reading the end over and over at
+        // full speed. Every computer quits as it would if the host had closed it, and the engine goes with them.
+        if (ci == EOF) {
+            if (rawPoolMode) rawPoolClosing = true;
+            quitComputers(-1);
+            // the main loop looks again now (with no computer left it would otherwise wait for its next task)
+            {
+                std::lock_guard<std::mutex> lock(taskQueue.getMutex());
+                taskQueueReady = true;
+            }
+            taskQueueNotify.notify_all();
+            break;
+        }
+        unsigned char cc = (unsigned char)ci;
         if (cc == '!' && std::cin.get() == 'C' && std::cin.get() == 'P') {
             char protocol_type = std::cin.get();
             size_t sizen;
@@ -492,7 +669,28 @@ static void rawInputLoop() {
             memset(&e, 0, sizeof(SDL_Event));
             std::string tmps;
             uint8_t type = in.get();
-            uint8_t id = in.get();
+            unsigned id = (uint8_t)in.get();
+            // pool mode: a spawn request, or a packet for one computer in its envelope (see CCPC_RAW_POOL_ENVELOPE)
+            int fromSlot = -1;
+            unsigned localId = id;
+            if (rawPoolMode && type == CCPC_RAW_POOL_SPAWN) {
+                poolSpawn(ddata);
+                continue;
+            } else if (rawPoolMode && type == CCPC_RAW_POOL_ENVELOPE) {
+                if (ddata.size() < 5) continue;
+                fromSlot = (uint8_t)ddata[1] | ((uint8_t)ddata[2] << 8);
+                ddata = ddata.substr(3);
+                in.str(ddata);
+                in.clear();
+                type = in.get();
+                localId = (uint8_t)in.get();
+                if (type == CCPC_RAW_POOL_KILL) {poolKill(fromSlot); continue;}
+                if (type == CCPC_RAW_TERMINAL_CHANGE && ddata.size() > 2 && ddata[2] == 2) {quitComputers(fromSlot); continue;}
+                std::lock_guard<std::mutex> lock(poolMu);
+                const auto it = poolEngineIds.find(std::make_pair(fromSlot, localId));
+                if (it == poolEngineIds.end()) continue; // no such window (the computer is gone, or not up yet)
+                id = it->second;
+            }
             switch (type) {
             case CCPC_RAW_KEY_DATA: {
                 uint8_t key = in.get();
@@ -567,7 +765,16 @@ static void rawInputLoop() {
                     static const std::string prefix = "ccsim_clock:";
                     if (body.size() > 1 + prefix.size() && body.compare(1, prefix.size(), prefix) == 0) {
                         const size_t end = body.find('\0', 1);
-                        simclock::command(body.substr(1 + prefix.size(), end == std::string::npos ? std::string::npos : end - 1 - prefix.size()));
+                        const std::string control = body.substr(1 + prefix.size(), end == std::string::npos ? std::string::npos : end - 1 - prefix.size());
+                        // pool mode: the clock of the computer it came for (each has its own)
+                        simclock::Domain * dom = simclock::defaultDomain();
+                        if (fromSlot >= 0) {
+                            LockGuard lockc(computers);
+                            Computer * c = poolComputer(fromSlot);
+                            if (c == NULL) break;
+                            dom = simclock::of(c);
+                        }
+                        simclock::command(dom, control);
                         break;
                     }
                 }
@@ -582,7 +789,18 @@ static void rawInputLoop() {
             } case CCPC_RAW_TERMINAL_CHANGE: {
                 int isClosing = in.get();
                 // the host closes the computer: a paused one must run again to see it (simclock.hpp)
-                if (isClosing == 2 || (isClosing == 1 && id == 0)) simclock::command("resume");
+                if (fromSlot >= 0) {
+                    if (isClosing == 1 && localId == 0) {
+                        simclock::Domain * dom = NULL;
+                        {
+                            LockGuard lockc(computers);
+                            Computer * c = poolComputer(fromSlot);
+                            if (c != NULL) dom = simclock::of(c);
+                        }
+                        // outside the computers lock: the status write takes it
+                        if (dom != NULL) simclock::command(dom, "resume");
+                    }
+                } else if (isClosing == 2 || (isClosing == 1 && id == 0)) simclock::command("resume");
                 if (isClosing == 1) {
                     e.type = SDL_WINDOWEVENT;
                     e.window.event = SDL_WINDOWEVENT_CLOSE;
@@ -641,7 +859,7 @@ static void rawInputLoop() {
                 sendRawData(CCPC_RAW_FEATURE_FLAGS, id, [](std::ostream& out) {
                     out.write((char*)&RawTerminal::supportedFeatures, 2);
                     if (RawTerminal::supportedFeatures & CCPC_RAW_FEATURE_FLAG_HAS_EXTENDED_FEATURES) out.write((char*)&RawTerminal::supportedExtendedFeatures, 4);
-                });
+                }, true);
                 if (RawTerminal::supportedFeatures & CCPC_RAW_FEATURE_FLAG_SEND_ALL_WINDOWS) {
                     std::lock_guard<std::mutex> rlock(renderTargetsLock);
                     for (Terminal * t : renderTargets) {
@@ -998,7 +1216,7 @@ void RawTerminal::quit() {
     sendRawData(CCPC_RAW_TERMINAL_CHANGE, 0, [](std::ostream& output) {
         output.put(2);
         for (int i = 0; i < 6; i++) output.put(0);
-    });
+    }, true);
     renderThread->join();
     delete renderThread;
     inputThread->join();
@@ -1010,7 +1228,7 @@ void RawTerminal::initClient(uint16_t flags, uint32_t extflags) {
     sendRawData(CCPC_RAW_FEATURE_FLAGS, 0, [flags, extflags](std::ostream& out) {
         out.write((char*)&flags, 2);
         if (flags & CCPC_RAW_FEATURE_FLAG_HAS_EXTENDED_FEATURES) out.write((char*)&extflags, 4);
-    });
+    }, true);
 }
 
 void RawTerminal::showGlobalMessage(uint32_t flags, const char * title, const char * message) {
@@ -1020,15 +1238,24 @@ void RawTerminal::showGlobalMessage(uint32_t flags, const char * title, const ch
         output.put(0);
         output.write(message, strlen(message));
         output.put(0);
-    });
+    }, true);
 }
 
 RawTerminal::RawTerminal(std::string title, uint8_t cid) : Terminal(config.defaultWidth, config.defaultHeight), computerID(cid) {
     this->title.reserve(title.size());
     std::move(title.begin(), title.end(), this->title.begin());
     if (!singleWindowMode) {
+        // computers start on several threads in pool mode (the host's spawns, monitors on the main thread)
+        std::lock_guard<std::mutex> lock(poolMu);
         for (id = 0; currentWindowIDs.find(id) != currentWindowIDs.end(); id++) {}
         currentWindowIDs.insert(id);
+        // pool mode: the window is its computer's, numbered among that computer's own windows from 0
+        if (rawPoolMode && rawPendingSlot >= 0) {
+            unsigned local = 0;
+            while (local < 255 && poolEngineIds.count(std::make_pair(rawPendingSlot, local))) local++;
+            poolWindows[id] = PoolWindow{rawPendingSlot, local};
+            poolEngineIds[std::make_pair(rawPendingSlot, local)] = id;
+        }
     }
     if (!singleWindowMode || renderTargets.empty()) sendRawData(CCPC_RAW_TERMINAL_CHANGE, id, [this, title](std::ostream& output) {
         output.put(0);
@@ -1049,8 +1276,16 @@ RawTerminal::~RawTerminal() {
         output.put(1);
         for (int i = 0; i < 6; i++) output.put(0);
     });
-    const auto pos = currentWindowIDs.find(id);
-    if (pos != currentWindowIDs.end()) currentWindowIDs.erase(pos);
+    {
+        std::lock_guard<std::mutex> lock(poolMu);
+        const auto pos = currentWindowIDs.find(id);
+        if (pos != currentWindowIDs.end()) currentWindowIDs.erase(pos);
+        const auto owner = poolWindows.find(id);
+        if (owner != poolWindows.end()) {
+            poolEngineIds.erase(std::make_pair(owner->second.slot, owner->second.local));
+            poolWindows.erase(owner);
+        }
+    }
     if (singleWindowMode && *renderTarget == this) previousRenderTarget();
     std::lock_guard<std::mutex> rtlock(renderTargetsLock);
     std::lock_guard<std::mutex> locked_g(locked);
@@ -1074,7 +1309,7 @@ void RawTerminal::render() {
     }
     if (!changed || frozen) return;
     changed = false;
-    sendRawData(CCPC_RAW_TERMINAL_DATA, (uint8_t)id, [this](std::ostream& output) {
+    sendRawData(CCPC_RAW_TERMINAL_DATA, id, [this](std::ostream& output) {
         output.put((char)mode);
         output.put((char)canBlink);
         output.write((char*)&width, 2);
@@ -1146,7 +1381,7 @@ void RawTerminal::render() {
 }
 
 void RawTerminal::showMessage(uint32_t flags, const char * title, const char * message) {
-    sendRawData(CCPC_RAW_MESSAGE_DATA, (uint8_t)id, [flags, title, message](std::ostream& output) {
+    sendRawData(CCPC_RAW_MESSAGE_DATA, id, [flags, title, message](std::ostream& output) {
         output.write((const char*)&flags, 4);
         output.write(title, strlen(title));
         output.put(0);
@@ -1157,7 +1392,7 @@ void RawTerminal::showMessage(uint32_t flags, const char * title, const char * m
 
 void RawTerminal::setLabel(std::string label) {
     title = label;
-    sendRawData(CCPC_RAW_TERMINAL_CHANGE, (uint8_t)id, [this](std::ostream& output) {
+    sendRawData(CCPC_RAW_TERMINAL_CHANGE, id, [this](std::ostream& output) {
         output.put(0);
         output.put(computerID);
         output.write((const char*)&width, 2);

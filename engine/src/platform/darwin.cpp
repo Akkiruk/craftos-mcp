@@ -36,6 +36,7 @@ extern "C" {
 #include <unistd.h>
 #include <wordexp.h>
 #include "../platform.hpp"
+#include "../crashreport.hpp"
 #include "../util.hpp"
 
 #ifdef CUSTOM_ROM_DIR
@@ -160,11 +161,12 @@ void handler(int sig) {
     // get void*'s for all entries on the stack
     size = backtrace(array, 25);
 
-    // print out all the frames to stderr
-    if (!loadingPlugin.empty()) fprintf(stderr, "Uh oh, CraftOS-PC has crashed! Reason: %s. It appears the plugin \"%s\" may have been responsible for this. Please remove it and try again.\n", strsignal(sig), loadingPlugin.c_str());
-    else fprintf(stderr, "Uh oh, CraftOS-PC has crashed! Reason: %s. Please report this to https://www.craftos-pc.cc/bugreport. Paste the following text under the 'Screenshots' section:\nOS: Mac (Console build)\nLast C function: %s\n", strsignal(sig), lastCFunction);
-    backtrace_symbols_fd(array, size, STDERR_FILENO);
-    signal(sig, NULL);
+    // craftos-agent: our own report in the crash folder and one line on stderr (crashreport.hpp), then a nonzero exit
+    char reason[256];
+    snprintf(reason, sizeof(reason), "%s (signal %d)%s%s%s", strsignal(sig), sig,
+        loadingPlugin.empty() ? "" : " while loading the plugin \"", loadingPlugin.c_str(), loadingPlugin.empty() ? "" : "\"");
+    crashreport::posixCrash(reason, array, (int)size);
+    _exit(128 + sig);
 }
 
 void setupCrashHandler() {

@@ -275,8 +275,9 @@ extern bool fixpath_ro(Computer *comp, std::string path);
 extern path_t fixpath_mkdir(Computer * comp, const std::string& path, bool md = true, std::string * mountPath = NULL);
 extern std::set<std::string> getMounts(Computer * computer, std::string comp_path);
 extern void peripheral_update(Computer *comp);
-extern struct computer_configuration getComputerConfig(int id);
-extern void setComputerConfig(int id, const computer_configuration& cfg);
+// base: the folder holding config/<id>.json (empty: the engine's --directory; a pooled computer has its own)
+extern struct computer_configuration getComputerConfig(int id, const path_t& base = path_t());
+extern void setComputerConfig(int id, const computer_configuration& cfg, const path_t& base = path_t());
 extern void config_init();
 extern void config_save();
 extern void xcopy(lua_State *from, lua_State *to, int n);

@@ -650,10 +650,15 @@ function buildCart(def) {
     ? linkedWorlds(
         def.computers.map((c, i) => ({
           name: c.name,
-          world: { ...c.world, computerId: c.id ?? i },
+          // the site's ROM has no server mod: plain CC:Tweaked, whatever this build's default is
+          world: { ...c.world, computerId: c.id ?? i, vhcctweaks: false },
         })),
       )
-    : def.computers.map((c) => ({ ...c.world, computerId: c.id ?? 0 }));
+    : def.computers.map((c) => ({
+        ...c.world,
+        computerId: c.id ?? 0,
+        vhcctweaks: false,
+      }));
   const native = [];
   const computers = def.computers.map((c, i) => {
     const world = worlds[i];

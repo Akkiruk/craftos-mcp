@@ -1391,6 +1391,27 @@ return function(core)
 
   core.waitForServerTick = waitForServerTick
 
+  --- The real time a call to a linked computer's monitor or other computer-thread peripheral takes in game (about
+  --- 30 ms, deviation 164): core.linkLatency ms on a timer, the events that come meanwhile kept for the program.
+  local function linkDelay()
+    local ms = core.linkLatency or 0
+    if ms <= 0 then return end
+    local keep = {}
+    local timer = os.startTimer(ms / 1000)
+    while true do
+      if core.flushHost then core.flushHost() end
+      local ev = table.pack(coroutine.yield())
+      if ev[1] == "terminate" then
+        error("Terminated", 0)
+      elseif ev[1] == "timer" and ev[2] == timer then
+        break
+      else
+        simEvent(ev, keep)
+      end
+    end
+    for _, ev in ipairs(keep) do os.queueEvent(table.unpack(ev, 1, ev.n)) end
+  end
+
   --- Run a virtual peripheral's method: true and its results, or false and the error.
   local function invoke(entry, method, ...)
     local fn = entry.methods[method]
@@ -1680,13 +1701,17 @@ return function(core)
       return proxy
     end
 
-    function linkHost.attachRemote(name, info, id, rname)
+    --- linked: a vhcctweaks link (link.lua), whose computer-thread calls cost core.linkLatency; a shared wired cable
+    --- (wiredrelay.lua) is one block in game, so its calls cost nothing extra.
+    function linkHost.attachRemote(name, info, id, rname, linked)
       local entry = {
         name = name, remote = { id = id, name = rname },
         types = info.types or {}, methodOrder = info.methods or {}, methods = {},
       }
       local function call(method, keep, ...)
-        return relay.request(id, { kind = "req", op = "call", name = rname, method = method, args = table.pack(...) }, keep)
+        local results = table.pack(relay.request(id, { kind = "req", op = "call", name = rname, method = method, args = table.pack(...) }, keep))
+        if linked and keep then linkDelay() end
+        return table.unpack(results, 1, results.n)
       end
       for _, method in ipairs(entry.methodOrder) do
         local keep = not onServerThread(entry, method)

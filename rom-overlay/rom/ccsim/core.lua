@@ -11,6 +11,16 @@ local BEACON_PATH = "/results/waiting.json"
 local TRACE_PATH = "/results/trace.log"
 local TRACE_MAX_LINES = 5000
 
+-- The engine's channel to the host (os.__ccsimHost, engine/src/apis/os.cpp, on when the runner starts the engine with
+-- --host-channel): what the sim tells the host (packets for other computers, the input-wait beacon, the trace) goes
+-- over the engine's own stdout, as it happens, instead of into files the host reads over and over. Taken out of os
+-- here, so no program sees it. Without it (another host, the browser build) everything goes to the files as before.
+do
+  local rawHost = os.__ccsimHost
+  os.__ccsimHost = nil
+  if rawHost and rawHost("?", "") then M.host = rawHost end
+end
+
 M.config = {
   nonceExpirySeconds = 60,
   authIdleTimeoutMinutes = 10,
@@ -197,6 +207,9 @@ function M.load()
     if not stale or stale < 5 or stale > 3600 then M.config.interactionStaleSeconds = 30 end
   end
   if world.economyAvailable == false then M.economyAvailable = false end
+  -- What a call to a peripheral of a vhcctweaks-linked computer costs, in ms (the runner resolves world.linkLatency
+  -- and CRAFTOS_LINK_LATENCY; 0 is "fast"). Inventory methods wait for the server tick instead (deviation 164).
+  M.linkLatency = tonumber(world.linkLatency) or 0
   -- 2.2.36 tests: ccvault function name -> how many calls answer nil, "internal error" (-1: every call)
   if M.v36 and type(world.internalErrors) == "table" then
     M.internalErrors = {}
@@ -535,6 +548,75 @@ function M.liveWorld()
   }
 end
 
+--- state.json as textutils.serializeJSON writes it (the same escapes, the same rule for a list or an object, the same refusal
+--- of a table met twice), but built in one pass with table.concat. CC's own builds each object by joining strings onto it,
+--- so its time grows with the square of the size: a vault node holding 15,000 pieces took longer than the computer's 7 s
+--- without yielding to write, failing its boot and the shop's listDetailed calls (deviation 197). Writing the state is the
+--- emulator's work, not the program's, so every few thousand values it starts the computer's 7 s again (serverWork).
+do
+  local empty, null = textutils.empty_json_array, textutils.json_null
+  local escapes = { ['"'] = '\\"', ["\\"] = "\\\\", ["\b"] = "\\b", ["\f"] = "\\f", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t" }
+  for i = 0, 0x1f do
+    local c = string.char(i)
+    if escapes[c] == nil then escapes[c] = ("\\u00%02X"):format(i) end
+  end
+  local function hexify(c) return ("\\u00%02X"):format(c:byte()) end
+  local function str(s) return '"' .. s:gsub('[\0-\31"\\]', escapes):gsub("[\127-\255]", hexify) .. '"' end
+  function M.encodeJSON(value)
+    local out, n, seen, count = {}, 0, {}, 0
+    local function put(s)
+      n = n + 1
+      out[n] = s
+    end
+    local function encode(v)
+      count = count + 1
+      if count % 4000 == 0 and M.serverWork then M.serverWork() end
+      local kind = type(v)
+      if v == empty then put("[]")
+      elseif v == null then put("null")
+      elseif kind == "table" then
+        if seen[v] ~= nil then error("Cannot serialize table with recursive entries", 0) end
+        seen[v] = true
+        if next(v) == nil then
+          put("{}")
+          return
+        end
+        local keys, largest = {}, 0
+        for k in pairs(v) do
+          if type(k) == "string" then keys[#keys + 1] = k
+          elseif type(k) == "number" and k > largest then largest = k end
+        end
+        if #keys > 0 or largest == 0 then
+          -- an object: its string keys, in pairs order as CC's are, and no numbered entries
+          put("{")
+          local first = true
+          for k, x in pairs(v) do
+            if type(k) == "string" then
+              if not first then put(",") end
+              first = false
+              put(str(k))
+              put(":")
+              encode(x)
+            end
+          end
+          put("}")
+        else
+          put("[")
+          for k = 1, largest do
+            if k > 1 then put(",") end
+            if v[k] == nil then put("null") else encode(v[k]) end
+          end
+          put("]")
+        end
+      elseif kind == "string" then put(str(v))
+      elseif kind == "number" or kind == "boolean" then put(tostring(v))
+      else error("Cannot serialize type " .. kind, 0) end
+    end
+    encode(value)
+    return table.concat(out)
+  end
+end
+
 function M.saveNow()
   if M.beforeObserve then M.beforeObserve() end -- machines on the virtual clock (Mekanism QIO) catch up first
   M.peekEconomy() -- what other computers moved shows here too
@@ -609,10 +691,16 @@ function M.saveNow()
     end)(),
   }
   if econ then state.terminalLocked = M.terminalLocked end
-  local h = fs.open(STATE_PATH, "w")
-  if h then
-    h.write(textutils.serializeJSON(state))
-    h.close()
+  -- written only when it says something new: an idle computer's saves were the same text again and again, each one
+  -- a file write (and, on Windows, a scan of it)
+  local text = M.encodeJSON(state)
+  if text ~= M.lastStateText then
+    local h = fs.open(STATE_PATH, "w")
+    if h then
+      h.write(text)
+      h.close()
+      M.lastStateText = text
+    end
   end
   if M.afterSave then M.afterSave() end
 end
@@ -868,10 +956,16 @@ function M.installEventHook()
   -- ("<ms> E|O|X text"), read by the harness from a byte offset. Capped so a chatty loop cannot fill the disk.
   -- Lines wait in memory and go out with the beacon. The file is opened per write, not kept open: an open handle
   -- would count against the program's file limit.
-  do local f = fs.open(TRACE_PATH, "w") if f then f.close() end end
+  -- with the host channel (M.host) the beacon and the trace go over it, not into these files
+  if not M.host then local f = fs.open(TRACE_PATH, "w") if f then f.close() end end
   local traceLines, tracePending = 0, {}
   local function flushTrace()
     if #tracePending == 0 then return end
+    if M.host then
+      M.host("T", table.concat(tracePending, "\n") .. "\n")
+      tracePending = {}
+      return
+    end
     local f = fs.open(TRACE_PATH, "a")
     if f then
       f.write(table.concat(tracePending, "\n") .. "\n")
@@ -887,6 +981,12 @@ function M.installEventHook()
     beacon.seq = beacon.seq + 1
     beaconPending = false
     lastBeaconWrite = os.epoch("utc")
+    if M.host then
+      -- the trace first, so a host that sees the beacon move has the lines that led to it
+      flushTrace()
+      M.host("B", textutils.serializeJSON(beacon))
+      return
+    end
     local h = fs.open(BEACON_PATH, "w")
     if h then
       h.write(textutils.serializeJSON(beacon))

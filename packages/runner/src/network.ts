@@ -48,8 +48,13 @@ export interface NetworkSpec {
   readonly timeScale?: number;
 }
 
-/** A computer's packets arrive in /results/modem.out; this many ms apart is how often it is read. */
+/**
+ * A computer's packets come over its engine's host channel (EngineHandle.onHost) as it sends them, and the relay runs
+ * at once. An engine without the channel writes them to /results/modem.out, read this many ms apart.
+ */
 const PUMP_MS = 2;
+/** With every computer on the host channel the timer only notices computers that stopped. */
+const IDLE_PUMP_MS = 50;
 
 interface Member {
   readonly name: string;
@@ -63,6 +68,10 @@ interface Member {
   /** Its last directory entry, `<id>;<encoded entry>`, as ccsim/wiredrelay.lua wrote it. */
   entry?: string;
   linkSeq: number;
+  /** Lines that came over the host channel, not read yet. */
+  inbox: string[];
+  /** It has spoken over the host channel: its modem.out is never written, and needs no reading. */
+  viaHost: boolean;
 }
 
 /** The uuid ccsim/core.lua gives the n-th player of a world (from 1) that names none. */
@@ -172,6 +181,35 @@ export function linkedWorlds(
 export class ComputerNetwork {
   private readonly members: Member[] = [];
   private timer: NodeJS.Timeout | undefined;
+  private timerMs = 0;
+  private pumpSoon = false;
+
+  /** Run the relay as soon as this turn of the event loop ends (lines from several computers go together). */
+  private schedulePump(): void {
+    if (this.pumpSoon) return;
+    this.pumpSoon = true;
+    setImmediate(() => {
+      this.pumpSoon = false;
+      this.pump();
+    });
+  }
+
+  /** The timer: fast while some computer still writes its modem.out, slow once all of them use the host channel. */
+  private retime(): void {
+    const live = this.members.filter((m) => m.running);
+    if (live.length === 0) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+      this.timerMs = 0;
+      return;
+    }
+    const ms = live.every((m) => m.viaHost) ? IDLE_PUMP_MS : PUMP_MS;
+    if (this.timer && ms === this.timerMs) return;
+    clearInterval(this.timer);
+    this.timerMs = ms;
+    this.timer = setInterval(() => this.pump(), ms);
+    this.timer.unref();
+  }
 
   constructor(
     private readonly wired: readonly WiredNetworkSpec[] = [],
@@ -181,7 +219,7 @@ export class ComputerNetwork {
 
   /** Join a started computer. The first one starts the relay. */
   add(name: string, handle: EngineHandle, world: WorldConfig): void {
-    this.members.push({
+    const member: Member = {
       name,
       handle,
       world,
@@ -190,6 +228,21 @@ export class ComputerNetwork {
       running: true,
       relay: world.vhcctweaks !== "2.2.35",
       linkSeq: 0,
+      inbox: [],
+      viaHost: false,
+    };
+    this.members.push(member);
+    handle.onHost?.((kind, text) => {
+      if (!member.viaHost) {
+        member.viaHost = true;
+        this.retime();
+      }
+      if (kind !== "M") return;
+      for (const line of text.split("\n")) {
+        const clean = line.replace(/\r$/, "");
+        if (clean) member.inbox.push(clean);
+      }
+      this.schedulePump();
     });
     for (const modem of modemsOf(world))
       for (const remote of ((modem as { remotes?: unknown }).remotes ?? []) as {
@@ -198,8 +251,7 @@ export class ComputerNetwork {
       }[])
         if (typeof remote.owner === "number")
           this.owners.set(remote.name, remote.owner);
-    this.timer ??= setInterval(() => this.pump(), PUMP_MS);
-    this.timer.unref();
+    this.retime();
   }
 
   private member(name: string): Member {
@@ -210,6 +262,8 @@ export class ComputerNetwork {
 
   /** Lines this computer has written since the last read. */
   private read(member: Member): string[] {
+    if (member.inbox.length > 0 || member.viaHost)
+      return member.inbox.splice(0);
     const file = join(member.handle.resultsDir, "modem.out");
     try {
       const size = statSync(file).size;
@@ -329,8 +383,7 @@ export class ComputerNetwork {
     if (changed) this.publish();
     const live = this.members.filter((m) => m.running);
     if (live.length === 0) {
-      clearInterval(this.timer);
-      this.timer = undefined;
+      this.retime();
       return;
     }
     const outgoing = new Map<Member, string[]>();

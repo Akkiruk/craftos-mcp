@@ -29,17 +29,36 @@
 #include <chrono>
 #include <string>
 
-class Computer;
+struct Computer;
 
+/*
+ * Clock domains (craftos-agent, pool mode): every computer has a clock of its own state (speed, pause, jumps, held
+ * time, world time) in a domain. An engine started the usual way has one domain, the default, which all its computers
+ * share, exactly as before. In pool mode (--pool, RawTerminal.cpp) every computer the host starts gets a domain of its
+ * own, so many unrelated computers can share one process and still each have the clock a process of their own had.
+ */
 namespace simclock {
-    /** The virtual time now. */
-    std::chrono::system_clock::time_point now();
-    /** Hold the clock still (on) or let it go again (off); holds nest (a debugger stop inside a pause). */
+    struct Domain;
+    /** The domain of computers started the usual way (and of the desktop window's hotkeys). */
+    Domain * defaultDomain();
+    /** A fresh domain running at `scale`, writing its status to `statusPath` (empty: none). Reuses released ones. */
+    Domain * acquire(double scale, const std::string& statusPath);
+    /** The computer that had the domain is gone: it may be handed out again. */
+    void release(Domain * d);
+    /** The domain a computer's clock is in (the default one when it has none of its own). */
+    Domain * of(Computer * comp);
+    /** The virtual time now, on this computer's clock. */
+    std::chrono::system_clock::time_point now(Computer * comp);
+    /** This computer's clock speed (1 = real time). */
+    double scale(Computer * comp);
+    /** Hold the default clock still (on) or let it go again (off); holds nest (a debugger stop inside a pause). */
     void hold(bool on);
-    /** Whether something holds the clock now. */
+    /** Whether something holds the default clock now. */
     bool held();
-    /** One control, as in the header comment (without the "ccsim_clock:" prefix). */
+    /** One control for the default clock, as in the header comment (without the "ccsim_clock:" prefix). */
     void command(const std::string& text);
+    /** One control for a domain's clock. */
+    void command(Domain * d, const std::string& text);
     /** A computer is about to take its next event: while paused it waits here (getNextEvent). */
     void waitWhilePaused(Computer * comp);
     /**
