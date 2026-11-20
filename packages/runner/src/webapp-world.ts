@@ -480,11 +480,20 @@ export class WorldPanel {
           catalog: {
             defaultMc,
             addons: ADDONS.map(
-              ({ id, name, versions, types, worldKeys, requires }) => ({
+              ({
                 id,
                 name,
                 versions,
                 types,
+                byVersion,
+                worldKeys,
+                requires,
+              }) => ({
+                id,
+                name,
+                versions,
+                types,
+                ...(byVersion ? { byVersion } : {}),
                 ...(worldKeys ? { worldKeys } : {}),
                 ...(requires ? { requires } : {}),
               }),

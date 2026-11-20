@@ -17,11 +17,49 @@
  * Each addon names its mod version per Minecraft version (versions.ts). A world on a Minecraft version the mod has
  * no release for cannot switch it on (Bigger Reactors on 1.21.1); "all" and the default leave it out. Most addons act
  * as the release their versions entry names for the world's Minecraft version (a few pick between two releases by
- * version). The big ones written from their 1.18.2 release (Advanced Peripherals, Mekanism, Create, ...) act as that
- * release on every version: their `simulates` says which. The docs of each addon say which.
+ * version). Advanced Peripherals, Mekanism, Create, Tom's Peripherals and the reactor mods follow each version's
+ * jar (byVersion for their types). An addon still written from its 1.18.2 release (Create Crafts & Additions) acts
+ * as that release on every version: its `simulates` says which. The docs of each addon say which.
  */
 import { didYouMean } from "./did-you-mean.js";
 import { DEFAULT_MC } from "./versions.js";
+
+/**
+ * Blocks Mekanism 10.4 gave computer support (MekanismBlockTypes.withComputerSupport in the 10.4.16 and 10.7.19 jars;
+ * none of them has it in 10.2.5). Every 1.18.2 type keeps its name. The same as byVersion in
+ * rom-overlay/rom/ccsim/addons/mekanism-machines/types.lua.
+ */
+const MEKANISM_10_4_TYPES = [
+  "radioactiveWasteBarrel",
+  "industrialAlarm",
+  "personalChest",
+  "personalBarrel",
+  "securityDesk",
+];
+const MEKANISM_10_4_CHANGES: AddonTypeChanges = {
+  added: MEKANISM_10_4_TYPES,
+  note: Object.fromEntries(
+    MEKANISM_10_4_TYPES.map((t) => [
+      t,
+      "computer support came with Mekanism 10.4 (Minecraft 1.20.1)",
+    ]),
+  ),
+};
+
+/**
+ * How a mod's peripheral types differ on one Minecraft version from `types` (AddonInfo.byVersion). Every type is
+ * named here by its canonical name, the one in `types` (the 1.18.2 name), except `rename`'s values and `added`.
+ */
+export interface AddonTypeChanges {
+  /** canonical type -> what the mod reports on this version (peripheral.getType, hasType, find, network names). */
+  readonly rename?: Readonly<Record<string, string>>;
+  /** Canonical types the mod does not have on this version: a world using one is refused before boot. */
+  readonly removed?: readonly string[];
+  /** Types only the versions that list them have (each also in `types`): refused on every other version. */
+  readonly added?: readonly string[];
+  /** type -> why, for the refusal ("replaced by CC:Tweaked's redstone_relay"). */
+  readonly note?: Readonly<Record<string, string>>;
+}
 
 export interface AddonInfo {
   /** Id used in `world.addons` and CRAFTOS_ADDONS. */
@@ -35,8 +73,31 @@ export interface AddonInfo {
    * release (a mod written from its 1.18.2 release). Unset: it acts as `versions[mc]`.
    */
   readonly simulates?: string;
-  /** Peripheral types (`world.peripherals[].type`) that belong to it. */
+  /**
+   * Peripheral types (`world.peripherals[].type`) that belong to it, by canonical name (the 1.18.2 one), plus every
+   * type a version `added` (byVersion).
+   */
   readonly types: readonly string[];
+  /**
+   * Minecraft version -> how its types differ there (AddonTypeChanges). Unset, or a version missing: `types` as they
+   * are. Keep it the same as `byVersion` in the module's types.lua (rom-overlay/rom/ccsim/addons/README.md; Advanced
+   * Peripherals' is rom-overlay/rom/ccsim/ap/types.lua); type-versions.integration.test.ts compares the two.
+   * - `rename`: the mod reports another name there. A world may use either name; the sim maps it to the canonical
+   *   one before the Lua module sees it (`def.type`, with `def.reportedType`), and getType/hasType/find and the
+   *   names CC gives blocks on a cable (`<type>_<n>`) use the version's name.
+   * - `removed`: the type does not exist there; `added`: it exists only on the versions that list it. A world using
+   *   one where it is not is refused before boot, naming the version and its `note`.
+   * ```ts
+   * byVersion: {
+   *   "1.21.1": {
+   *     rename: { playerDetector: "player_detector" },
+   *     removed: ["redstoneIntegrator"],
+   *     note: { redstoneIntegrator: "replaced by CC:Tweaked's redstone_relay" },
+   *   },
+   * },
+   * ```
+   */
+  readonly byVersion?: Readonly<Record<string, AddonTypeChanges>>;
   /** Top-level world keys that configure it. */
   readonly worldKeys?: readonly string[];
   /** Ids of addons it needs switched on too. */
@@ -52,6 +113,22 @@ export interface AddonInfo {
   readonly optIn?: boolean;
 }
 
+/** The peripherals Create 6.0 added (ComputerBehaviour.getPeripheralFor in 6.0.8 and 6.0.10). */
+const CREATE_6_TYPES = [
+  "Create_CreativeMotor",
+  "Create_Frogport",
+  "Create_Postbox",
+  "Create_NixieTube",
+  "Create_Signal",
+  "Create_StockTicker",
+  "Create_Repackager",
+  "Create_Packager",
+  "Create_RedstoneRequester",
+  "Create_TableClothShop",
+  "Create_Sticker",
+  "Create_TrainObserver",
+] as const;
+
 /** Sim commands every mob addon has (rom-overlay/rom/ccsim/mob.lua): the world around the mob. */
 const MOB_COMMANDS =
   "mobSpawn {type, x, y, z, uuid?, name?, health?, drops?}, mobMove {uuid, x, y, z}, mobRemove {uuid}, mobDropItem {x, y, z, name, count?}, mobSetBlock {x, y, z, name?, state?, items?}";
@@ -61,7 +138,8 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "advanced-peripherals",
     name: "Advanced Peripherals",
     versions: { "1.18.2": "0.7.31r", "1.20.1": "0.7.48r", "1.21.1": "0.7.62b" },
-    simulates: "0.7.31r",
+    // no `simulates`: the Lua side follows each version's own release, read from its jar (ccsim/ap/ branches on
+    // core.version.mc); docs/advanced-peripherals-versions.md lists the differences and what is not simulated
     types: [
       "playerDetector",
       "chatBox",
@@ -77,6 +155,37 @@ export const ADDONS: readonly AddonInfo[] = [
       "inventoryManager",
       "chunky",
     ],
+    // from each jar's PERIPHERAL_TYPE constants and block list; the same data as rom-overlay/rom/ccsim/ap/types.lua
+    byVersion: {
+      "1.20.1": {
+        removed: ["arController"],
+        note: {
+          arController:
+            "Advanced Peripherals 0.7.48r has no AR controller or AR goggles",
+        },
+      },
+      "1.21.1": {
+        rename: {
+          playerDetector: "player_detector",
+          chatBox: "chat_box",
+          energyDetector: "energy_detector",
+          nbtStorage: "nbt_storage",
+          environmentDetector: "environment_detector",
+          meBridge: "me_bridge",
+          rsBridge: "rs_bridge",
+          geoScanner: "geo_scanner",
+          blockReader: "block_reader",
+          inventoryManager: "inventory_manager",
+        },
+        removed: ["redstoneIntegrator", "arController"],
+        note: {
+          redstoneIntegrator:
+            "removed in 0.7.50b; use CC:Tweaked's redstone_relay",
+          arController:
+            "Advanced Peripherals 0.7.62b has no AR controller or AR goggles",
+        },
+      },
+    },
     worldKeys: ["ap"],
     docs: "docs/advanced-peripherals.md",
     commands:
@@ -86,8 +195,8 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "mekanism",
     name: "Mekanism",
+    // no `simulates`: the Lua acts as each version's release (the 10.4 / 10.7 differences: docs/mekanism-versions.md)
     versions: { "1.18.2": "10.2.5", "1.20.1": "10.4.16", "1.21.1": "10.7.19" },
-    simulates: "10.2.5",
     types: [
       "qioDriveArray",
       "qioDashboard",
@@ -142,6 +251,7 @@ export const ADDONS: readonly AddonInfo[] = [
       "modificationStation",
       "dimensionalStabilizer",
       "diversionTransporter",
+      ...MEKANISM_10_4_TYPES,
       ...["basic", "advanced", "elite", "ultimate", "creative"].flatMap((t) => [
         `${t}EnergyCube`,
         `${t}FluidTank`,
@@ -165,8 +275,12 @@ export const ADDONS: readonly AddonInfo[] = [
         `${t}PressurizedTube`,
       ]),
     ],
+    byVersion: {
+      "1.20.1": MEKANISM_10_4_CHANGES,
+      "1.21.1": MEKANISM_10_4_CHANGES,
+    },
     worldKeys: ["mekanism"],
-    docs: "docs/mekanism-qio.md, docs/mekanism-multiblocks.md",
+    docs: "docs/mekanism-qio.md, docs/mekanism-multiblocks.md, docs/mekanism-versions.md",
     commands:
       "qioSetPowered {block, powered}, qioSetDrive {block, slot, drive|null}, qioSetSecurity {block, mode}, qioSetUpgrades {block, speed}, qioInsert/qioExtract {frequency, item}, qeInsert {frequency, item, public?, owner?}, qeExtract {frequency, count?}, qeSetLoaded {block, loaded}, " +
       "mekSetFormed {multiblock|peripheral, formed}, mekSet {multiblock|peripheral, ...fields}, mekAddTank {multiblock|peripheral, tank, amount, name?}, mekSetRedstone {peripheral, powered}, mekSetWorld {dayTime?, raining?, thundering?, daylightCycle?}",
@@ -174,8 +288,8 @@ export const ADDONS: readonly AddonInfo[] = [
   {
     id: "mekanism-generators",
     name: "Mekanism Generators",
+    // no `simulates`: acts as each version's release, like Mekanism (docs/mekanism-versions.md)
     versions: { "1.18.2": "10.2.5", "1.20.1": "10.4.16", "1.21.1": "10.7.19" },
-    simulates: "10.2.5",
     types: [
       "fissionReactorLogicAdapter",
       "fissionReactorPort",
@@ -198,7 +312,7 @@ export const ADDONS: readonly AddonInfo[] = [
     id: "create",
     name: "Create",
     versions: { "1.18.2": "0.5.1.i", "1.20.1": "6.0.8", "1.21.1": "6.0.10" },
-    simulates: "0.5.1.i",
+    // no `simulates`: each version acts as its own release (docs/create-versions.md)
     types: [
       "Create_DisplayLink",
       "Create_Speedometer",
@@ -206,13 +320,21 @@ export const ADDONS: readonly AddonInfo[] = [
       "Create_RotationSpeedController",
       "Create_SequencedGearshift",
       "Create_Station",
+      ...CREATE_6_TYPES,
     ],
+    // the six 0.5.1 types keep their names in 6.0 (their method and event changes: docs/create-versions.md)
+    byVersion: {
+      "1.20.1": { added: CREATE_6_TYPES },
+      "1.21.1": { added: CREATE_6_TYPES },
+    },
     worldKeys: ["create"],
-    docs: "docs/create.md",
+    docs: "docs/create.md, docs/create-versions.md",
     commands:
       "createTrainArrive {train, station}, createTrainLeave {train}, createTrainApproach {train, station, distance?}, createAddTrain {train}, createRemoveTrain {train}, " +
       "createSetCargo {train, items?, fluids?, players?}, createSetStationPowered {station, powered}, createSetAssemblyReady {station, name?, ready?}, createSetRedstoneLink {first?, second?, powered}, " +
-      "createSetSpeed {network|peripheral, speed}, createSetStress {network|peripheral, stress?, capacity?, impact?}, createSetLinkPowered {peripheral, powered}, createSetLinkTarget {peripheral, target}",
+      "createSetSpeed {network|peripheral, speed}, createSetStress {network|peripheral, stress?, capacity?, impact?}, createSetLinkPowered {peripheral, powered}, createSetLinkTarget {peripheral, target}; " +
+      "6.0 (1.20.1/1.21.1): createTrainPass {peripheral, train, passing?}, createSetSignal {peripheral, trains?, powered?, clear?, connected?}, createDeliverPackage {peripheral, address?, items}, " +
+      "createSendPackage {peripheral, slot?}, createTakePackage {peripheral}, createSetStock {network?, items}",
   },
   {
     id: "create-additions",
@@ -241,7 +363,9 @@ export const ADDONS: readonly AddonInfo[] = [
       "1.20.1": "1.20.1-1.3.1",
       "1.21.1": "1.21.1-1.3.1",
     },
-    simulates: "1.18.2-1.2.1",
+    // no `simulates`: it acts as each version's own release. Written from 1.18.2-1.2.1, but the 1.20.1-1.3.1 and
+    // 1.21.1-1.3.1 jars have the same Lua surface (same classes, strings and bytecode apart from Minecraft's names;
+    // docs/toms-peripherals.md, "Versions"), so there is no byVersion. getMethods order follows the CC:Tweaked version.
     types: ["tm_gpu", "tm_keyboard", "tm_rsPort", "tm_wdt"],
     worldKeys: ["tomsPeripherals"],
     docs: "docs/toms-peripherals.md",
@@ -254,9 +378,10 @@ export const ADDONS: readonly AddonInfo[] = [
     // there is no Bigger Reactors for 1.21.1
     versions: {
       "1.18.2": "1.18.2-0.6.0-beta.1.4 (Phosphophyllite 1.18.2-0.6.0-beta.1.6)",
-      "1.20.1": "1.20.1-0.6.0-beta.10.5",
+      "1.20.1":
+        "1.20.1-0.6.0-beta.10.5 (Phosphophyllite 1.20.1-0.7.0-alpha.0.2)",
     },
-    simulates: "1.18.2-0.6.0-beta.1.4",
+    // each version acts as its own release (docs/bigger-reactors.md "Versions"); the types are the same on both
     types: ["BiggerReactors_Reactor", "BiggerReactors_Turbine"],
     worldKeys: ["biggerReactors"],
     docs: "docs/bigger-reactors.md",
@@ -268,15 +393,24 @@ export const ADDONS: readonly AddonInfo[] = [
     name: "Extreme Reactors",
     versions: {
       "1.18.2": "1.18.2-2.0.71 (ZeroCore2 1.18.2-2.1.39)",
-      "1.20.1": "1.20.1-2.0.97",
-      "1.21.1": "1.21.1-2.4.28",
+      "1.20.1": "1.20.1-2.0.97 (ZeroCore2 1.20.1-2.1.48)",
+      "1.21.1": "1.21.1-2.4.28 (ZeroCore2 1.21.1-2.4.21)",
     },
-    simulates: "1.18.2-2.0.71",
-    types: ["BigReactors-Reactor", "BigReactors-Turbine"],
+    // each version acts as its own release (docs/extreme-reactors.md "Versions")
+    types: [
+      "BigReactors-Reactor",
+      "BigReactors-Turbine",
+      "BigReactors-Energizer",
+    ],
+    // the Energizer and its computer port came after 2.0.71: 1.18.2 has none (keep in step with types.lua)
+    byVersion: {
+      "1.20.1": { added: ["BigReactors-Energizer"] },
+      "1.21.1": { added: ["BigReactors-Energizer"] },
+    },
     worldKeys: ["extremeReactors"],
     docs: "docs/extreme-reactors.md",
     commands:
-      'erAddFuel {peripheral, amount, fuelType?}, erAddWaste {peripheral, amount}, erSetLoad {peripheral, rate}, erDrainEnergy {peripheral, amount}, erAddCoolant/erAddSteam {peripheral, amount}, erSetCoolantSupply {peripheral, rate|"full"}, erSetSteamSupply {peripheral, rate|"full"}, erSetActive {peripheral, active}, erSetAssembled {peripheral, assembled}, erSetConnected {peripheral, connected}',
+      'erAddFuel {peripheral, amount, fuelType?}, erAddWaste {peripheral, amount}, erSetLoad {peripheral, rate}, erDrainEnergy {peripheral, amount}, erAddCoolant/erAddSteam {peripheral, amount}, erSetCoolantSupply {peripheral, rate|"full"}, erSetSteamSupply {peripheral, rate|"full"}, erSetActive {peripheral, active}, erSetAssembled {peripheral, assembled}, erSetConnected {peripheral, connected}, erSetInput {peripheral, rate} (energizer, 1.20.1+)',
   },
   {
     id: "unlimited-peripheral-works",
@@ -875,12 +1009,152 @@ export function resolveAddons(
   return ADDONS.filter((a) => on.has(a.id)).map((a) => a.id);
 }
 
-/** The addon a peripheral type belongs to, if any. */
-export function addonOfType(type: string): AddonInfo | undefined {
-  return ADDONS.find((a) => a.types.includes(type));
+// ===== peripheral types per Minecraft version (AddonInfo.byVersion) =====
+
+/** The canonical name (in `types`) of `type` in an addon: itself, or the type some version renames to it. */
+export function canonicalTypeOf(
+  addon: AddonInfo,
+  type: string,
+): string | undefined {
+  if (addon.types.includes(type)) return type;
+  for (const changes of Object.values(addon.byVersion ?? {}))
+    for (const [canonical, renamed] of Object.entries(changes.rename ?? {}))
+      if (renamed === type && addon.types.includes(canonical)) return canonical;
+  return undefined;
 }
 
-/** Refuse a world that uses an addon that is off, naming the addon and how to switch it on. */
+/** What the mod reports a canonical type as on a Minecraft version: its rename there, else the canonical name. */
+export function reportedTypeOf(
+  addon: AddonInfo,
+  canonical: string,
+  mc: string = DEFAULT_MC,
+): string {
+  return addon.byVersion?.[mc]?.rename?.[canonical] ?? canonical;
+}
+
+/** Whether a canonical type exists on a Minecraft version: not `removed` there, and `added` there if any version adds it. */
+export function typeExistsOn(
+  addon: AddonInfo,
+  canonical: string,
+  mc: string = DEFAULT_MC,
+): boolean {
+  const by = addon.byVersion ?? {};
+  if (by[mc]?.removed?.includes(canonical)) return false;
+  const addedOn = Object.keys(by).filter((v) =>
+    by[v]!.added?.includes(canonical),
+  );
+  return addedOn.length === 0 || addedOn.includes(mc);
+}
+
+/**
+ * Why a canonical type of an addon does not exist on a Minecraft version (`removed` there, or `added` by other
+ * versions only), or undefined when it does.
+ */
+export function typeAbsence(
+  addon: AddonInfo,
+  canonical: string,
+  mc: string = DEFAULT_MC,
+): string | undefined {
+  if (typeExistsOn(addon, canonical, mc)) return undefined;
+  const by = addon.byVersion ?? {};
+  const note = Object.values(by)
+    .map((c) => c.note?.[canonical])
+    .find((n) => n !== undefined);
+  const release = addonVersion(addon, mc);
+  const has = Object.keys(addon.versions).filter(
+    (v) => v !== mc && typeExistsOn(addon, canonical, v),
+  );
+  return (
+    `${addon.name}${release ? ` ${release}` : ""} has no ${canonical} on Minecraft ${mc}` +
+    (note ? ` (${note})` : "") +
+    (has.length > 0
+      ? `; it has one on ${has.map((v) => `${v} as ${reportedTypeOf(addon, canonical, v)}`).join(", ")}`
+      : "")
+  );
+}
+
+/** Every name a world may give an addon's types: the canonical ones and every version's renames. */
+export function addonTypeNames(addon: AddonInfo): string[] {
+  const names = new Set(addon.types);
+  for (const changes of Object.values(addon.byVersion ?? {}))
+    for (const renamed of Object.values(changes.rename ?? {}))
+      names.add(renamed);
+  return [...names];
+}
+
+/** An addon's types as the mod reports them on a Minecraft version: renamed there, and only the ones it has. */
+export function addonTypesOn(
+  addon: AddonInfo,
+  mc: string = DEFAULT_MC,
+): string[] {
+  return addon.types
+    .filter((t) => typeExistsOn(addon, t, mc))
+    .map((t) => reportedTypeOf(addon, t, mc));
+}
+
+/** The addons a type belongs to (by either name), each with the type's canonical name there. */
+export function ownersOfType(
+  type: string,
+  addons: readonly AddonInfo[] = ADDONS,
+): { addon: AddonInfo; canonical: string }[] {
+  const out: { addon: AddonInfo; canonical: string }[] = [];
+  for (const addon of addons) {
+    const canonical = canonicalTypeOf(addon, type);
+    if (canonical !== undefined) out.push({ addon, canonical });
+  }
+  return out;
+}
+
+/**
+ * The name the mod reports a world's type as on a Minecraft version (a type no addon owns: itself). What CC names a
+ * block on a cable after (`<type>_<n>`).
+ */
+export function reportedTypeName(
+  type: string,
+  mc: string = DEFAULT_MC,
+  addons: readonly AddonInfo[] = ADDONS,
+): string {
+  const owner = ownersOfType(type, addons)[0];
+  return owner ? reportedTypeOf(owner.addon, owner.canonical, mc) : type;
+}
+
+/**
+ * The types some addons name differently by Minecraft version, one line for tool descriptions ("" when none):
+ * `Advanced Peripherals: playerDetector is player_detector on 1.21.1; redstoneIntegrator is not on 1.21.1.`
+ */
+export function versionTypeNotes(
+  addons: readonly AddonInfo[] = ADDONS,
+): string {
+  const lines: string[] = [];
+  for (const addon of addons) {
+    const parts: string[] = [];
+    for (const [mc, changes] of Object.entries(addon.byVersion ?? {})) {
+      for (const [canonical, renamed] of Object.entries(changes.rename ?? {}))
+        parts.push(`${canonical} is ${renamed} on ${mc}`);
+      for (const gone of changes.removed ?? [])
+        parts.push(`${gone} is not on ${mc}`);
+      for (const extra of changes.added ?? [])
+        parts.push(`${extra} only on ${mc}`);
+    }
+    if (parts.length > 0) lines.push(`${addon.name}: ${parts.join(", ")}`);
+  }
+  return lines.length > 0
+    ? `Types by Minecraft version (a world may use either name; getType reports the version's): ${lines.join("; ")}.`
+    : "";
+}
+
+/** The addon a peripheral type belongs to (by its canonical name or any version's rename), if any. */
+export function addonOfType(
+  type: string,
+  addons: readonly AddonInfo[] = ADDONS,
+): AddonInfo | undefined {
+  return ownersOfType(type, addons)[0]?.addon;
+}
+
+/**
+ * Refuse a world that uses an addon that is off, naming the addon and how to switch it on, or a peripheral type the
+ * mod does not have on the world's Minecraft version (AddonInfo.byVersion).
+ */
 export function checkWorldAddons(
   world: {
     peripherals?: readonly { name?: string; type?: string }[];
@@ -890,9 +1164,13 @@ export function checkWorldAddons(
   mc: string = DEFAULT_MC,
   /** Where `enabled` came from (addonSource), so the message says where to add a mod. */
   source?: string,
+  /** The addon list (tests pass their own). */
+  addons: readonly AddonInfo[] = ADDONS,
 ): void {
   const on = new Set(enabled);
   const problems: string[] = [];
+  // types the version's mod does not have (byVersion removed / added)
+  const notOnVersion: string[] = [];
   // what uses an addon with no release on this version, per addon, so each gets one full explanation
   const absent = new Map<AddonInfo, string[]>();
   const noRelease = (addon: AddonInfo, what: string): void => {
@@ -900,19 +1178,27 @@ export function checkWorldAddons(
   };
   for (const p of world.peripherals ?? []) {
     // a type two mods share (a fork keeps its parent's blocks) is fine while either of them is on
-    const owners = p.type
-      ? ADDONS.filter((a) => a.types.includes(p.type!))
-      : [];
+    const owners = p.type ? ownersOfType(p.type, addons) : [];
     const addon =
-      owners.find((a) => addonVersion(a, mc) !== undefined) ?? owners[0];
-    if (addon && !owners.some((a) => on.has(a.id))) {
+      owners.find((o) => addonVersion(o.addon, mc) !== undefined)?.addon ??
+      owners[0]?.addon;
+    if (addon && !owners.some((o) => on.has(o.addon.id))) {
       const what = `peripheral ${JSON.stringify(p.name)} is a ${p.type} from ${addon.name} (addon "${addon.id}")`;
       if (addonVersion(addon, mc) === undefined)
         noRelease(addon, `peripheral ${JSON.stringify(p.name)} (${p.type})`);
       else problems.push(what);
+      continue;
     }
+    const live = owners.filter((o) => on.has(o.addon.id));
+    if (
+      live.length > 0 &&
+      !live.some((o) => typeExistsOn(o.addon, o.canonical, mc))
+    )
+      notOnVersion.push(
+        `peripheral ${JSON.stringify(p.name)} is a ${p.type}: ${typeAbsence(live[0]!.addon, live[0]!.canonical, mc)}`,
+      );
   }
-  for (const addon of ADDONS) {
+  for (const addon of addons) {
     if (on.has(addon.id)) continue;
     for (const key of addon.worldKeys ?? []) {
       if (world[key] !== undefined) {
@@ -931,6 +1217,11 @@ export function checkWorldAddons(
             `${uses.join(" and ")}: ${noReleaseMessage(addon, mc)}.`,
         )
         .join(" "),
+    );
+  }
+  if (notOnVersion.length > 0) {
+    throw new Error(
+      `${notOnVersion.join(". ")}. Leave it out, or run the world on a Minecraft version that has it (world.version).`,
     );
   }
   if (problems.length > 0) {

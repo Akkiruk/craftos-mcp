@@ -18,6 +18,7 @@ import {
   stringify,
 } from "../../../../packages/world-editor/src/jsonDoc.ts";
 import {
+  addonOfType,
   addonsOn,
   bySide,
   computerOf,
@@ -591,4 +592,43 @@ test("other computers: which modems reach which", () => {
   );
   assert.equal(linkBetween(linked[0], linked[1]), "ender");
   assert.equal(linkBetween(linked[0], linked[2]), "ender");
+});
+
+test("addons: a type a mod renames or drops on the world's version (addons.ts byVersion), on a made-up mod", () => {
+  const fake = {
+    defaultMc: "1.18.2",
+    addons: [
+      {
+        id: "fake-mod",
+        name: "Fake Mod",
+        versions: { "1.18.2": "1", "1.21.1": "3" },
+        types: ["oldName", "gone"],
+        byVersion: {
+          "1.21.1": {
+            rename: { oldName: "old_name" },
+            removed: ["gone"],
+            note: { gone: "replaced by redstone_relay" },
+          },
+        },
+      },
+    ],
+  };
+  const problems = (world) =>
+    worldProblems(world, fake, "1.18.2").map(
+      (p) => `${p.path.join(".")}: ${p.message}`,
+    );
+  const p = (version, type) => ({
+    version,
+    peripherals: [{ name: "left", type }],
+  });
+  assert.equal(addonOfType(fake, "old_name")?.id, "fake-mod");
+  assert.deepEqual(problems(p("1.21.1", "old_name")), []);
+  assert.deepEqual(problems(p("1.21.1", "oldName")), []);
+  assert.deepEqual(problems(p("1.18.2", "gone")), []);
+  assert.deepEqual(problems(p("1.21.1", "gone")), [
+    "peripherals.0.type: Fake Mod has no gone on Minecraft 1.21.1 (replaced by redstone_relay).",
+  ]);
+  assert.deepEqual(problems({ ...p("1.21.1", "old_name"), addons: "none" }), [
+    'peripherals.0.type: old_name comes from Fake Mod (addon "fake-mod"), which is off in this world.',
+  ]);
 });

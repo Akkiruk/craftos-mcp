@@ -207,10 +207,12 @@ return function(E)
     local h = mb.heat
     h.pending = h.pending + heatIn
     local out = E.rate(mb.spec.heatOutput)
+    mb.lastTransferLoss = 0
     if out and out > 0 then
       local t = h.heat / h.capacity
       local give = min(out, max(0, (t - h.ambient) * h.capacity))
       h.pending = h.pending - give
+      mb.lastTransferLoss = give / h.capacity -- 10.4+ getTransferLoss: the temperature handed to neighbours
     end
     local inv = E.AIR_INVERSE_COEFFICIENT + (h.insulation + h.conduction)
     local tempToTransfer = (h.heat / h.capacity - h.ambient) / inv
@@ -248,6 +250,7 @@ return function(E)
           mb.energy:extract(toUse)
         end
         b.active = toUse > 0
+        mb.energyUsed = toUse -- 10.4+ getEnergyUsed (clientEnergyUsed)
       else
         if mb.burnTime == 0 and mb.items.fuelItem then
           mb.burnTime = mb.fuelBurnTime
@@ -425,11 +428,11 @@ return function(E)
     getEnergyItem = slot("energyItem"),
     getFrequencies = { {}, function()
       local out = {}
-      for i, f in ipairs(E.teleporterFrequencies) do out[i] = { key = f.name, public = true } end
+      for i, f in ipairs(E.teleporterFrequencies) do out[i] = J.frequency(f.name, true, f.owner) end
       return out
     end },
     hasFrequency = { {}, function(c) return c.mb.frequency ~= nil and frequencyNamed(c.mb.frequency) ~= nil end },
-    getFrequency = { {}, function(c) local f = frequency(c) return { key = f.name, public = true } end },
+    getFrequency = { {}, function(c) local f = frequency(c) return J.frequency(f.name, true, f.owner) end },
     setFrequency = E.void({ "String" }, function(c, name)
       public(c)
       if not frequencyNamed(name) then J.computerError(("No public teleporter frequency with name '%s' found."):format(name)) end
@@ -531,10 +534,19 @@ return function(E)
       if not mb.hasRecipe then J.computerError("Encoding formulas require that there is a valid recipe to actually encode.") end
       mb.formula = { valid = true, encoded = true }
     end),
-    fillOrEmptyGrid = E.void({}, function(c)
+    fillOrEmptyGrid = not J.NEW and E.void({}, function(c)
       public(c)
       if c.mb.autoMode then J.computerError("Filling/Emptying the grid requires Auto-Mode to be disabled.") end
-    end),
+    end) or nil,
+    -- 10.4+: two methods (TileEntityFormulaicAssemblicator.computerFillGrid / computerEmptyGrid)
+    fillGrid = J.NEW and E.void({}, function(c)
+      public(c)
+      if c.mb.autoMode then J.computerError("Filling the grid requires Auto-Mode to be disabled.") end
+    end) or nil,
+    emptyGrid = J.NEW and E.void({}, function(c)
+      public(c)
+      if c.mb.autoMode then J.computerError("Emptying the grid requires Auto-Mode to be disabled.") end
+    end) or nil,
     craftSingleItem = E.void({}, function(c) canCraft(c); c.mb.crafted = c.mb.crafted + 1 end),
     craftAvailableItems = E.void({}, function(c) canCraft(c); c.mb.crafted = c.mb.crafted + 1 end),
     getStockControl = { {}, function(c) validFormula(c, "Stock Control"); return c.mb.stockControl end },
@@ -569,6 +581,59 @@ return function(E)
       if not (i == 3 and k == 3) then c.mb.loading[i][k] = v or nil end
     end),
   }
+
+  if J.NEW then
+    -- ===== methods 10.4.16 added (same in 10.7.19) =====
+    OWN.resistiveHeater.getEnergyUsed = { {}, function(c) return c.mb.energyUsed or 0 end }
+    OWN.resistiveHeater.getTransferLoss = getter("lastTransferLoss")
+    OWN.fuelwoodHeater.getTransferLoss = getter("lastTransferLoss")
+    -- TileEntitySeismicVibrator: the blocks come from the fixture's `seismicBlocks` ({ ["x,y,z"] = name }, chunk
+    -- relative x/z, world y); anything else reads as air. Overworld build height -64 to 319.
+    local MIN_Y, MAX_Y = -64, 320
+    local function vibrating(c)
+      if not c.mb.block.active then J.computerError("Seismic Vibrator is not currently vibrating any chunks") end
+    end
+    local function checkXZ(x, z)
+      if x < 0 or x > 15 then J.computerError(("Chunk Relative X '%d' is out of range must be between 0 and 15. (Inclusive)"):format(x)) end
+      if z < 0 or z > 15 then J.computerError(("Chunk Relative Z '%d' is out of range must be between 0 and 15. (Inclusive)"):format(z)) end
+    end
+    local function blockAt(mb, x, y, z)
+      local t = type(mb.spec.seismicBlocks) == "table" and mb.spec.seismicBlocks or {}
+      local name = t[("%d,%d,%d"):format(x, y, z)]
+      return { block = name and (J.resourceLocation(name) or name) or "minecraft:air" }
+    end
+    OWN.seismicVibrator.isVibrating = { {}, function(c) return c.mb.block.active == true end }
+    OWN.seismicVibrator.getBlockAt = { { "int", "int", "int" }, function(c, x, y, z)
+      vibrating(c)
+      if y < MIN_Y or y >= MAX_Y then
+        J.computerError(("Y '%d' is out of range must be between %d and %d. (Inclusive)"):format(y, MIN_Y, MAX_Y - 1))
+      end
+      checkXZ(x, z)
+      return blockAt(c.mb, x, y, z)
+    end }
+    OWN.seismicVibrator.getColumnAt = { { "int", "int" }, function(c, x, z)
+      vibrating(c)
+      checkXZ(x, z)
+      local out = {}
+      for y = MIN_Y, MAX_Y do out[y] = blockAt(c.mb, x, y, z) end -- betweenClosed up to getMaxBuildHeight: 320 too
+      return out
+    end }
+    -- TileEntityDimensionalStabilizer.adjustChunkLoadingRadius: the ring at that radius (not the centre)
+    local function radius(c, r, load)
+      public(c)
+      if r <= 0 or r > 2 then J.computerError(("Radius '%d' is not in range, must be between 1 and %d inclusive."):format(r, 2)) end
+      for x = -r, r do
+        local inner = x > -r and x < r
+        local z = -r
+        while z <= r do
+          if not (x == 0 and z == 0) then c.mb.loading[x + 3][z + 3] = load or nil end
+          z = z + (inner and 2 * r or 1)
+        end
+      end
+    end
+    OWN.dimensionalStabilizer.enableChunkLoadingFor = E.void({ "int" }, function(c, r) radius(c, r, true) end)
+    OWN.dimensionalStabilizer.disableChunkLoadingFor = E.void({ "int" }, function(c, r) radius(c, r, false) end)
+  end
 
   K.types = {}
   for name, d in pairs(D) do

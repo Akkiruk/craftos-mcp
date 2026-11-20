@@ -711,6 +711,15 @@ return function(core)
       end
     end
   end
+  -- 0.7.62b (1.21.1) adds a Lua API to every computer, `advancedperipherals` (GlobalVersionsLuaAPI). getAddonVersions
+  -- lists the versions of the mods AP integrates with that are loaded; the sim knows none of them.
+  if core.addonOn("advanced-peripherals") and core.version.mc == "1.21.1" then
+    _G.advancedperipherals = {
+      getAddonVersions = function() return {} end,
+      getMCVersion = function() return "1.21.1" end,
+      getAPVersion = function() return "0.7.62b" end,
+    }
+  end
 
   -- ===== CC:Tweaked's printer (see ccsim/printer.lua) =====
 
@@ -779,6 +788,16 @@ return function(core)
       end
     end
   end
+  -- Types a mod names differently on this Minecraft version (byVersion in types.lua, ../typenames.lua): Advanced
+  -- Peripherals' list is ap/types.lua, every other mod's is in its modules' types.lua
+  local versionInfos = {}
+  if core.addonOn("advanced-peripherals") then versionInfos[1] = dofile("/rom/ccsim/ap/types.lua") end
+  for _, module in ipairs(dofile("/rom/ccsim/addons/modules.lua")) do
+    if addonModules[module] then versionInfos[#versionInfos + 1] = addonModules[module] end
+  end
+  local typeNames = dofile("/rom/ccsim/typenames.lua")(core.version.mc, versionInfos)
+  core.typeNames = typeNames
+
   local function loadAddon(module)
     local loaded = addonLoaded[module]
     if loaded then return loaded end
@@ -801,8 +820,11 @@ return function(core)
   end
 
   function core.hasPeripheralType(typeName)
+    -- by the canonical name (the sim's own checks) or what the program sees on this version
     for _, entry in pairs(virtual) do
-      for _, t in ipairs(entry.types or {}) do if t == typeName then return true end end
+      for _, t in ipairs(entry.types or {}) do
+        if t == typeName or typeNames.canonical(t) == typeName then return true end
+      end
     end
     return false
   end
@@ -836,8 +858,15 @@ return function(core)
   end
 
   local function build(def)
+    -- the canonical name (a world may use either name of a renamed type), and what this version's mod reports
+    local reported
+    if type(def.type) == "string" then
+      local canonical, said = typeNames.resolve(def.type)
+      if not canonical then error("ccsim: peripheral '" .. tostring(def.name) .. "': " .. said, 0) end
+      def.type, def.reportedType, reported = canonical, said, said
+    end
     local ty = def.type
-    local entry = { name = def.name, def = def }
+    local entry = { name = def.name, def = def, type = ty }
     if ty == "modem" then
       entry.modem = modems.add(def)
       entry.methods = entry.modem.methods
@@ -941,6 +970,12 @@ return function(core)
     else
       error("ccsim: unsupported virtual peripheral type '" .. tostring(ty) .. "'", 0)
     end
+    -- the program sees the version's name: in place of the canonical one, the other types (inventory, ...) kept
+    if reported and reported ~= ty then
+      local types = {}
+      for i, t in ipairs(entry.types or { ty }) do types[i] = t == ty and reported or t end
+      entry.types = types
+    end
     virtual[def.name] = entry
     core.peripherals[def.name] = entry
   end
@@ -958,7 +993,18 @@ return function(core)
     return out
   end
   core.worldPeripherals = plainCopy(core.world.peripherals or {})
-  for _, def in ipairs(core.world.peripherals or {}) do register(def) end
+  -- One block that fails to build is left out and said so (state.json peripheralErrors, and on the screen); the rest
+  -- of the world still comes up. Unprotected, one error stopped all of ccsim, so a world came up with no peripherals.
+  core.peripheralErrors = core.peripheralErrors or {}
+  for _, def in ipairs(core.world.peripherals or {}) do
+    local ok, err = pcall(register, def)
+    if not ok then
+      virtual[def.name], core.peripherals[def.name] = nil, nil
+      local text = ("peripheral '%s' (%s): %s"):format(tostring(def.name), tostring(def.type), tostring(err))
+      core.peripheralErrors[#core.peripheralErrors + 1] = text
+      printError("ccsim: " .. text)
+    end
+  end
   -- An addon configured by a world key (world.create, ...) loads at boot even before any of its blocks is used
   -- (and one with `boot = true` in types.lua always: a mod that adds an API to every computer)
   for module, info in pairs(addonModules) do
@@ -1302,9 +1348,11 @@ return function(core)
 
   local function onServerThread(entry, method)
     if entry.computerThread then return not entry.computerThread[method] end -- an addon says which of its own do not wait
-    if COMPUTER_THREAD[method] or COMPUTER_THREAD_TYPES[entry.types[1]] then return false end
-    if entry.remote and REMOTE_COMPUTER_THREAD_TYPES[entry.types[1]] then return false end
-    local list = COMPUTER_THREAD_BY_TYPE[entry.types[1]]
+    -- by the canonical type: a mod's rename on this Minecraft version keeps its threads
+    local ty = typeNames.canonical(entry.types[1])
+    if COMPUTER_THREAD[method] or COMPUTER_THREAD_TYPES[ty] then return false end
+    if entry.remote and REMOTE_COMPUTER_THREAD_TYPES[ty] then return false end
+    local list = COMPUTER_THREAD_BY_TYPE[ty]
     return not (list and list[method])
   end
 

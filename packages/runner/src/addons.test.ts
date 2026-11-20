@@ -88,9 +88,10 @@ describe("addon messages", () => {
   it("say which release a mod written from its 1.18.2 one acts as on newer versions", () => {
     const report = addonReport({}, "1.21.1");
     const ap = report.addons.find((a) => a.id === "advanced-peripherals")!;
-    expect(ap).toMatchObject({ version: "0.7.62b", actsAs: "0.7.31r" });
+    // Advanced Peripherals follows each version's own release (docs/advanced-peripherals-versions.md)
+    expect(ap).toMatchObject({ version: "0.7.62b", actsAs: "0.7.62b" });
     const create = report.addons.find((a) => a.id === "create")!;
-    expect(create).toMatchObject({ version: "6.0.10", actsAs: "0.5.1.i" });
+    expect(create).toMatchObject({ version: "6.0.10", actsAs: "6.0.10" }); // each version its own release
     // a mod that follows the version's own release acts as it
     const embedded = report.addons.find((a) => a.id === "embedded-computer")!;
     expect(embedded).toMatchObject({ version: "1.3.0", actsAs: "1.3.0" });

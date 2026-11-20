@@ -13,6 +13,7 @@ import {
   ADDONS,
   addonOfType,
   addonSource,
+  addonTypeNames,
   checkWorldAddons,
   resolveAddons,
 } from "./addons.js";
@@ -145,8 +146,10 @@ export function knownPeripheralTypes(mc: string): Map<string, string> {
   for (const t of CC_TYPES) types.set(t, "CC:Tweaked");
   if (resolveVersion(mc).cc !== "1.101.3")
     for (const t of CC_121_TYPES) types.set(t, "CC:Tweaked");
+  // every name a type has (a world may use the 1.18.2 one or its version's rename); one a version lacks is still
+  // known here, so checkWorldAddons says which versions have it instead of "not a peripheral the sim can build"
   for (const addon of ADDONS)
-    for (const t of addon.types)
+    for (const t of addonTypeNames(addon))
       types.set(t, `${addon.name} (addon "${addon.id}")`);
   return types;
 }

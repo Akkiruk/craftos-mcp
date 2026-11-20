@@ -94,3 +94,23 @@ test("a type nobody knows is left for the person to add", () => {
     {},
   );
 });
+
+test("a mod's renamed type by its new name still switches the mod on (addons.ts byVersion)", () => {
+  const fake = {
+    newest: "1.21.1",
+    versions: [],
+    addons: [
+      {
+        id: "fake-mod",
+        name: "Fake Mod",
+        versions: { "1.21.1": "3.0" },
+        requires: [],
+        types: ["oldName"],
+        byVersion: { "1.21.1": { rename: { oldName: "old_name" } } },
+      },
+    ],
+  };
+  const w = worldForProgram('local d = peripheral.find("old_name")', fake);
+  assert.deepEqual(w.addons, ["fake-mod"]);
+  assert.deepEqual(w.peripherals, [{ name: "top", type: "old_name" }]);
+});

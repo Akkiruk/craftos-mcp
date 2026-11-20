@@ -396,6 +396,16 @@ return function(E)
       t.getChemicalItem = B.slot(function(mb) return mb.extraItem end)
       E.tankMethods(t, "Chemical", function(mb) return mb.chemical end)
       t.dumpChemical = E.void({}, function(c) B.requirePublic(c.mb.block); E.setAmount(c.mb.chemical, 0) end)
+    elseif ft.infuse and E.J.V21 then
+      -- 10.7: the infusing factory is a TileEntityItemStackChemicalToItemStackFactory (getChemical*, dumpChemical)
+      t.getChemicalItem = B.slot(function(mb) return mb.extraItem end)
+      E.tankMethods(t, "Chemical", function(mb) return mb.infuse end)
+      t.getChemical = { {}, function(c)
+        local tk = c.mb.infuse
+        if tk.amount <= 0 then return { name = "mekanism:empty", amount = 0 } end
+        return { name = tk.name, amount = tk.amount }
+      end }
+      t.dumpChemical = E.void({}, function(c) B.requirePublic(c.mb.block); E.setAmount(c.mb.infuse, 0) end)
     elseif ft.infuse then
       t.getInfuseTypeItem = B.slot(function(mb) return mb.extraItem end)
       E.tankMethods(t, "InfuseType", function(mb) return mb.infuse end)

@@ -4,6 +4,10 @@ Every Advanced Peripherals (AP) peripheral that is **enabled in your server's co
 emulated in Lua (`rom-overlay/rom/ccsim/ap/`), with the full method surface, argument checking,
 return values, error strings, cooldowns and config values of the real mod.
 
+This page describes 0.7.31r, the 1.18.2 release. On 1.20.1 the emulator follows 0.7.48r and on 1.21.1 0.7.62b
+(snake_case types such as `player_detector`, no Redstone Integrator, rewritten bridges, new events):
+[advanced-peripherals-versions.md](advanced-peripherals-versions.md) lists every difference.
+
 ## What "100%" means here
 
 - **Surface: complete.** A test (`ap.integration.test.ts`, "API surface") asserts that every
@@ -95,7 +99,8 @@ There are no `playerJoin` / `playerLeave` events in this AP version. With the vh
 ## Approximations and known gaps
 
 - **Version:** source is 0.7.30r; the pack has 0.7.31r. All method names match. Behaviour changes
-  between the two, if any, are not known.
+  between the two, if any, are not known. Other Minecraft versions: see
+  [advanced-peripherals-versions.md](advanced-peripherals-versions.md).
 - **Crafting:** `craftItem` records a job and fires the `crafting` event; nothing is produced
   until you send `completeCraft`. CPU progress, patterns' real resource checks and RS
   calculation results (only `craftResult` in the fixture) are not simulated.

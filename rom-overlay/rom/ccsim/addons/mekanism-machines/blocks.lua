@@ -35,6 +35,40 @@ return function(E, core)
   end
   B.enumOf = enumOf
 
+  --- 10.7 (1.21.1) has one CHEMICAL transmission type where 10.2/10.4 have GAS, INFUSION, PIGMENT and SLURRY.
+  local CHEMICALS = { GAS = true, INFUSION = true, PIGMENT = true, SLURRY = true }
+  function B.transmission(t)
+    if J.V21 and CHEMICALS[t] then return "CHEMICAL" end
+    return t
+  end
+  B.CHEMICALS = CHEMICALS
+  --- A block's side config list for this version: on 1.21.1 its chemical configs become one CHEMICAL config with
+  --- every mode of them, each side keeping the first set mode, ejecting when any of them could and did.
+  function B.versionConfig(list)
+    if not J.V21 then return list end
+    local out, chem = {}, nil
+    for _, c in ipairs(list) do
+      if CHEMICALS[c.type] then
+        if not chem then
+          chem = { type = "CHEMICAL", modes = {}, sides = {}, canEject = false, ejecting = false }
+          out[#out + 1] = chem
+        end
+        for _, m in ipairs(c.modes) do
+          if not indexOf(chem.modes, m) then chem.modes[#chem.modes + 1] = m end
+        end
+        for _, side in ipairs(SIDES) do
+          local m = (c.sides and c.sides[side]) or c.fill
+          if m and m ~= "NONE" and not chem.sides[side] then chem.sides[side] = m end
+        end
+        chem.canEject = chem.canEject or c.canEject ~= false
+        chem.ejecting = chem.ejecting or c.ejecting == true
+      else
+        out[#out + 1] = c
+      end
+    end
+    return out
+  end
+
   --- The block state of a machine: facing, redstone, security, upgrades, side config, ejector.
   --- `o`: { directional, redstone, upgrades = { supported... } | nil, config = { {type, modes, fill, sides, canEject,
   --- ejecting}... } | nil, ejector = bool }.
@@ -60,7 +94,7 @@ return function(E, core)
     end
     if o.config then
       b.config, b.configOrder = {}, {}
-      for _, c in ipairs(o.config) do
+      for _, c in ipairs(B.versionConfig(o.config)) do
         local info = { modes = {}, sides = {}, canEject = c.canEject ~= false, ejecting = c.ejecting == true }
         info.modes.NONE = true
         for _, m in ipairs(c.modes) do info.modes[m] = true end
@@ -75,7 +109,7 @@ return function(E, core)
         b.configOrder[#b.configOrder + 1] = c.type
       end
       for t, sides in pairs(type(def.sideConfig) == "table" and def.sideConfig or {}) do
-        local info = b.config[tostring(t):upper()]
+        local info = b.config[B.transmission(tostring(t):upper())]
         if not info then error("ccsim: no side config for " .. tostring(t), 0) end
         for side, m in pairs(sides) do info.sides[tostring(side):upper()] = tostring(m):upper() end
       end
@@ -106,7 +140,12 @@ return function(E, core)
     local c = cache(b, "e")
     local v = c[def]
     if v == nil then
-      v = FL.multiply(def, FL.create(B.MAX_UPGRADE_MULTIPLIER ^ (2 * fraction(b, "SPEED") - fraction(b, "ENERGY"))))
+      local pow = B.MAX_UPGRADE_MULTIPLIER ^ (2 * fraction(b, "SPEED") - fraction(b, "ENERGY"))
+      if J.V21 then
+        v = min(math.ceil(def * pow), FL.MAX) -- 10.7 MekanismUtils.getEnergyPerTick: MathUtils.ceilToLong
+      else
+        v = FL.multiply(def, FL.create(pow))
+      end
       c[def] = v
     end
     return v
@@ -115,7 +154,11 @@ return function(E, core)
     if not b.upgrades then return def end
     local c = cache(b, "m")
     local v = c[def]
-    if v == nil then v = FL.multiply(def, FL.create(B.MAX_UPGRADE_MULTIPLIER ^ fraction(b, "ENERGY"))); c[def] = v end
+    if v == nil then
+      local pow = B.MAX_UPGRADE_MULTIPLIER ^ fraction(b, "ENERGY")
+      v = J.V21 and FL.create(def * pow) or FL.multiply(def, FL.create(pow)) -- 10.7: MathUtils.clampToLong
+      c[def] = v
+    end
     return v
   end
 
@@ -335,7 +378,7 @@ return function(E, core)
 
   --- Whether this side config sends `t` out anywhere (OUTPUT-like mode on a side) and ejects it.
   function B.ejects(b, t)
-    local info = b.config and b.config[t]
+    local info = b.config and b.config[B.transmission(t)]
     if not info or not info.ejecting then return false end
     for _, m in pairs(info.sides) do
       if m == "OUTPUT" or m == "OUTPUT_1" or m == "OUTPUT_2" or m == "INPUT_OUTPUT" then return true end

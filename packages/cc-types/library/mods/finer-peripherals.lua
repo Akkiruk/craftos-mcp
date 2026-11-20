@@ -99,7 +99,7 @@ function FinerperipheralsEventrelayer.relayEvent(target, message) end
 
 ---@class finerPeripherals.FinerperipheralsEventrelayerTurtle: finerPeripherals.FinerperipheralsEventrelayer
 
----Finer Peripherals: `finerperipherals:geoexplorer`, `finerperipherals:geoexplorer_turtle`, as craftos-mcp emulates them.
+---Finer Peripherals: `finerperipherals:geoexplorer`, as craftos-mcp emulates it.
 ---@class finerPeripherals.FinerperipheralsGeoexplorer
 local FinerperipheralsGeoexplorer = {}
 
@@ -111,8 +111,6 @@ function FinerperipheralsGeoexplorer.getOperationCooldown() end
 ---@return string
 function FinerperipheralsGeoexplorer.scan(r) end
 
----@class finerPeripherals.FinerperipheralsGeoexplorerTurtle: finerPeripherals.FinerperipheralsGeoexplorer
-
 ---Finer Peripherals: `finerperipherals:geoexplorer_pocket`, as craftos-mcp emulates it.
 ---@class finerPeripherals.FinerperipheralsGeoexplorerPocket
 local FinerperipheralsGeoexplorerPocket = {}
@@ -122,6 +120,18 @@ local FinerperipheralsGeoexplorerPocket = {}
 ---@return string
 function FinerperipheralsGeoexplorerPocket.scan(r) end
 
+---Finer Peripherals: `finerperipherals:geoexplorer_turtle`, as craftos-mcp emulates it.
+---@class finerPeripherals.FinerperipheralsGeoexplorerTurtle
+local FinerperipheralsGeoexplorerTurtle = {}
+
+---@return number
+function FinerperipheralsGeoexplorerTurtle.getOperationCooldown() end
+
+---@param r? any
+---@return nil
+---@return string
+function FinerperipheralsGeoexplorerTurtle.scan(r) end
+
 ---Finer Peripherals: `finerperipherals:holoitemdisplay`, as craftos-mcp emulates it.
 ---@class finerPeripherals.FinerperipheralsHoloitemdisplay
 local FinerperipheralsHoloitemdisplay = {}
@@ -130,8 +140,8 @@ local FinerperipheralsHoloitemdisplay = {}
 function FinerperipheralsHoloitemdisplay.getOperationCooldown() end
 
 ---@param id string
----@return boolean
----@return string?
+---@return boolean?
+---@return string
 function FinerperipheralsHoloitemdisplay.setItem(id) end
 
 ---Finer Peripherals: `finerperipherals:player_finder`, as craftos-mcp emulates it.

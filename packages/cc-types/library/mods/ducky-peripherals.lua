@@ -11,11 +11,9 @@ local EntityDetector = {}
 ---@return table
 function EntityDetector.nearbyEntities() end
 
----Ducky Peripherals: `keyboard`, `sculkophone`, as craftos-mcp emulates them.
+---Ducky Peripherals: `keyboard`, as craftos-mcp emulates it.
 ---@class duckyPeripherals.Keyboard
 local Keyboard = {}
-
----@class duckyPeripherals.Sculkophone: duckyPeripherals.Keyboard
 
 ---Ducky Peripherals: `weather_machine`, as craftos-mcp emulates it.
 ---@class duckyPeripherals.WeatherMachine

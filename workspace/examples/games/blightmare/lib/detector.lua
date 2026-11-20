@@ -16,7 +16,8 @@ local function nowMs() return os.epoch("utc") end
 
 --- Find the detector again (at start, and when a peripheral comes or goes).
 function M.init()
-  state.detector = peripheral.find("playerDetector")
+  -- Advanced Peripherals names it player_detector from Minecraft 1.21.1 on
+  state.detector = peripheral.find("playerDetector") or peripheral.find("player_detector")
   if not state.detector then state.closest, state.near = nil, {} end
 end
 

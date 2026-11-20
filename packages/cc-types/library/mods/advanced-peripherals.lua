@@ -36,13 +36,6 @@
 ---@field maxFuelConsumptionRate number
 ---@field scanBlocks ap.EnvironmentDetector.ConfigurationScanEntities
 
----@class ap.GeoScanner.ScanEntry
----@field name string
----@field tags string[]
----@field x number
----@field y number
----@field z number
-
 ---@class ap.InventoryManager.ArmorEntry
 ---@field count number
 ---@field displayName string
@@ -303,7 +296,8 @@ function ChatBox.sendFormattedMessageToPlayer(json, username, prefix, brackets, 
 ---@param brackets? any
 ---@param bracketColor? any
 ---@param range? any
----@return boolean
+---@return boolean?
+---@return string?
 function ChatBox.sendMessage(message, prefix, brackets, bracketColor, range) end
 
 ---@param message string
@@ -478,7 +472,8 @@ function GeoScanner.getName() end
 function GeoScanner.getOperationCooldown(opName) end
 
 ---@param radius number
----@return ap.GeoScanner.ScanEntry[]
+---@return nil
+---@return string
 function GeoScanner.scan(radius) end
 
 ---@param newRate number
@@ -734,8 +729,9 @@ function PlayerDetector.getName() end
 function PlayerDetector.getOnlinePlayers() end
 
 ---@param username string
+---@param decimals? any
 ---@return ap.PlayerDetector.PlayerPos
-function PlayerDetector.getPlayerPos(username) end
+function PlayerDetector.getPlayerPos(username, decimals) end
 
 ---@param first table
 ---@param second? any

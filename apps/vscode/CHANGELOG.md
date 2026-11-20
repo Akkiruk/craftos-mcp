@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0
+
+Runs craftos-mcp 0.7.0.
+
+Mods finally follow the Minecraft version you pick. Until now Advanced Peripherals, Mekanism, Create, Tom's
+Peripherals and both reactor mods acted like their 1.18.2 release on every version, so code for a 1.21.1 pack could
+pass here and then break in game.
+
+- On 1.21.1 the player detector is `player_detector` and the chat box is `chat_box`, same as Advanced Peripherals
+  names them there. Your world file can use either name
+- A block that doesn't exist on your version (the redstone integrator on 1.21.1, the AR controller from 1.20.1 on)
+  gets refused with the reason instead of quietly working
+- Create 6 on 1.20.1 and 1.21.1: stock ticker, packager, frogport, postbox and the rest of its new computer blocks.
+  Packages get requested but nothing actually gets packed or carried yet
+- Mekanism 10.4 and 10.7, with their new blocks. On 1.21.1 gases are chemicals, like in the game
+- The editor warns when your Lua uses a peripheral name that's wrong for the world's version, and completion knows
+  both names
+- One broken block in a world used to take every mod peripheral down with it. Now only that block is skipped, and
+  you get its error
+
 ## 0.6.1
 
 Runs craftos-mcp 0.6.1.

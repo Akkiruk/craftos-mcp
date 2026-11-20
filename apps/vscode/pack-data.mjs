@@ -41,6 +41,7 @@ export async function loadPackData() {
       name: a.name,
       versions: { ...a.versions },
       types: [...a.types],
+      ...(a.byVersion ? { byVersion: a.byVersion } : {}),
       requires: [...(a.requires ?? [])],
       ...(a.optIn ? { optIn: true } : {}),
     })),

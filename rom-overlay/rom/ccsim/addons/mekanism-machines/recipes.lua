@@ -163,6 +163,12 @@ return function(E)
     ins = { { slot = "input", amount = 1 } }, outs = { { tank = "output", amount = 200 } },
     items = { getInput = "input", getContainerFillItem = "containerFillItem", getOutputItem = "outputItem", getEnergyItem = "energyItem" },
     tankMethods = { Output = "output" } }
+  if E.J.V21 then
+    -- 10.7: a separate slot for the filled containers (getContainerOutputItem); getOutputItem is the item output
+    local m = M.nutritionalLiquifier
+    m.slots = { "input", "containerFillItem", "outputItem", "containerOutputItem", "energyItem" }
+    m.items.getContainerOutputItem = "containerOutputItem"
+  end
   M.antiprotonicNucleosynthesizer = { usage = 100000, storage = 1000000000, ticks = 400, upgrades = MUFFLING,
     slots = { "inputItem", "inputChemicalItem", "outputItem", "energyItem" },
     tanks = { inputChemical = { kind = "GAS", cap = 10000, default = "mekanism:antimatter" } },
@@ -562,6 +568,10 @@ return function(E)
     if m.solar then
       t.getPeakProductionRate = { {}, function(c) return c.mb.peak end }
       t.getProductionRate = { {}, function(c) return c.mb.productionRate end }
+      if E.J.NEW then
+        -- 10.4+ canSeeSun: WorldUtils.canSeeSun of the block above (sky light, skyDarken < 4, open sky)
+        t.canSeeSun = { {}, function(c) return c.mb.canSeeSky == true and E.skyDarken() < 4 end }
+      end
     end
     return t
   end

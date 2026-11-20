@@ -595,7 +595,14 @@ export function writeMods(peripherals, repo, warn) {
       for (const alias of c.aliases)
         lines.push("", `---@class ${alias}: ${c.className}`);
       classBlocks.push(lines.join("\n"));
-      findOverloads.push({ types: c.types, type: c.className });
+      // and the names a later Minecraft version reports for the same blocks (data `renamed`, from byVersion)
+      const later = c.types.flatMap((t) =>
+        Object.values(peripherals[t]?.renamed ?? {}),
+      );
+      findOverloads.push({
+        types: [...new Set([...c.types, ...later])],
+        type: c.className,
+      });
       counts.classes++;
       counts.methods += c.methods;
       counts.types += c.types.length;

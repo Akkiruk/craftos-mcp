@@ -13,6 +13,10 @@
 --   Forge 40.2: ItemHandlerHelper.insertItem, InvWrapper, PlayerInvWrapper, PlayerArmorInvWrapper, RangedWrapper
 -- Blocks come from the turtle block world (ccsim/turtle/world.lua) with the turtle's game data, so a scan sees what a
 -- turtle placed. docs/advanced-peripherals.md ("Geo scanner, block reader, inventory manager, chunky turtle").
+-- On 1.20.1 and 1.21.1 the 0.7.48r and 0.7.62b tags (B.NEW, B.V21): the block reader's getBlockStates and
+-- isTileEntity, the inventory manager's filter-only add/remove, stacks with a fingerprint (and components, nil when
+-- empty, on 1.21.1), lower-case side errors (none at all on 1.21.1), and a chunky turtle's chunk that stays loaded
+-- when it is taken off, with chunkyTurtleRadius (docs/advanced-peripherals-versions.md).
 return function(core, B)
   local F = {}
   -- The vhcctweaks server the addon was measured on turns all four off in its config: with the addon on none of them
@@ -145,7 +149,9 @@ return function(core, B)
     if upper == "BOTTOM" then return "down" end
     if upper == "RIGHT" then return CCW[front] end
     if upper == "LEFT" then return CW[front] end
-    error(upper .. " is not a valid side", 0)
+    -- 0.7.48r lower-cases the side first, so its error names it in lower case; 0.7.62b answers null instead
+    if B.V21 then return nil end
+    error((B.V18 and upper or lower) .. " is not a valid side", 0)
   end
 
   local function javaIndex(i, n)
@@ -365,6 +371,42 @@ return function(core, B)
       return blockEntity(b)
     end
 
+    if B.NEW then
+      --- 0.7.48r on: the block's state properties (LuaConverter.stateToObject: booleans and numbers as such, the
+      --- rest by their names), the game data's defaults under the block's own state; nil in front of air
+      function m.getBlockStates()
+        local b = front()
+        if b == nil or b.name == "minecraft:air" then return nil end
+        local out = {}
+        local props = data().blockProperties(b.name) or {}
+        local function convert(key, v)
+          if type(v) ~= "string" then return v end
+          local values = props[key]
+          if type(values) == "table" then
+            local bool, num = true, true
+            for _, x in ipairs(values) do
+              if x ~= "true" and x ~= "false" then bool = false end
+              if not tostring(x):match("^%-?%d+$") then num = false end
+            end
+            if bool and (v == "true" or v == "false") then return v == "true" end
+            if num and tonumber(v) then return tonumber(v) end
+          end
+          return v
+        end
+        for k, v in pairs(data().defaultState(b.name) or {}) do out[k] = convert(k, v) end
+        local own = b.state or (b.def and b.def.state)
+        if type(own) == "table" then for k, v in pairs(own) do out[k] = convert(k, v) end end
+        return out
+      end
+
+      --- 0.7.48r on: whether the block in front has a block entity (false in front of air)
+      function m.isTileEntity()
+        local b = front()
+        if b == nil or b.name == "minecraft:air" then return false end
+        return blockEntity(b) ~= nil
+      end
+    end
+
     return self
   end
 
@@ -442,18 +484,29 @@ return function(core, B)
     return B.md5(nbt .. item.name .. "[" .. displayName(item) .. "]")
   end
 
-  --- LuaConverter.stackToObjectWithSlot (stackToObject when slot is nil). An empty stack is {}.
+  --- LuaConverter.stackToObjectWithSlot (stackToObject when slot is nil). An empty stack is {} (nil on 1.21.1).
+  --- 0.7.48r adds the fingerprint; 0.7.62b has `components` (the item's data components) in place of `nbt`.
   local function stackObject(item, slot)
-    if not item then return {} end
-    return {
+    if not item then
+      if B.V21 then return nil end
+      return {}
+    end
+    local out = {
       name = item.name,
       tags = tagList("item", item.name, item.tags),
       count = item.count,
       displayName = "[" .. displayName(item) .. "]",
       maxStackSize = maxStack(item),
-      nbt = type(item.nbt) == "table" and B.copy(item.nbt) or {},
       slot = slot,
     }
+    if B.V21 then
+      local c = item.components or item.nbt
+      out.components = type(c) == "table" and B.copy(c) or {}
+    else
+      out.nbt = type(item.nbt) == "table" and B.copy(item.nbt) or {}
+    end
+    if B.NEW then out.fingerprint = fingerprint(item) end
+    return out
   end
 
   --- Mob.getEquipmentSlotForItem, from the item name (or `equipSlot` on a fixture item); nil for the main hand.
@@ -590,10 +643,41 @@ return function(core, B)
 
   local function truncate(v) return v >= 0 and floor(v) or -floor(-v) end
 
+  --- 0.7.62b's LuaTable getters: a field of the wrong type raises
+  local function checkField(map, key, want)
+    local v = map[key]
+    if v == nil or type(v) == want then return end
+    error(("bad field '%s' (%s expected, got %s)"):format(key, want, type(v)), 0)
+  end
+
   --- ItemFilter.parse: filter, or nil and the error code
-  local function parseFilter(map)
+  local parseFilter
+  function parseFilter(map, raw)
     local f = { count = 64, fingerprint = "", fromSlot = -1, toSlot = -1 }
-    if next(map) == nil then return f end
+    if next(map) == nil then
+      f.empty = true
+      return f
+    end
+    if B.V21 and not raw then
+      -- 0.7.62b: a field of the wrong type raises, and "components" (SNBT text or a table) is read, not "nbt"
+      checkField(map, "name", "string")
+      checkField(map, "fingerprint", "string")
+      for _, key in ipairs({ "fromSlot", "toSlot", "count" }) do checkField(map, key, "number") end
+      local copy, components = {}, map.components
+      for k, v in pairs(map) do copy[k] = v end
+      copy.nbt, copy.components = nil, nil
+      local nbt
+      if components ~= nil then
+        if type(components) == "string" then nbt = B.snbt(components) elseif type(components) == "table" then nbt = components end
+        if type(nbt) ~= "table" then error('bad field "components", expect NBT string or table', 0) end
+      end
+      local out, err
+      if next(copy) == nil then out = { count = 64, fingerprint = "", fromSlot = -1, toSlot = -1 } else out, err = parseFilter(copy, true) end
+      if not out then return nil, err end
+      out.empty = nil
+      out.nbt = nbt
+      return out
+    end
     if map.name ~= nil then
       if type(map.name) ~= "string" then return nil, "NO_VALID_ITEM" end
       if map.name:sub(1, 1) == "#" then
@@ -642,6 +726,18 @@ return function(core, B)
 
   --- ItemFilter.test. An empty slot is ItemStack.EMPTY: an empty filter accepts it, and so does every slot.
   local function filterTest(f, item)
+    if B.NEW then
+      -- 0.7.48r on: the item is checked as well when there is a tag or NBT; 0.7.62b takes everything for {}
+      if B.V21 and f.empty then return true end
+      if f.fingerprint ~= "" then return item ~= nil and fingerprint(item) == f.fingerprint end
+      if f.item and (item == nil or item.name ~= f.item) then return false end
+      if f.tag and (item == nil or not hasItemTag(item, f.tag)) then return false end
+      if f.nbt then
+        local own = item and (B.V21 and (item.components or item.nbt) or item.nbt)
+        if not B.deepEqual(type(own) == "table" and own or {}, f.nbt) then return false end
+      end
+      return true
+    end
     if f.fingerprint ~= "" then return item ~= nil and fingerprint(item) == f.fingerprint end
     if f.item and not f.tag and not f.nbt then return item ~= nil and item.name == f.item end
     if f.tag and (item == nil or not hasItemTag(item, f.tag)) then return false end
@@ -743,16 +839,24 @@ return function(core, B)
       return f, err
     end
 
-    local function addItemCommon(invDirection, f)
+    --- 0.7.62b: a side that is no side is a null Direction, and BlockPos.relative(null) throws
+    local function side(invDirection)
       local dir = validateSide(def, invDirection)
+      if dir == nil then error("Java Exception Thrown: java.lang.NullPointerException", 0) end
+      return dir
+    end
+
+    local function addItemCommon(invDirection, f)
+      local dir = side(invDirection)
       local from = chestHandler(dir, invDirection)
+      if B.V21 and not from then return 0, "INVENTORY_FROM_INVALID" end
       local to, slot = playerHandlerFor(f.toSlot)
       f.toSlot = slot
       return moveItem(from, to, f)
     end
 
     local function removeItemCommon(invDirection, f)
-      local dir = validateSide(def, invDirection)
+      local dir = side(invDirection)
       local from, slot = playerHandlerFor(f.fromSlot)
       local to = chestHandler(dir, invDirection)
       if not to then return 0, "INVENTORY_TO_INVALID" end
@@ -798,12 +902,31 @@ return function(core, B)
       end
     end
 
-    m.addItemToPlayer = deprecated(function(d, f) return addItemCommon(d, f) end)
-    m.pullItems = m.addItemToPlayer
-    m.addItemToPlayerNBT = withNbt(function(d, f) return addItemCommon(d, f) end, true)
-    m.removeItemFromPlayer = deprecated(removeItemCommon)
-    m.pushItems = m.removeItemFromPlayer
-    m.removeItemFromPlayerNBT = withNbt(removeItemCommon)
+    if B.NEW then
+      -- 0.7.48r on: only (side, item filter table), the deprecated count/slot/name forms and their aliases are gone
+      local function filterForm(common, two)
+        return function(invDirection, item)
+          invDirection = B.string(1, invDirection)
+          item = B.table(2, item)
+          local f, err = itemFilter(item)
+          if not f then return 0, err end
+          local moved, msg = common(invDirection, f)
+          if two then return moved, nil end
+          if msg == nil then return moved end
+          return moved, msg
+        end
+      end
+      -- 0.7.48r answers (moved, nil) for an add; 0.7.62b's add can fail with INVENTORY_FROM_INVALID
+      m.addItemToPlayer = filterForm(addItemCommon, B.V20)
+      m.removeItemFromPlayer = filterForm(removeItemCommon)
+    else
+      m.addItemToPlayer = deprecated(function(d, f) return addItemCommon(d, f) end)
+      m.pullItems = m.addItemToPlayer
+      m.addItemToPlayerNBT = withNbt(function(d, f) return addItemCommon(d, f) end, true)
+      m.removeItemFromPlayer = deprecated(removeItemCommon)
+      m.pushItems = m.removeItemFromPlayer
+      m.removeItemFromPlayerNBT = withNbt(removeItemCommon)
+    end
 
     function m.getItems()
       local p = playerInv(owner().name)
@@ -817,7 +940,7 @@ return function(core, B)
 
     function m.getItemsChest(target)
       target = B.string(1, target)
-      local dir = validateSide(def, target)
+      local dir = side(target)
       local h = chestHandler(dir, target)
       if not h then return nil, "INVENTORY_TO_INVALID" end
       local out = {}
@@ -911,16 +1034,22 @@ return function(core, B)
     return entry ~= nil and entry.ap == self
   end
 
+  --- 0.7.48r on, the record outlives the upgrade: taken off, its last chunk stays forced (ChunkyPeripheral.detach no
+  --- longer removes it; ChunkManager drops it after chunkLoadValidTime, which is not simulated).
   local function loadedChunk(self)
-    if not attached(self) then return nil end
-    return { x = floor(core.position.x / 16), z = floor(core.position.z / 16), dimension = core.position.dimension or "minecraft:overworld" }
+    if not attached(self) then return B.NEW and self.lastChunk or nil end
+    local c = { x = floor(core.position.x / 16), z = floor(core.position.z / 16), dimension = core.position.dimension or "minecraft:overworld" }
+    self.lastChunk = c
+    return c
   end
 
   --- A chunk within two of a forced one is loaded: the ticket's level is 31, and chunks up to level 33 are loaded.
+  --- 0.7.48r on forces every chunk within chunkyTurtleRadius (default 0) of the turtle's.
   function core.forcedChunkNear(cx, cz, dimension)
+    local reach = 2 + (B.NEW and (B.config.chunkyTurtleRadius or 0) or 0)
     for _, self in ipairs(chunkies) do
       local c = loadedChunk(self)
-      if c and c.dimension == (dimension or "minecraft:overworld") and math.abs(c.x - cx) <= 2 and math.abs(c.z - cz) <= 2 then
+      if c and c.dimension == (dimension or "minecraft:overworld") and math.abs(c.x - cx) <= reach and math.abs(c.z - cz) <= reach then
         return true
       end
     end
@@ -932,6 +1061,8 @@ return function(core, B)
     self.def = def
     function self.methods.getName() return nil end -- TurtlePeripheralOwner.getCustomName
     self.computerThread = { getName = true, getConfiguration = true }
+    -- one turtle, one chunk record (its UUID lives in the turtle's upgrade data): equipping again replaces it
+    for _, other in ipairs(chunkies) do other.lastChunk = nil end
     chunkies[#chunkies + 1] = self
     function self.state() return { loadedChunk = loadedChunk(self) } end
     return self

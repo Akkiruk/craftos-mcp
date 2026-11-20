@@ -86,9 +86,102 @@ return function(E)
     return f
   end
 
-  --- A fixture filter: the same fields as the Lua table, `type` required.
+  -- ===== 10.4 / 10.7 (1.20.1, 1.21.1): SpecialConverters.convertMapToFilter =====
+  -- No MATERIAL filters; `enabled`; each refusal is a ComputerException. 10.7 names the keys in snake_case
+  -- (SerializationConstants: allow_default, requires_replacement, replace_target, modid), allows stacks up to 99
+  -- (Item.ABSOLUTE_MAX_STACK_SIZE) and reads `components` where 10.4 reads `itemNBT` (SNBT).
+  local V21 = J.V21
+  local KEY = {
+    allowDefault = V21 and "allow_default" or "allowDefault",
+    requiresReplacement = V21 and "requires_replacement" or "requiresReplacement",
+    replaceTarget = V21 and "replace_target" or "replaceTarget",
+    modId = V21 and "modid" or "modId",
+    itemData = V21 and "components" or "itemNBT",
+  }
+  F.KEY = KEY
+  local NEW_KINDS = {
+    MINER_ITEMSTACK_FILTER = "item", MINER_MODID_FILTER = "modid", MINER_TAG_FILTER = "tag",
+    SORTER_ITEMSTACK_FILTER = "item", SORTER_MODID_FILTER = "modid", SORTER_TAG_FILTER = "tag",
+    OREDICTIONIFICATOR_ITEM_FILTER = "ore", QIO_ITEMSTACK_FILTER = false, QIO_MODID_FILTER = false, QIO_TAG_FILTER = false,
+  }
+  -- validItemFilters: 10.4 "forge", 10.7 "c"; both add raw_materials/
+  local NEW_ORE = { ns = V21 and "c" or "forge", "ingots/", "ores/", "dusts/", "nuggets/", "storage_blocks/", "raw_materials/" }
+  local MAX_STACK = V21 and 99 or 64
+  local function fail(msg) J.computerError(msg) end
+
+  function F.fromMapNew(family, map)
+    local ty = J.get(map, "type")
+    if type(ty) ~= "string" then fail("Missing 'type' element") end
+    local kind = ty ~= "" and NEW_KINDS[ty:upper()]
+    if kind == nil then fail("Unknown 'type' value") end
+    ty = ty:upper()
+    if not kind or ty:sub(1, #family + 1) ~= family .. "_" then
+      fail(V21 and "Unexpected format for: type" or "Type is not of an expected format")
+    end
+    local f = { type = ty, kind = kind, enabled = true }
+    local en = J.get(map, "enabled")
+    if type(en) == "boolean" then f.enabled = en end
+    if kind == "item" then
+      f.item = item(J.get(map, "item"))
+      if f.item == "minecraft:air" then fail("Invalid or missing item specified for ItemStack filter") end
+      local raw = J.get(map, KEY.itemData)
+      if type(raw) == "string" then
+        if V21 then
+          f.itemData = raw
+        else
+          local tag, msg = J.nbt.parseSnbt(raw)
+          if not tag then fail("Invalid SNBT: " .. tostring(msg)) end
+          f.itemData = J.nbt.toSnbt(tag)
+        end
+      end
+    elseif kind == "modid" then
+      f.modId = validated(J.get(map, KEY.modId), "^[a-z0-9_.%-*?]+$")
+      if not f.modId then fail("Invalid or missing modId specified for Mod Id filter") end
+    elseif kind == "tag" then
+      f.tag = validated(J.get(map, "tag"), "^[a-z0-9_.%-/:*?]+$")
+      if not f.tag then fail("Invalid or missing tag specified for Tag filter") end
+    end
+    if family == "MINER" then
+      f.requiresReplacement = bool(J.get(map, KEY.requiresReplacement))
+      f.replaceTarget = item(J.get(map, KEY.replaceTarget))
+    elseif family == "SORTER" then
+      f.allowDefault = bool(J.get(map, KEY.allowDefault))
+      local c = J.get(map, "color")
+      if type(c) == "string" then
+        local u = c:upper()
+        for _, x in ipairs(J.ENUMS.EnumColor) do if x == u then f.color = u end end
+      end
+      f.size = bool(J.get(map, "size"))
+      f.min, f.max = int(J.get(map, "min")), int(J.get(map, "max"))
+      if f.min < 0 or f.max < 0 or f.min > f.max or f.max > MAX_STACK then
+        fail(V21 and "Invalid min/max: 0 <= min <= max <= 99" or "Invalid or min/max: 0 <= min <= max <= 64")
+      end
+      if kind == "item" then f.fuzzy = bool(J.get(map, "fuzzy")) end
+    elseif family == "OREDICTIONIFICATOR" then
+      local target = J.get(map, "target")
+      if type(target) ~= "string" or target == "" then fail("Missing 'target'") end
+      local rl = J.resourceLocation(target)
+      local ok = false
+      if rl then
+        local ns, path = rl:match("^([^:]+):(.*)$")
+        if ns == NEW_ORE.ns then for _, p in ipairs(NEW_ORE) do if path:sub(1, #p) == p then ok = true end end end
+      end
+      if not ok then fail("Invalid 'target'") end
+      f.target = rl
+      local sel = item(J.get(map, "selected"))
+      f.selected = sel ~= "minecraft:air" and sel or nil
+    end
+    return f
+  end
+
+  --- A fixture filter: the same fields as the Lua table, `type` required (10.4+: the version's keys; `enabled`).
   function F.fromFixture(family, t)
     local map = J.toJava(t)
+    if J.NEW then
+      local ok, f = pcall(F.fromMapNew, family, map)
+      if not ok then error("ccsim: invalid " .. family:lower() .. " filter: " .. tostring(f), 0) end
+      return f
+    end
     local f = F.fromMap(family, map)
     if not f then error("ccsim: invalid " .. family:lower() .. " filter of type " .. tostring(t.type), 0) end
     return f
@@ -96,6 +189,23 @@ return function(E)
 
   --- wrapReturnType of an IFilter.
   function F.toLua(f)
+    if J.NEW then
+      -- BaseComputerHelper.convertFilterCommon and the per-device convert
+      local out = { type = f.type, enabled = f.enabled ~= false }
+      if f.kind == "item" then
+        out.item = f.item
+        if f.itemData then out[KEY.itemData] = f.itemData end
+      elseif f.kind == "modid" then out[KEY.modId] = f.modId
+      elseif f.kind == "tag" then out.tag = f.tag end
+      if f.type:sub(1, 6) == "MINER_" then
+        out[KEY.requiresReplacement], out[KEY.replaceTarget] = f.requiresReplacement, f.replaceTarget
+      elseif f.type:sub(1, 7) == "SORTER_" then
+        out[KEY.allowDefault], out.color, out.size, out.min, out.max, out.fuzzy = f.allowDefault, f.color, f.size, f.min, f.max, f.fuzzy
+      elseif f.kind == "ore" then
+        out.target, out.selected = f.target, f.selected or "minecraft:air"
+      end
+      return out
+    end
     local out = { type = f.type }
     if f.kind == "item" then out.item = f.item
     elseif f.kind == "material" then out.materialItem = f.materialItem
@@ -116,6 +226,7 @@ return function(E)
       "color", "size", "min", "max", "fuzzy", "target", "selected" }) do
       if a[k] ~= b[k] then return false end
     end
+    if J.NEW and (a.enabled ~= false) ~= (b.enabled ~= false) then return false end -- 10.4+ BaseFilter.equals
     return true
   end
 
@@ -140,6 +251,11 @@ return function(E)
   E.convert.MinerFilter = function(v) return J.isMap(v) and F.fromMap("MINER", v) or nil end
   E.convert.SorterFilter = function(v) return J.isMap(v) and F.fromMap("SORTER", v) or nil end
   E.convert.OredictionificatorItemFilter = function(v) return J.isMap(v) and F.fromMap("OREDICTIONIFICATOR", v) or nil end
+  if J.NEW then
+    E.convert.MinerFilter = function(v) return F.fromMapNew("MINER", v) end
+    E.convert.SorterFilter = function(v) return F.fromMapNew("SORTER", v) end
+    E.convert.OredictionificatorItemFilter = function(v) return F.fromMapNew("OREDICTIONIFICATOR", v) end
+  end
   E.convert.Item = function(v)
     if type(v) ~= "string" then return nil end
     return J.resourceLocation(v) and item(v) or nil

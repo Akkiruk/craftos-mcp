@@ -13,8 +13,9 @@ local args = { ... }
 local RANGE = tonumber(args[1]) or 20 -- blocks, as a box around the detector
 local POLL = 2                        -- seconds between looks at who is near
 
-local detector = peripheral.find("playerDetector")
-local chat = peripheral.find("chatBox")
+-- Advanced Peripherals names them player_detector and chat_box from Minecraft 1.21.1 on
+local detector = peripheral.find("playerDetector") or peripheral.find("player_detector")
+local chat = peripheral.find("chatBox") or peripheral.find("chat_box")
 if not detector then error("no player detector found", 0) end
 if not chat then error("no chat box found", 0) end
 

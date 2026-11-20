@@ -3,6 +3,7 @@
 The pack runs **Mekanism 1.18.2-10.2.5.465** on CC:Tweaked 1.101.3. Every QIO block a computer can see, and the
 Quantum Entangloporter, is emulated in Lua (`rom-overlay/rom/ccsim/mek/`): the full method surface in CC's own
 order, Mekanism's argument checks and error strings, return shapes, and the machines themselves on the virtual clock.
+This page is 1.18.2; what 1.20.1 (10.4.16) and 1.21.1 (10.7.19) change is in docs/mekanism-versions.md.
 
 - `mek/java.lua`: the Java side of a call (argument conversion and its messages, `Double.toString`,
   `HashMap.toString`, the second `String.format`, typed NBT).

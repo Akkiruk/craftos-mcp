@@ -4,6 +4,22 @@
 -- emulator answered when every method of every Extreme Reactors peripheral was called (docs/extreme-reactors.md).
 -- Do not edit: run probe-emulator.mjs and generate.mjs again.
 
+---@class extremeReactors.Energizer.EnergyStats
+---@field energyCapacity number
+---@field energyExtractedLastTick number
+---@field energyInsertedLastTick number
+---@field energyIoLastTick number
+---@field energyStored number
+---@field energySystem string
+
+---@class extremeReactors.Energizer.EnergyStatsAsText
+---@field energyCapacity string
+---@field energyExtractedLastTick string
+---@field energyInsertedLastTick string
+---@field energyIoLastTick string
+---@field energyStored string
+---@field energySystem string
+
 ---@class extremeReactors.Reactor.FuelStats
 ---@field fuelAmount number
 ---@field fuelCapacity number
@@ -11,6 +27,80 @@
 ---@field fuelReactivity number
 ---@field fuelTemperature number
 ---@field wasteAmount number
+
+---Extreme Reactors: `BigReactors-Energizer`, as craftos-mcp emulates it.
+---@class extremeReactors.Energizer
+local Energizer = {}
+
+---@return boolean
+function Energizer.getActive() end
+
+---@return number
+function Energizer.getEnergyCapacity() end
+
+---@return string
+function Energizer.getEnergyCapacityAsText() end
+
+---@return number
+function Energizer.getEnergyExtractedLastTick() end
+
+---@return string
+function Energizer.getEnergyExtractedLastTickAsText() end
+
+---@return number
+function Energizer.getEnergyInsertedLastTick() end
+
+---@return string
+function Energizer.getEnergyInsertedLastTickAsText() end
+
+---@return number
+function Energizer.getEnergyIoLastTick() end
+
+---@return string
+function Energizer.getEnergyIoLastTickAsText() end
+
+---@return extremeReactors.Energizer.EnergyStats
+function Energizer.getEnergyStats() end
+
+---@return extremeReactors.Energizer.EnergyStatsAsText
+function Energizer.getEnergyStatsAsText() end
+
+---@return number
+function Energizer.getEnergyStored() end
+
+---@return string
+function Energizer.getEnergyStoredAsText() end
+
+---@return string
+function Energizer.help() end
+
+---@param ... any
+---@return any ...
+function Energizer.isMethodAvailable(...) end
+
+---@return number[]
+function Energizer.mbGetMaximumCoordinate() end
+
+---@return number[]
+function Energizer.mbGetMinimumCoordinate() end
+
+---@return string
+function Energizer.mbGetMultiblockControllerTypeName() end
+
+---@return boolean
+function Energizer.mbIsAssembled() end
+
+---@return boolean
+function Energizer.mbIsConnected() end
+
+---@return boolean
+function Energizer.mbIsDisassembled() end
+
+---@return boolean
+function Energizer.mbIsPaused() end
+
+---@param arg1 any
+function Energizer.setActive(arg1) end
 
 ---Extreme Reactors: `BigReactors-Reactor`, as craftos-mcp emulates it.
 ---@class extremeReactors.Reactor

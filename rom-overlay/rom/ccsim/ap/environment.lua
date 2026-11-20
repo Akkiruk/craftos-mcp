@@ -1,4 +1,6 @@
--- ccsim ap/environment: environmentDetector (AdvancedPeripherals 0.7.30r source).
+-- ccsim ap/environment: environmentDetector (AdvancedPeripherals 0.7.30r source; on 1.20.1 and 1.21.1 the 0.7.48r and
+-- 0.7.62b tags: getDimension in place of the three registry-name methods, full biome and dimension ids, real moon
+-- phases, "Radius exceeds max value", and health and more on scanned entities).
 --
 -- The environment comes from world.environment (global) merged with the peripheral's own
 -- `environment` table: time, raining, thunder, biome, skyLight, blockLight, moonPhase,
@@ -118,7 +120,12 @@ return function(core, B)
 
     local function isDay() return skyDarken() < 4 end
 
-    function m.getBiome() return env().biome or "plains" end
+    --- the biome's path on 0.7.30r ("plains"), its whole id from 0.7.48r ("minecraft:plains")
+    function m.getBiome()
+      local biome = env().biome or "plains"
+      if B.V18 then return (biome:match(":(.+)$") or biome) end
+      return biome:find(":", 1, true) and biome or ("minecraft:" .. biome)
+    end
     function m.getSkyLightLevel() return skyLight() end
     function m.getBlockLightLevel() return env().blockLight or 0 end
 
@@ -140,12 +147,19 @@ return function(core, B)
     end
     -- Measured on the real block: Advanced Peripherals reads the name of the dimension *registry*, not of the
     -- dimension, so every dimension calls itself "dimension". A script comparing against "overworld" is always false.
-    function m.getDimensionProvider() return "minecraft" end
-    function m.getDimensionName() return "dimension" end
-    function m.getDimensionPaN() return "minecraft:dimension" end
+    if B.V18 then
+      function m.getDimensionProvider() return "minecraft" end
+      function m.getDimensionName() return "dimension" end
+      function m.getDimensionPaN() return "minecraft:dimension" end
 
-    function m.isDimension(name)
-      return B.string(1, name) == "dimension"
+      function m.isDimension(name)
+        return B.string(1, name) == "dimension"
+      end
+    else
+      -- 0.7.48r on: the level's own key, so the names are right
+      local id = provider .. ":" .. path
+      function m.getDimension() return id end
+      function m.isDimension(name) return B.string(1, name) == id end
     end
 
     function m.getRadiation()
@@ -155,7 +169,8 @@ return function(core, B)
 
     function m.listDimensions()
       local out = {}
-      for _, name in ipairs(env().dimensions or { "dimension" }) do
+      local default = B.V18 and { "dimension" } or { "overworld", "the_nether", "the_end" } -- the paths, from 0.7.48r
+      for _, name in ipairs(env().dimensions or default) do
         out[#out + 1] = name
       end
       return out
@@ -163,7 +178,16 @@ return function(core, B)
 
     -- The moon table is behind the same broken dimension check, so the real block never reads the phase (measured on
     -- real moon phases 0, 3 and 4 in the overworld).
-    local function moon() return 0, "Moon.exe not found..." end
+    local MOONS = { [0] = "Full moon", "Waning gibbous", "Third quarter", "Wanning crescent", "New moon",
+      "Waxing crescent", "First quarter", "Waxing gibbous" }
+    local function moon()
+      -- from 0.7.48r the overworld check works: Level.getMoonPhase there, the easter egg elsewhere
+      if B.NEW and dimension == "minecraft:overworld" then
+        local phase = env().moonPhase or (math.floor(dayTime() / 24000) % 8)
+        return phase, MOONS[phase] or "What is a moon"
+      end
+      return 0, "Moon.exe not found..."
+    end
 
     function m.getMoonId() return (moon()) end
     function m.isMoon(phase) return B.int(1, phase) == (moon()) end
@@ -172,6 +196,8 @@ return function(core, B)
     function m.isRaining() return raining() > 0 end
     function m.isThunder() return thunder() > 0 end
     function m.isSunny() return thunder() < 1 and raining() < 1 end
+
+    local TOO_FAR = B.V18 and "Radius is exceed max value" or "Radius exceeds max value"
 
     local function estimateCost(radius)
       if radius <= cfg.maxFreeRadius then return 0 end
@@ -184,14 +210,14 @@ return function(core, B)
     function m.scanCost(radius)
       radius = B.int(1, radius)
       local cost = estimateCost(radius)
-      if cost < 0 then return nil, "Radius is exceed max value" end
+      if cost < 0 then return nil, TOO_FAR end
       return cost
     end
 
     function m.scanEntities(radius)
       radius = B.int(1, radius)
       return B.perform(self, "scanEntities", cfg.cooldown, function()
-        if radius > cfg.maxCostRadius then return nil, "Radius is exceed max value" end
+        if radius > cfg.maxCostRadius then return nil, TOO_FAR end
       end, function()
         local entities = {}
         local function inside(x, y, z)
@@ -199,19 +225,31 @@ return function(core, B)
             and y >= origin.y - radius and y < origin.y + 1 + radius
             and z >= origin.z - radius and z < origin.z + 1 + radius
         end
+        --- LuaConverter.entityToLua / livingEntityToLua of 0.7.48r on (scanEntities only lists living entities)
+        local function living(entry, src)
+          entry.canFreeze = src.canFreeze ~= false
+          entry.isGlowing = src.isGlowing == true
+          entry.isInWall = src.isInWall == true
+          entry.health = src.health or 20
+          entry.maxHealth = src.maxHealth or src.health or 20
+          entry.lastDamageSource = src.lastDamageSource
+        end
         local function add(entry, relative)
           entry.x, entry.y, entry.z = relative.x - origin.x, relative.y - origin.y, relative.z - origin.z
           entities[#entities + 1] = entry
         end
         for _, p in ipairs(core.players) do
           if p.online and p.dimension == dimension and inside(p.x, p.y, p.z) then
-            add({ id = 0, uuid = p.uuid, name = p.name, tags = {} }, p)
+            local entry = { id = 0, uuid = p.uuid, name = p.name, tags = {} }
+            if B.NEW then living(entry, p) end
+            add(entry, p)
           end
         end
         for index, e in ipairs(core.world.entities or {}) do
           if (e.dimension or "minecraft:overworld") == dimension and inside(e.x, e.y, e.z) then
             local entry = { id = e.id or (1000 + index), uuid = e.uuid or ("00000000-0000-4000-9000-%012x"):format(index),
               name = e.name or B.titleCase(e.type or "entity"), tags = e.tags or {} }
+            if B.NEW then living(entry, e) end
             if e.animal then
               entry.baby = e.baby or false
               entry.inLove = e.inLove or false

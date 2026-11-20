@@ -1,0 +1,114 @@
+{
+  "Create_CreativeMotor": ["setGeneratedSpeed", "getGeneratedSpeed"],
+  "Create_DisplayLink": [
+    "setCursorPos",
+    "getCursorPos",
+    "getSize",
+    "isColor",
+    "isColour",
+    "write",
+    "writeBytes",
+    "clearLine",
+    "clear",
+    "update"
+  ],
+  "Create_Frogport": [
+    "setAddress",
+    "getAddress",
+    "getConfiguration",
+    "setConfiguration",
+    "list",
+    "getItemDetail"
+  ],
+  "Create_NixieTube": ["setText", "setTextColour", "setTextColor", "setSignal"],
+  "Create_Packager": [
+    "makePackage",
+    "list",
+    "getItemDetail",
+    "getAddress",
+    "setAddress",
+    "getPackage"
+  ],
+  "Create_Postbox": [
+    "setAddress",
+    "getAddress",
+    "list",
+    "getItemDetail",
+    "getConfiguration",
+    "setConfiguration"
+  ],
+  "Create_RedstoneRequester": [
+    "request",
+    "setRequest",
+    "setCraftingRequest",
+    "getRequest",
+    "getConfiguration",
+    "setConfiguration",
+    "setAddress",
+    "getAddress"
+  ],
+  "Create_Repackager": [
+    "makePackage",
+    "list",
+    "getItemDetail",
+    "getAddress",
+    "setAddress",
+    "getPackage"
+  ],
+  "Create_RotationSpeedController": ["setTargetSpeed", "getTargetSpeed"],
+  "Create_SequencedGearshift": ["rotate", "move", "isRunning"],
+  "Create_Signal": [
+    "getState",
+    "isForcedRed",
+    "setForcedRed",
+    "listBlockingTrainNames",
+    "getSignalType",
+    "cycleSignalType"
+  ],
+  "Create_Speedometer": ["getSpeed"],
+  "Create_Station": [
+    "assemble",
+    "disassemble",
+    "setAssemblyMode",
+    "isInAssemblyMode",
+    "getStationName",
+    "setStationName",
+    "isTrainPresent",
+    "isTrainImminent",
+    "isTrainEnroute",
+    "getTrainName",
+    "setTrainName",
+    "hasSchedule",
+    "getSchedule",
+    "setSchedule",
+    "canTrainReach",
+    "distanceTo"
+  ],
+  "Create_Sticker": [
+    "isExtended",
+    "isAttachedToBlock",
+    "extend",
+    "retract",
+    "toggle"
+  ],
+  "Create_StockTicker": [
+    "stock",
+    "getStockItemDetail",
+    "requestFiltered",
+    "list",
+    "getItemDetail"
+  ],
+  "Create_Stressometer": ["getStress", "getStressCapacity"],
+  "Create_TableClothShop": [
+    "isShop",
+    "getAddress",
+    "setAddress",
+    "getPriceTagItem",
+    "setPriceTagItem",
+    "getPriceTagCount",
+    "setPriceTagCount",
+    "getWares",
+    "setWares"
+  ],
+  "Create_TrainObserver": ["isTrainPassing", "getPassingTrainName"]
+}

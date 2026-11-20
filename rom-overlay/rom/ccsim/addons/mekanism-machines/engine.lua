@@ -18,7 +18,7 @@
 -- The clock: every 50 ms of os.epoch("utc") is a server tick. Everything is caught up tick by tick before a
 -- peripheral call runs (a main-thread task runs at the start of a tick, before block entities) or the state is read.
 return function(core, host)
-  local J = dofile("/rom/ccsim/mek/java.lua")()
+  local J = dofile("/rom/ccsim/mek/java.lua")(core.version and core.version.mc)
   local floor, min, max, huge = math.floor, math.min, math.max, math.huge
   local band, bxor, rshift = bit32.band, bit32.bxor, bit32.rshift
 
@@ -64,6 +64,34 @@ return function(core, host)
     if b == 0 or a > b then return 1 end
     return FL.divide(a, b)
   end
+  if J.V21 then
+    -- Mekanism 10.7 has no FloatingLong: energy is a long of joules. What is stored goes through
+    -- MathUtils.clampToLong (toward zero, Long.MAX_VALUE at most); the sums in between are doubles, and
+    -- divideToLevel is a plain double division. The methods whose return type became long are cut to whole joules
+    -- as they return (E.LONG_RETURNS).
+    local LONG_MAX = 9.2233720368547758e18
+    function FL.create(d)
+      if d ~= d or d <= 0 then return 0 end
+      if d >= LONG_MAX then return LONG_MAX end
+      return floor(d)
+    end
+    FL.LONG_MAX = LONG_MAX
+    FL.divide = function(a, b) return a / b end
+    FL.multiply = function(a, b) return a * b end
+    function FL.toLevel(a, b)
+      if b == 0 or a > b then return 1 end
+      return a / b
+    end
+  end
+  FL.MAX = J.V21 and FL.LONG_MAX or 1.8446744073709552e19
+  --- 10.7: the computer methods whose Java return type went from FloatingLong (10.4) to long, read from the two
+  --- jars' ComputerHandlers (docs/mekanism-versions.md).
+  E.LONG_RETURNS = J.V21 and {
+    getEnergy = true, getMaxEnergy = true, getEnergyNeeded = true, getEnergyUsage = true, getEnergyUsed = true,
+    getLastInput = true, getLastOutput = true, getTransferCap = true, getMinThreshold = true, getMaxThreshold = true,
+    getBuffer = true, getCapacity = true, getNeeded = true, getPassiveGeneration = true, getProductionRate = true,
+    getMaxOutput = true, getMaxProduction = true,
+  } or nil
 
   -- ===== config (MekanismConfig.general, MekanismGeneratorsConfig.generators; defaults = the pack's toml) =====
 
@@ -358,9 +386,10 @@ return function(core, host)
 
   local argContext = {
     filter = function() return nil end, knownItem = function() return true end,
-    convert = function(expected, value)
+    floatingLong = function(d) return FL.create(d) end,
+    convert = function(expected, value, index)
       local f = E.convert and E.convert[expected]
-      if f then return f(value) end
+      if f then return f(value, index) end
       return nil
     end,
   }
@@ -369,6 +398,11 @@ return function(core, host)
   local function bind(p)
     local spec = p.spec
     local bound, order = {}, {}
+    -- 10.4+: BoundMethodHolder registers help() and help(methodName) before anything else
+    if J.NEW then
+      bound.help = J.HELP
+      order[1] = "help"
+    end
     -- single blocks: the tile, then its components (upgrade, security, side config, ejector), each sorted
     local groups = spec.groups or { spec.tile }
     if not spec.groups and spec.multiblock and p.mb.formed and not p.mb.destroyed then groups[2] = spec.multiblock end
@@ -384,14 +418,25 @@ return function(core, host)
     -- the tables peripherals.lua holds stay the same; their contents change
     for k in pairs(p.methods) do p.methods[k] = nil end
     for i = #p.methodOrder, 1, -1 do p.methodOrder[i] = nil end
-    for i, name in ipairs(hashOrder(order)) do p.methodOrder[i] = name end
+    for i, name in ipairs(J.NEW and J.methodOrder(order) or hashOrder(order)) do p.methodOrder[i] = name end
     for name, m in pairs(bound) do
       p.methods[name] = function(...)
-        local args = J.checkArguments(name, m[1], table.pack(...), argContext)
+        local v = J.validate(name, m, table.pack(...), argContext)
         E.catchUp()
-        return m[2](p.ctx, table.unpack(args, 1, args.n))
+        local out = E.call(p, name, m, v)
+        return table.unpack(out, 1, out.n)
       end
     end
+  end
+
+  --- Run a bound method with what J.validate returned: its results, packed (a void method's none).
+  function E.call(p, name, m, validated)
+    local args, o = J.prepare(m, validated, argContext)
+    local out = table.pack(o[2](p.ctx, table.unpack(args, 1, args.n)))
+    if o.void then return { n = 0 } end
+    if out.n == 0 then out.n = 1 end -- a Java method with a return type returns one value, null included
+    if E.LONG_RETURNS and E.LONG_RETURNS[name] and type(out[1]) == "number" then out[1] = FL.create(out[1]) end
+    return out
   end
 
   local peripheralsByName = {}
@@ -409,16 +454,13 @@ return function(core, host)
     bind(p)
     function p.validate(name, args)
       local m = p.bound[name]
-      return J.checkArguments(name, m[1], args, argContext)
+      return J.validate(name, m, args, argContext)
     end
-    function p.run(name, args)
+    function p.run(name, validated)
       E.catchUp()
       local m = p.bound[name]
       if not m then error("No such method " .. name, 0) end
-      local out = table.pack(m[2](p.ctx, table.unpack(args, 1, args.n)))
-      if m.void then return { n = 0 } end
-      if out.n == 0 then out.n = 1 end -- a Java method with a return type returns one value, null included
-      return out
+      return E.call(p, name, m, validated)
     end
     function p.state()
       E.catchUp()
@@ -559,7 +601,7 @@ return function(core, host)
   loadKind("/rom/ccsim/addons/mekanism-machines/tanks.lua")
   loadKind("/rom/ccsim/addons/mekanism-machines/machines.lua")
   dofile("/rom/ccsim/addons/mekanism-machines/filters.lua")(E)
-  for _, f in ipairs({ "factories", "bins", "recipes", "dynamic", "evaporation", "sps", "miner", "misc", "transmitters" }) do
+  for _, f in ipairs({ "factories", "bins", "recipes", "dynamic", "evaporation", "sps", "miner", "misc", "transmitters", "added" }) do
     loadKind("/rom/ccsim/addons/mekanism-machines/" .. f .. ".lua")
   end
   if generatorsOn then

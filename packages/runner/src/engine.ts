@@ -474,8 +474,8 @@ export function startEngine(
     world,
     shared,
     economyDir,
-    computerSpaceLimit = COMPUTER_SPACE_LIMIT,
-    httpRules,
+    computerSpaceLimit = config.computerSpaceLimit ?? COMPUTER_SPACE_LIMIT,
+    httpRules = config.httpRules,
     debug,
   } = options;
   // no engine (a failed first run, an unbuilt clone): say so, instead of a spawn error later
@@ -560,6 +560,7 @@ export function startEngine(
     ...(size && { defaultWidth: size.width, defaultHeight: size.height }),
     ...(httpRules?.allow && { http_whitelist: httpRules.allow }),
     ...(httpRules?.deny && { http_blacklist: httpRules.deny }),
+    ...(config.httpEnable === false && { http_enable: false }),
   });
   writeFileSync(join(dir, "config", "global.json"), globalJson);
   // A normal turtle or computer has no colour (ServerComputer: family != NORMAL); an advanced one does

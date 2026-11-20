@@ -48,13 +48,25 @@ local function err(fn, ...)
 end
 `;
 
+/**
+ * This suite is the mod's 1.18.2 release, so a world without a version runs on 1.18.2 whatever the default is (the
+ * public default is 1.21.1). The later releases have their own suites (mekanism-versions, extreme-reactors "Versions").
+ */
+function on1182(world: WorldConfig): WorldConfig {
+  return { version: "1.18.2", ...world } as WorldConfig;
+}
+
 async function lua(
   source: string,
   world: WorldConfig,
   name: string,
 ): Promise<TestRunResult> {
   put(name, PRELUDE + source);
-  return runTests(config, { paths: [name], world, timeoutMs: 60000 }, 1);
+  return runTests(
+    config,
+    { paths: [name], world: on1182(world), timeoutMs: 60000 },
+    1,
+  );
 }
 
 function expectAllPassed(result: TestRunResult): void {
@@ -70,7 +82,7 @@ async function withSession(
   run: (step: (c: Dict) => Promise<SimState>) => Promise<void>,
 ): Promise<void> {
   const manager = new SessionManager(config);
-  const s = manager.create([], 1, w);
+  const s = manager.create([], 1, on1182(w));
   try {
     await s.handle.session.waitForText(">", 0, 20000);
     await run(async (c) => {
@@ -130,6 +142,8 @@ interface RefReactor {
   load: number;
   energyCap: number;
   efficiency: number;
+  /** 2.4.28 (1.21.1): the last-tick stats are set when they happen, never zeroed */
+  sticky?: boolean;
 }
 
 const AIR = [0.1, 0.25, 1.1, 0.05].map(f);
@@ -192,8 +206,10 @@ function refReactorTick(m: RefReactor): void {
   const Z = m.iz + 2;
   const vol = m.ix * m.iy * m.iz;
   const fuelRods = m.rods.length * m.iy;
-  m.produced = 0;
-  m.consumed = 0;
+  if (!m.sticky) {
+    m.produced = 0;
+    m.consumed = 0;
+  }
   if (m.active) {
     m.cursor = (m.cursor % fuelRods) + 1;
     const src = m.rods[(m.cursor - 1) % m.rods.length]!;
@@ -281,7 +297,7 @@ function refReactorTick(m: RefReactor): void {
       };
       m.fuelHeat = add(m.fuelHeat, fuelE / (fuelRods * 10));
       m.reactorHeat = add(m.reactorHeat, env / (vol * 10));
-      m.consumed = f(m.consumed + usage);
+      m.consumed = m.sticky ? usage : f(m.consumed + usage);
     }
   }
   const den = m.active ? f(20) : f(f(20) * f(200));
@@ -334,7 +350,7 @@ function refReactorTick(m: RefReactor): void {
         m.energyCap,
         m.energy + Math.floor(raw) + (Math.round(raw * 10000) % 10000) / 10000,
       );
-      m.produced += raw;
+      m.produced = m.sticky ? raw : m.produced + raw;
     } else {
       let left = e;
       if (e > 0 && m.liquid > 0) {
@@ -388,6 +404,8 @@ interface RefTurbine {
   produced: number;
   flow: number;
   bladeEff: number;
+  /** 2.4.28 (1.21.1): no resetStats at the start of the tick */
+  sticky?: boolean;
 }
 
 function refTurbine(
@@ -432,9 +450,11 @@ function refTurbine(
 /** TurbineLogic.update with steam supply "full" and water drained. */
 function refTurbineTick(m: RefTurbine): void {
   m.gas = m.cap;
-  m.produced = 0;
-  m.flow = 0;
-  m.bladeEff = f(1);
+  if (!m.sticky) {
+    m.produced = 0;
+    m.flow = 0;
+    m.bladeEff = f(1);
+  }
   let vapor = 0;
   if (m.active) vapor = Math.min(m.maxIntake, m.gas);
   if (vapor > 0 || m.rotor > 0) {
@@ -460,7 +480,7 @@ function refTurbineTick(m: RefTurbine): void {
       if (speed < 500) eff = Math.min(f(0.5), eff);
       const raw = f(en * eff);
       m.energy += Math.floor(raw) + (Math.round(raw * 10000) % 10000) / 10000;
-      m.produced += raw;
+      m.produced = m.sticky ? raw : m.produced + raw;
     }
     const delta = f(f(f(lift + f(-1 * ind)) + f(-1 * aero)) + f(-1 * m.fric));
     m.rotor = Math.max(0, f(m.rotor + delta));
@@ -542,6 +562,23 @@ const SOURCE = {
     "setVentOverflow",
     "setVentAll",
     "setInductorEngaged",
+  ],
+  // EnergizerComputerPeripheral, 1.20.1-2.0.97 and 1.21.1-2.4.28 (each energy getter also as "<name>AsText")
+  "BigReactors-Energizer": [
+    "getActive",
+    "setActive",
+    "getEnergyStored",
+    "getEnergyStoredAsText",
+    "getEnergyCapacity",
+    "getEnergyCapacityAsText",
+    "getEnergyIoLastTick",
+    "getEnergyIoLastTickAsText",
+    "getEnergyInsertedLastTick",
+    "getEnergyInsertedLastTickAsText",
+    "getEnergyExtractedLastTick",
+    "getEnergyExtractedLastTickAsText",
+    "getEnergyStats",
+    "getEnergyStatsAsText",
   ],
 } as const;
 const COMMON = [
@@ -972,185 +1009,201 @@ end)
 
 // ───────────── the simulation on the virtual clock ─────────────
 
-describe.skipIf(!ready)("Extreme Reactors simulation", () => {
-  it("a passively cooled reactor, tick for tick against the Java", async () => {
-    await withSession(
-      {
-        peripherals: [
-          {
-            name: "r",
-            type: "BigReactors-Reactor",
-            layout: ["X.X", ".G.", "X.X"],
-            dimensions: [5, 6, 5],
-            fuel: 12000,
-            active: true,
-            load: 40,
-          },
-        ],
-      },
-      async (step) => {
-        const ref = refReactor(
-          ["X.X", ".G.", "X.X"],
-          6,
-          { G: GRAPHITE },
-          {
-            fuel: 12000,
-            load: 40,
-            energyCap: 10000 * (150 - 36 + 16),
-          },
-        );
-        let done = 0;
-        for (const seconds of [0.05, 0.5, 3, 20, 60]) {
-          const st = await step({ cmd: "advance", seconds });
-          const n = gameTime(st);
-          while (done < n) {
-            refReactorTick(ref);
-            done++;
+// Each release on its own Minecraft version (docs/extreme-reactors.md "Versions"): 2.0.97 scales the energy buffer by
+// the variant's efficiency, 2.4.28 no longer zeroes the last-tick stats.
+for (const mc of ["1.18.2", "1.20.1", "1.21.1"] as const)
+  describe.skipIf(!ready)(`Extreme Reactors simulation on ${mc}`, () => {
+    const sticky = mc === "1.21.1";
+    it("a passively cooled reactor, tick for tick against the Java", async () => {
+      await withSession(
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "r",
+              type: "BigReactors-Reactor",
+              layout: ["X.X", ".G.", "X.X"],
+              dimensions: [5, 6, 5],
+              fuel: 12000,
+              active: true,
+              load: 40,
+            },
+          ],
+        },
+        async (step) => {
+          const ref = refReactor(
+            ["X.X", ".G.", "X.X"],
+            6,
+            { G: GRAPHITE },
+            {
+              fuel: 12000,
+              load: 40,
+              // MultiblockReactor.onMachineAssembled: from 2.0.97 times the basic variant's 0.8f
+              energyCap:
+                10000 * (150 - 36 + 16) * (mc === "1.18.2" ? 1 : f(0.8)),
+              sticky,
+            },
+          );
+          let done = 0;
+          for (const seconds of [0.05, 0.5, 3, 20, 60]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              refReactorTick(ref);
+              done++;
+            }
+            const s = machine(st, "r");
+            expect(s.fuel).toBe(ref.fuel);
+            expect(s.waste).toBe(ref.waste);
+            near(s.fertility, ref.fertility);
+            near(s.fuelHeat, ref.fuelHeat);
+            near(s.casingHeat, ref.reactorHeat);
+            near(s.fuelConsumedLastTick, ref.consumed);
+            near(s.producedLastTick, ref.produced);
+            expect(s.energy).toBeCloseTo(ref.energy, 3);
           }
-          const s = machine(st, "r");
-          expect(s.fuel).toBe(ref.fuel);
-          expect(s.waste).toBe(ref.waste);
-          near(s.fertility, ref.fertility);
-          near(s.fuelHeat, ref.fuelHeat);
-          near(s.casingHeat, ref.reactorHeat);
-          near(s.fuelConsumedLastTick, ref.consumed);
-          near(s.producedLastTick, ref.produced);
-          expect(s.energy).toBeCloseTo(ref.energy, 3);
-        }
-        const s = machine(await step({ cmd: "advance", seconds: 0 }), "r");
-        // the reactor warms up, burns fuel into waste and fills its buffer faster than the 40 FE/t load drains it
-        expect(s.fuelHeat as number).toBeGreaterThan(200);
-        expect(s.waste as number).toBeGreaterThan(0);
-        expect(s.fertility as number).toBeGreaterThan(1); // radiation reaches the other fuel rods
-        expect(s.energy as number).toBeGreaterThan(1000);
-      },
-    );
-  }, 180000);
+          const s = machine(await step({ cmd: "advance", seconds: 0 }), "r");
+          // the reactor warms up, burns fuel into waste and fills its buffer faster than the 40 FE/t load drains it
+          expect(s.fuelHeat as number).toBeGreaterThan(200);
+          expect(s.waste as number).toBeGreaterThan(0);
+          expect(s.fertility as number).toBeGreaterThan(1); // radiation reaches the other fuel rods
+          expect(s.energy as number).toBeGreaterThan(1000);
+        },
+      );
+    }, 180000);
 
-  it("an actively cooled reactor boils water into steam", async () => {
-    await withSession(
-      {
-        peripherals: [
-          {
-            name: "r",
-            type: "BigReactors-Reactor",
-            variant: "reinforced",
-            cooling: "active",
-            layout: ["X.X", ".W.", "X.X"],
-            dimensions: [5, 6, 5],
-            fuel: 16000,
-            active: true,
-          },
-        ],
-      },
-      async (step) => {
-        const ref = refReactor(
-          ["X.X", ".W.", "X.X"],
-          6,
-          { W: WATER },
-          {
-            fuel: 16000,
-            passive: false,
-            cap: (150 - 36) * 1000,
-          },
-        );
-        let done = 0;
-        for (const seconds of [1, 30, 60]) {
-          const st = await step({ cmd: "advance", seconds });
-          const n = gameTime(st);
-          while (done < n) {
-            refReactorTick(ref);
-            done++;
+    it("an actively cooled reactor boils water into steam", async () => {
+      await withSession(
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "r",
+              type: "BigReactors-Reactor",
+              variant: "reinforced",
+              cooling: "active",
+              layout: ["X.X", ".W.", "X.X"],
+              dimensions: [5, 6, 5],
+              fuel: 16000,
+              active: true,
+            },
+          ],
+        },
+        async (step) => {
+          const ref = refReactor(
+            ["X.X", ".W.", "X.X"],
+            6,
+            { W: WATER },
+            {
+              fuel: 16000,
+              passive: false,
+              cap: (150 - 36) * 1000,
+              sticky,
+            },
+          );
+          let done = 0;
+          for (const seconds of [1, 30, 60]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              refReactorTick(ref);
+              done++;
+            }
+            const s = machine(st, "r");
+            near(s.fuelHeat, ref.fuelHeat);
+            near(s.casingHeat, ref.reactorHeat);
+            near(s.producedLastTick, ref.produced);
+            expect(s.fuel).toBe(ref.fuel);
           }
-          const s = machine(st, "r");
-          near(s.fuelHeat, ref.fuelHeat);
-          near(s.casingHeat, ref.reactorHeat);
-          near(s.producedLastTick, ref.produced);
-          expect(s.fuel).toBe(ref.fuel);
-        }
-        const s = machine(await step({ cmd: "advance", seconds: 0 }), "r");
-        expect(s.producedLastTick as number).toBeGreaterThan(0); // mB of water boiled last tick
-        expect(s.casingHeat as number).toBeLessThan(200);
-        expect(s.energy).toBe(0); // active cooling makes no power
-      },
-    );
-  }, 180000);
+          const s = machine(await step({ cmd: "advance", seconds: 0 }), "r");
+          expect(s.producedLastTick as number).toBeGreaterThan(0); // mB of water boiled last tick
+          expect(s.casingHeat as number).toBeLessThan(200);
+          expect(s.energy).toBe(0); // active cooling makes no power
+        },
+      );
+    }, 180000);
 
-  it("a turbine spins up, tick for tick against the Java", async () => {
-    await withSession(
-      {
-        peripherals: [
-          {
-            name: "t",
-            type: "BigReactors-Turbine",
-            dimensions: [5, 8, 5],
-            blades: 40,
-            shafts: 6,
-            coils: { gold: 8 },
-            active: true,
-            inductor: true,
-          },
-        ],
-      },
-      async (step) => {
-        const ref = refTurbine(40, 6, 8, 10000);
-        let done = 0;
-        for (const seconds of [0.5, 10, 60, 120]) {
-          const st = await step({ cmd: "advance", seconds });
-          const n = gameTime(st);
-          while (done < n) {
-            refTurbineTick(ref);
-            done++;
+    it("a turbine spins up, tick for tick against the Java", async () => {
+      await withSession(
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "t",
+              type: "BigReactors-Turbine",
+              dimensions: [5, 8, 5],
+              blades: 40,
+              shafts: 6,
+              coils: { gold: 8 },
+              active: true,
+              inductor: true,
+            },
+          ],
+        },
+        async (step) => {
+          const ref = { ...refTurbine(40, 6, 8, 10000), sticky };
+          let done = 0;
+          for (const seconds of [0.5, 10, 60, 120]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              refTurbineTick(ref);
+              done++;
+            }
+            const s = machine(st, "t");
+            near(s.rotorEnergy, ref.rotor);
+            near(s.producedLastTick, ref.produced);
+            expect(s.flowLastTick).toBe(ref.flow);
+            near(s.bladeEfficiency, f(ref.bladeEff * 100));
+            expect(s.energy).toBeCloseTo(Math.min(ref.energy, 10000 * 192), 2);
           }
-          const s = machine(st, "t");
-          near(s.rotorEnergy, ref.rotor);
-          near(s.producedLastTick, ref.produced);
-          expect(s.flowLastTick).toBe(ref.flow);
-          near(s.bladeEfficiency, f(ref.bladeEff * 100));
-          expect(s.energy).toBeCloseTo(Math.min(ref.energy, 10000 * 192), 2);
-        }
-        const s = machine(await step({ cmd: "advance", seconds: 0 }), "t");
-        expect(s.rotorSpeed as number).toBeGreaterThan(300);
-        expect(s.producedLastTick as number).toBeGreaterThan(0);
-        expect(s.water).toBe(0); // drained
-      },
-    );
-  }, 180000);
+          const s = machine(await step({ cmd: "advance", seconds: 0 }), "t");
+          expect(s.rotorSpeed as number).toBeGreaterThan(300);
+          expect(s.producedLastTick as number).toBeGreaterThan(0);
+          expect(s.water).toBe(0); // drained
+        },
+      );
+    }, 180000);
 
-  it("too few blades cost efficiency; a closed vent stops the flow; world.extremeReactors.gameTime", async () => {
-    await withSession(
-      {
-        extremeReactors: { gameTime: 1000 },
-        peripherals: [
-          {
-            name: "t",
-            type: "BigReactors-Turbine",
-            blades: 4,
-            shafts: 5,
-            coils: { gold: 8 },
-            active: true,
-            vent: "none",
-            waterDrain: 0,
-          },
-        ],
-      } as WorldConfig,
-      async (step) => {
-        const first = await step({ cmd: "advance", seconds: 0.25 });
-        expect(gameTime(first)).toBeGreaterThanOrEqual(1005);
-        let s = machine(first, "t");
-        // 1000 mB/t needs 66 blades of 15 mB; 4 blades: lift drops to 4/66 + the rest at (1 - 62/66)
-        expect(s.bladeEfficiency as number).toBeLessThan(20);
-        expect(s.inductor).toBe(false);
-        const free = s.rotorSpeed as number;
-        // water is not drained and the vent is closed: the turbine stops taking steam once the water tank is full
-        s = machine(await step({ cmd: "advance", seconds: 5 }), "t");
-        expect(s.water).toBe(10000);
-        expect(s.flowLastTick).toBe(0);
-        expect(free).toBeGreaterThan(0);
-      },
-    );
-  }, 120000);
+    it("too few blades cost efficiency; a closed vent stops the flow; world.extremeReactors.gameTime", async () => {
+      await withSession(
+        {
+          version: mc,
+          extremeReactors: { gameTime: 1000 },
+          peripherals: [
+            {
+              name: "t",
+              type: "BigReactors-Turbine",
+              blades: 4,
+              shafts: 5,
+              coils: { gold: 8 },
+              active: true,
+              vent: "none",
+              waterDrain: 0,
+            },
+          ],
+        } as WorldConfig,
+        async (step) => {
+          const first = await step({ cmd: "advance", seconds: 0.25 });
+          expect(gameTime(first)).toBeGreaterThanOrEqual(1005);
+          let s = machine(first, "t");
+          // 1000 mB/t needs 66 blades of 15 mB; 4 blades: lift drops to 4/66 + the rest at (1 - 62/66)
+          expect(s.bladeEfficiency as number).toBeLessThan(20);
+          expect(s.inductor).toBe(false);
+          const free = s.rotorSpeed as number;
+          // water is not drained and the vent is closed: the turbine stops taking steam once the water tank is full
+          s = machine(await step({ cmd: "advance", seconds: 5 }), "t");
+          expect(s.water).toBe(10000);
+          // 2.4.28 keeps the last flow it had: a stopped turbine still reports what went through before
+          if (sticky) expect(s.flowLastTick as number).toBeGreaterThan(0);
+          else expect(s.flowLastTick).toBe(0);
+          expect(free).toBeGreaterThan(0);
+        },
+      );
+    }, 120000);
+  });
 
+describe.skipIf(!ready)("Extreme Reactors sim commands", () => {
   it("a reactor feeding a turbine, and the sim commands", async () => {
     await withSession(
       {
@@ -1277,3 +1330,237 @@ describe.skipIf(!ready)("Extreme Reactors simulation", () => {
     );
   }, 240000);
 });
+
+// ───────────── what differs between the releases (docs/extreme-reactors.md "Versions") ─────────────
+
+/** EnergizerVariant.CAPACITY_PER_BLOCK.multiply(cells).doubleValue(), with BigInt (WideAmount, unsigned longs). */
+function energizerCapacity(cells: number): number {
+  const MAX = (1n << 64n) - 1n;
+  const per = MAX / 27000n; // 683212743470724, decimal 1339 (WideAmount.divide rounds the 5th digit)
+  const v = BigInt(cells);
+  const int = per * v + (v * 1339n) / 10000n;
+  const dec = (v * 1339n) % 10000n;
+  // CodeHelper.mathUnsignedLongToDouble: (double)(value & Long.MAX_VALUE), + 2^63 when the top bit is set
+  const d =
+    int >= 1n << 63n ? Number(int & ((1n << 63n) - 1n)) + 2 ** 63 : Number(int);
+  return d + Number(dec) / 10000;
+}
+
+for (const mc of ["1.18.2", "1.20.1", "1.21.1"] as const)
+  describe.skipIf(!ready)(`Extreme Reactors computer ports on ${mc}`, () => {
+    const NEW = mc !== "1.18.2";
+    it("type getters, rod locations, buffers and moderators", async () => {
+      const peripherals: Dict[] = [
+        {
+          name: "r",
+          type: "BigReactors-Reactor",
+          variant: "reinforced",
+          layout: ["X.X", ".G.", "X.X"],
+          dimensions: [5, 6, 5],
+        },
+        {
+          name: "b",
+          type: "BigReactors-Reactor",
+          layout: ["X.X", ".G.", "X.X"],
+          dimensions: [5, 6, 5],
+        },
+        {
+          name: "hot",
+          type: "BigReactors-Reactor",
+          variant: "reinforced",
+          cooling: "active",
+          coolant: 5000,
+          steam: 100,
+          coolantSupply: 0,
+          steamDrain: 0,
+        },
+        { name: "t", type: "BigReactors-Turbine", variant: "reinforced" },
+      ];
+      if (NEW)
+        // ReactorGameData from 2.0.7x: Allthemodium and Thermal moderators; 1.21.1's c: tags
+        peripherals.push({
+          name: "atm",
+          type: "BigReactors-Reactor",
+          layout: ["XAX", "AVA", "XTX"],
+          legend: {
+            A: "c:storage_blocks/allthemodium",
+            V: "forge:storage_blocks/vibranium",
+            T: "thermal:redstone",
+          },
+        });
+      expectAllPassed(
+        await lua(
+          `
+local NEW = ${NEW}
+local r, b, hot, t = peripheral.wrap("r"), peripheral.wrap("b"), peripheral.wrap("hot"), peripheral.wrap("t")
+ccunit.test("getCoolantType / getHotFluidType", function()
+  if NEW then
+    -- the Optional itself: CC cannot convert it, so one nil whether the tank is full or empty
+    ccunit.eq(select("#", hot.getCoolantType()), 1)
+    ccunit.eq(hot.getCoolantType(), nil)
+    ccunit.eq(hot.getHotFluidType(), nil)
+    ccunit.eq(r.getCoolantType(), nil)
+  else
+    ccunit.eq(hot.getCoolantType(), "minecraft:water")
+    ccunit.eq(hot.getHotFluidType(), "bigreactors:steam")
+    ccunit.eq(r.getCoolantType(), "")
+  end
+end)
+ccunit.test("getControlRodLocation", function()
+  if NEW then
+    ccunit.eq(r.getControlRodLocation(0), { x = 1, y = 5, z = 1 })
+    ccunit.eq(r.getControlRodLocation(1), { x = 3, y = 5, z = 1 })
+    ccunit.eq(r.getControlRodLocation(3), { x = 3, y = 5, z = 3 })
+  else
+    ccunit.eq(r.getControlRodLocation(0), nil)
+  end
+  ccunit.eq(r.getControlRodLocation(-1), nil)
+  ccunit.eq(select("#", r.getControlRodLocation(-1)), 1)
+end)
+ccunit.test("energy buffers", function()
+  -- 130 parts; from 2.0.97 times the power multipliers and the variant's efficiency (basic 0.8f, reinforced 1)
+  ccunit.eq(r.getEnergyCapacity(), 30000 * 130)
+  ccunit.eq(b.getEnergyCapacity(), NEW and 1040000.0155 or 10000 * 130)
+  ccunit.eq(t.getEnergyCapacity(), 20000 * (5 * 7 * 5 - 3 * 5 * 3 + 5 + 8))
+end)
+if NEW then
+  ccunit.test("new moderators", function()
+    ccunit.eq(peripheral.wrap("atm").getNumberOfControlRods(), 4)
+  end)
+end
+ccunit.finish()
+`,
+          { version: mc, peripherals } as WorldConfig,
+          `er-versions-${mc}.test.lua`,
+        ),
+      );
+    }, 60000);
+
+    it("disassembly and the reinforced extraction limit (sim commands)", async () => {
+      await withSession(
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "big",
+              type: "BigReactors-Reactor",
+              variant: "reinforced",
+              dimensions: [7, 7, 7],
+              energy: 6000000,
+            },
+            {
+              name: "on",
+              type: "BigReactors-Reactor",
+              fuel: 1000,
+              active: true,
+            },
+          ],
+        } as WorldConfig,
+        async (step) => {
+          let st = await step({ cmd: "advance", seconds: 0 });
+          // 7x7x7: 218 casing parts + 5 fuel rods
+          expect(machine(st, "big").energyCapacity).toBe(30000 * 223);
+          st = await step({
+            cmd: "erDrainEnergy",
+            peripheral: "big",
+            amount: 6000000,
+          });
+          // ReactorVariant.Reinforced max extract: 5,000,000 on 2.0.71, 50,000,000 from 2.0.97
+          expect(machine(st, "big").energy).toBe(NEW ? 0 : 1000000);
+          st = await step({
+            cmd: "erSetAssembled",
+            peripheral: "on",
+            assembled: false,
+          });
+          // onMachineDisassembled no longer switches it off from 2.0.97
+          expect(machine(st, "on").active).toBe(NEW);
+        },
+      );
+    }, 60000);
+
+    if (NEW)
+      it("the Energizer", async () => {
+        const surfaceOrder = surface["BigReactors-Energizer"]!;
+        const cap27 = energizerCapacity(27);
+        expectAllPassed(
+          await lua(
+            `
+local order = { ${surfaceOrder.map((m) => JSON.stringify(m)).join(", ")} }
+local e, e2 = peripheral.wrap("e"), peripheral.wrap("e2")
+ccunit.test("type and methods", function()
+  ccunit.eq(peripheral.getType("e"), "BigReactors-Energizer")
+  ccunit.eq(peripheral.getMethods("e"), order)
+  ccunit.eq(e.mbGetMultiblockControllerTypeName(), "it.zerono.mods.extremereactors.gamecontent.multiblock.energizer.MultiBlockEnergizer")
+  ccunit.eq(e.mbIsAssembled(), true)
+  ccunit.eq(e.mbGetMinimumCoordinate(), { 10, 20, 30 })
+  ccunit.eq(e.mbGetMaximumCoordinate(), { 14, 24, 34 })
+  ccunit.eq(e.getVariant, nil)
+end)
+ccunit.test("capacity: MAX_VALUE / 27000 a cell", function()
+  ccunit.eq(e.getEnergyCapacity(), ${cap27})
+  ccunit.eq(e.getEnergyCapacityAsText(), "18.45 PFE")
+  ccunit.eq(e2.getEnergyCapacity(), ${energizerCapacity(1)})
+end)
+ccunit.test("off: nothing goes in or out", function()
+  ccunit.eq(e.getActive(), false)
+  sleep(0.5)
+  ccunit.eq(e.getEnergyStored(), 1000)
+  ccunit.eq(e.getEnergyInsertedLastTick(), 0)
+  ccunit.eq(e.getEnergyIoLastTickAsText(), "0.00 FE")
+end)
+ccunit.test("on: metered input and output", function()
+  ccunit.eq(e.setActive(true), nil)
+  ccunit.eq(e.getActive(), false) -- queued for the next server tick
+  sleep(0.5)
+  ccunit.eq(e.getActive(), true)
+  ccunit.eq(e.getEnergyInsertedLastTick(), 500)
+  ccunit.eq(e.getEnergyExtractedLastTick(), 200)
+  ccunit.eq(e.getEnergyIoLastTick(), 300)
+  ccunit.eq(e.getEnergyInsertedLastTickAsText(), "500.00 FE")
+  local s = e.getEnergyStats()
+  ccunit.eq(s.energyCapacity, ${cap27})
+  ccunit.eq(s.energyIoLastTick, 300)
+  ccunit.eq(s.energySystem, "FE")
+  ccunit.eq(e.getEnergyStatsAsText().energyExtractedLastTick, "200.00 FE")
+  ccunit.eq((e.getEnergyStored() - 1000) % 300, 0)
+  -- more out than in: the I/O rate is clamped at zero (WideAmount.subtract)
+  ccunit.eq(e2.getEnergyExtractedLastTick(), 300)
+  ccunit.eq(e2.getEnergyIoLastTick(), 0)
+end)
+ccunit.finish()
+`,
+            {
+              version: mc,
+              peripherals: [
+                {
+                  name: "e",
+                  type: "BigReactors-Energizer",
+                  dimensions: [5, 5, 5],
+                  energy: 1000,
+                  input: 500,
+                  load: 200,
+                  position: [10, 20, 30],
+                },
+                {
+                  name: "e2",
+                  type: "BigReactors-Energizer",
+                  energy: 50000,
+                  load: 300,
+                  active: true,
+                },
+              ],
+            } as WorldConfig,
+            `er-energizer-${mc}.test.lua`,
+          ),
+        );
+      }, 60000);
+    else
+      it("has no Energizer: a world with one is refused", () => {
+        expect(() =>
+          worldJson({
+            version: mc,
+            peripherals: [{ name: "e", type: "BigReactors-Energizer" }],
+          } as WorldConfig),
+        ).toThrow(/BigReactors-Energizer/);
+      });
+  });

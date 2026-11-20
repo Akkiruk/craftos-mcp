@@ -3,7 +3,14 @@
 // warnings (diagnostics.ts): goto on Lua 5.1, calls only the emulator has, peripherals of addons that are off.
 //
 // No vscode import: the unit tests load this file in plain Node.
-import { type PackData, ccFor, enabledAddons } from "./pack.ts";
+import {
+  type PackData,
+  ccFor,
+  enabledAddons,
+  reportedType,
+  typeExistsOn,
+  typeOwners,
+} from "./pack.ts";
 
 export type TokenKind = "name" | "string" | "number" | "op";
 
@@ -352,7 +359,9 @@ export interface Finding {
     | "shutdown-exit-code"
     | "craftos-pc-only"
     | "addon-off"
-    | "addon-no-release";
+    | "addon-no-release"
+    | "type-renamed"
+    | "type-not-on-version";
   message: string;
   /** 0-based, end exclusive. */
   start: { line: number; col: number };
@@ -432,6 +441,10 @@ export function scanLua(source: string, opts: ScanOptions): Finding[] {
     end: endOf(b, source),
   });
   const { on } = enabledAddons(opts.data, opts.addons, opts.mc);
+  // every string in the file: one that names a type's other name too asks for both (type-renamed)
+  const strings = new Set(
+    tokens.filter((t) => t.kind === "string").map((t) => t.value),
+  );
 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]!;
@@ -538,14 +551,46 @@ export function scanLua(source: string, opts: ScanOptions): Finding[] {
         }
       }
       if (arg?.kind !== "string") continue;
-      const owners = opts.data.addons.filter((a) =>
-        a.types.includes(arg.value),
+      const typed = typeOwners(opts.data, arg.value);
+      const live = typed.filter(
+        (o) => on.has(o.addon.id) && o.addon.versions[opts.mc] !== undefined,
       );
-      if (
-        owners.length === 0 ||
-        owners.some((a) => on.has(a.id) && a.versions[opts.mc] !== undefined)
-      )
+      if (live.length > 0) {
+        // the mod is on: is this what it calls the block on this Minecraft version (addons.ts byVersion)?
+        const there = live.filter((o) =>
+          typeExistsOn(o.addon, o.canonical, opts.mc),
+        );
+        if (
+          there.some(
+            (o) => reportedType(o.addon, o.canonical, opts.mc) === arg.value,
+          )
+        )
+          continue;
+        if (there.length === 0) {
+          const { addon, canonical } = live[0]!;
+          const note = Object.values(addon.byVersion ?? {})
+            .map((c) => c.note?.[canonical])
+            .find((n) => n !== undefined);
+          findings.push({
+            code: "type-not-on-version",
+            message: `"${arg.value}" is a peripheral ${addon.name} ${addon.versions[opts.mc]} does not have on Minecraft ${opts.mc}${note ? ` (${note})` : ""}: peripheral.${field.value} never finds one there.`,
+            ...span(arg, arg),
+          });
+          continue;
+        }
+        const { addon, canonical } = there[0]!;
+        const name = reportedType(addon, canonical, opts.mc);
+        // a program that asks for both names runs on every version
+        if (strings.has(name)) continue;
+        findings.push({
+          code: "type-renamed",
+          message: `On Minecraft ${opts.mc}, ${addon.name} ${addon.versions[opts.mc]} reports this peripheral as "${name}", not "${arg.value}": peripheral.${field.value}("${arg.value}") never finds one there. Use "${name}", or try both for a program that runs on several versions.`,
+          ...span(arg, arg),
+        });
         continue;
+      }
+      const owners = typed.map((o) => o.addon);
+      if (owners.length === 0) continue;
       const released = owners.find((a) => a.versions[opts.mc] !== undefined);
       if (released)
         findings.push({

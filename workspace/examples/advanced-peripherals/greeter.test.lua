@@ -2,7 +2,8 @@
 -- (greeter.world.json). Players walk in and out with sim commands; a wrapper around the chat box
 -- records what the greeter says to whom.
 
-local realChat = peripheral.find("chatBox")
+-- chat_box from Minecraft 1.21.1 on
+local realChat = peripheral.find("chatBox") or peripheral.find("chat_box")
 local said = {} -- { to = "Alice", text = "..." }
 local chat = setmetatable({}, {
   __index = function(_, name)
@@ -17,7 +18,7 @@ local chat = setmetatable({}, {
 })
 local find = peripheral.find
 peripheral.find = function(kind, ...)
-  if kind == "chatBox" then return chat end
+  if kind == "chatBox" or kind == "chat_box" then return chat end
   return find(kind, ...)
 end
 

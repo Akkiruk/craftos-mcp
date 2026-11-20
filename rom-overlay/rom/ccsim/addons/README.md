@@ -16,6 +16,40 @@ MCP server; see `packages/runner/src/addons.ts`). A module is a folder here, lis
 The same types must be listed in `ADDONS` in `packages/runner/src/addons.ts`, which refuses a world that uses a
 type of an addon that is off before the computer boots.
 
+## Types by Minecraft version (`byVersion`)
+
+A mod can rename, drop or add peripheral types from one Minecraft version to the next (Advanced Peripherals reports
+`player_detector` on 1.21.1 where 1.18.2 says `playerDetector`). `types.lua` says so with an optional `byVersion`,
+and the addon's `ADDONS` entry has the same data as `byVersion` (`AddonInfo.byVersion`, `AddonTypeChanges`):
+
+```lua
+return {
+  addon = "advanced-peripherals",
+  types = { "playerDetector", "redstoneIntegrator", "newBlock" }, -- canonical (1.18.2) names, plus every `added` type
+  byVersion = {
+    ["1.21.1"] = {
+      rename = { playerDetector = "player_detector" },        -- canonical -> what the mod reports there
+      removed = { "redstoneIntegrator" },                     -- canonical types it does not have there
+      added = { "newBlock" },                                 -- types only the versions listing them have
+      note = { redstoneIntegrator = "replaced by CC:Tweaked's redstone_relay" }, -- why, for the refusal
+    },
+  },
+}
+```
+
+- The canonical name is the one in `types`. Every name in `byVersion` is canonical except `rename`'s values (and
+  `added`, which are listed in `types` too).
+- `rename`: a world may name the block by either name. The sim maps it to the canonical name first, so the module is
+  loaded and called with `def.type` canonical (`def.reportedType` is what the version reports). `peripheral.getType`,
+  `hasType` and `find` then give the version's name: `p.types` unset is `{ reportedType }`; set, its canonical entry is
+  replaced and the rest (`"inventory"`, ...) kept. A block on a cable with no name is called `<reported>_<n>`.
+- `removed` / `added`: a world using a type where the version does not have it is refused before boot by the runner
+  (naming the version and the `note`), and the Lua side refuses it too (`../typenames.lua`).
+- An addon with several modules can put its `byVersion` in any of them: they are merged. Advanced Peripherals is not a
+  module here; its `byVersion` goes in `../ap/types.lua`.
+- `packages/runner/src/type-versions.integration.test.ts` checks that every `byVersion` here equals the one in
+  `ADDONS`.
+
 ## A mod whose computer is a mob
 
 An android or a drone is not a peripheral: the computer itself is the mob, the way a world's `turtle` makes it a
@@ -57,7 +91,8 @@ world switches it on with that key (`{}` is enough), and the module loads at boo
 - `methods`: name to function. Errors are thrown as `error(message, 0)` (a Java LuaException).
 - `methodOrder`: peripheral.getMethods order, when the mod's order is known (CC's HashMap order, see
   `../mek/qio.lua`). Otherwise names are sorted.
-- `types`: what peripheral.getType returns, default `{ def.type }`. Add `"inventory"`, `"fluid_storage"` or
+- `types`: what peripheral.getType returns, default `{ def.type }` (the sim then puts the version's name for the
+  canonical one, `byVersion` above: list the canonical name here, never `def.reportedType`). Add `"inventory"`, `"fluid_storage"` or
   `"energy_storage"` when the block also has CC's generic peripherals, and set `p.inventory` / `p.tank` so
   pushItems/pullItems and pushFluid/pullFluid of other blocks can reach it.
 - `computerThread`: methods that run at once on the computer thread. Every other method waits for the next server

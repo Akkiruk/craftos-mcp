@@ -1,4 +1,4 @@
-# Tom's Peripherals 1.18.2-1.2.1
+# Tom's Peripherals 1.18.2-1.2.1, 1.20.1-1.3.1, 1.21.1-1.3.1
 
 Addon id `toms-peripherals`. Lua in `rom-overlay/rom/ccsim/addons/toms-peripherals/`. Tests in
 `packages/runner/src/toms-peripherals.integration.test.ts`. Demo world: `worlds/toms-peripherals-demo.json`.
@@ -17,6 +17,55 @@ The GPU's fonts (`fonts.lua`) are generated from the mod's jar, not shipped in t
 `node scripts/build-toms-fonts.mjs` (pinned jar from Modrinth, sha512 checked; `--jar <path>` for a local one).
 `scripts/build-rom.mjs` runs it when the file is missing. Without it every GPU call fails with
 `Tom's Peripherals fonts missing: run node scripts/build-toms-fonts.mjs`; the other blocks still work.
+
+Written from 1.18.2-1.2.1; the 1.20.1 and 1.21.1 releases have the same Lua side (see Versions), so the emulator
+acts as each version's own release.
+
+## Versions
+
+| Minecraft | jar (Modrinth, sha512 checked)                   | loader   | CC:Tweaked in the emulator |
+| --------- | ------------------------------------------------ | -------- | -------------------------- |
+| 1.18.2    | `toms-peripherals-1.18.2-1.2.1.jar` (2024-04-15) | Forge    | 1.101.3                    |
+| 1.20.1    | `toms-peripherals-1.20.1-1.3.1.jar` (2026-05-17) | Forge    | 1.121.0                    |
+| 1.21.1    | `toms-peripherals-1.21-1.3.1.jar` (2026-05-17)   | NeoForge | 1.121.0                    |
+
+How they were compared: every class of each jar through `javap -p -c -v` (JDK 25), then (a) the class files'
+bytes, (b) every constant-pool string per class, (c) per method the opcode sequence with operands dropped, after
+taking out constant-pool numbers, branch offsets, `ldc_w`/`ldc` and Minecraft's names (SRG `m_*_`/`f_*_` on 1.18.2
+and 1.20.1, Mojang names on 1.21.1). The mod's GitHub repository has no release tags, so the jars are the source here.
+
+Result: **no Lua-visible change.** Peripheral types (`tm_gpu`, `tm_keyboard`, `tm_rsPort`, `tm_wdt`), every method
+name and order (`listMethods`), every argument check and error string, every event (`tm_monitor_touch`,
+`tm_monitor_<mouse event>`, `tm_keyboard_<event>`, `tm_redstone`, `portable_connect`/`portable_disconnect`), the
+fonts and the GPU/GPU3D/image code are the same on all three. In detail:
+
+- 1.18.2 -> 1.20.1: all of `gpu/*`, `api/*`, `math/*`, `util/*` (except two) and the peripheral wrappers are
+  byte-identical class files. Changed, none of it reachable from Lua:
+  - `util/Image.draw(Image, x, y, w, h)` (a scaled copy) now uses integer maths; nothing calls it.
+  - `KeyboardBlockEntity.menuStillValid`: the keyboard screen stays open while the player is within 16 blocks (64 for a
+    dongle), now measured from the player's exact position to the block's centre instead of the player's block
+    (changelog 1.3.1: "Fix keyboard distance check").
+  - New: Jade and The One Probe tooltips for CC's wired modems and for the watchdog (`jade/*`, `util/InfoUtil`, lang
+    keys); `CCComputer$TMLuaObject` renamed `CCComputer$Obj` (same code); Minecraft 1.20 API names.
+  - Changelog 1.3.0 "Fixed GPU drawText not working on fabric" is Fabric only.
+- 1.20.1 -> 1.21.1: every class recompiled (Java 21) for NeoForge; after the normalising above the only differences
+  are Minecraft/NeoForge API calls (capabilities, `loadAdditional`/`saveAdditional`, data components), one exception
+  table offset in `BaseGPU`, and `invokeinterface` for `hashCode`/`equals`. Not reachable from Lua:
+  - the Portable Keyboard keeps its binding in data components (`bound_pos`, `in_use`) instead of NBT
+    (`BindX/BindY/BindZ`, `inUse`);
+  - a new shapeless recipe turns a Redstone Port into CC:Tweaked's own `computercraft:redstone_relay` (changelog:
+    "Changed Redstone port recipe on 1.21").
+
+What does differ is CC:Tweaked's, not the mod's: `peripheral.getMethods` lists the keys of the map CC fills from the
+mod's `getMethodNames`. 1.101.3 (`PeripheralAPI.getMethods`) makes it `new HashMap(n)`; 1.121.0
+(`MethodSupplier.getSelfMethods`) `new HashMap()`, which ends with a different bucket count for some sizes. Checked
+by filling the JDK's own `HashMap` both ways: `tm_gpu` (33 names), `tm_rsPort` (15) and `tm_keyboard` (1) come out
+the same; `tm_wdt` (6) is `setEnabled reset listMethods setTimeout getTimeout isEnabled` on 1.18.2 and the mod's own
+`setEnabled setTimeout getTimeout isEnabled reset listMethods` on 1.20.1 and 1.21.1. The emulator follows that
+(`core.cc121`). `Java Exception Thrown: ...` is CC's wording on both CC versions.
+
+Not simulated: the keyboard screen's distance check (the emulator has no player near a keyboard), the tooltips, the
+recipe, the item's data.
 
 ## Peripherals
 

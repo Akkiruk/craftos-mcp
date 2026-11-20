@@ -28,6 +28,7 @@ import {
   DEFAULT_MC,
   VERSIONS,
   addonReport,
+  versionTypeNotes,
   resolveVersion,
   romDirFor,
   versionReport,
@@ -386,7 +387,8 @@ const peripheralSchema = z
     type: z
       .string()
       .describe(
-        'Virtual: inventories ("minecraft:chest", "minecraft:barrel"), "fluid_storage", "energy_storage", and any block of your own name with a mix of CC:Tweaked\'s generic peripherals (type e.g. "thermal:machine_furnace"; it gets the types inventory, energy_storage and fluid_storage as its fields ask, in CC\'s order, with every method of each): size/items (inventory), tanks [{name (the fluid), amount, capacity?, rate? (mB per tick, minus drains)}] or fluid {name, amount} with capacity (fluid_storage), energy, energyCapacity, energyRate (FE per tick, minus drains; energy_storage); rates run on the virtual clock; see docs/generic-storage.md. Also Advanced Peripherals types playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController. "speaker" is a recording fake (headless has no audio): playSound/playNote calls land in sim state under peripherals.<name>.sounds, and notes are capped at 8 per tick like the real speaker. "printer" is CC:Tweaked\'s printer: ink (black dye) and paper counts, or items in its 13 slots (1 a dye, 2-7 paper, 8-13 the printed pages); pages printed land in sim state under peripherals.<name>.printed. "modem" behaves like the real game: kind "wireless" (default), "ender" or "wired" (with network, block, on, localName); see craftos_network_create. Engine-emulated: "drive". Extra fixture fields (fluids, energy, cells, cpus, patterns, inputs, ...) are passed through; see docs/advanced-peripherals.md.',
+        'Virtual: inventories ("minecraft:chest", "minecraft:barrel"), "fluid_storage", "energy_storage", and any block of your own name with a mix of CC:Tweaked\'s generic peripherals (type e.g. "thermal:machine_furnace"; it gets the types inventory, energy_storage and fluid_storage as its fields ask, in CC\'s order, with every method of each): size/items (inventory), tanks [{name (the fluid), amount, capacity?, rate? (mB per tick, minus drains)}] or fluid {name, amount} with capacity (fluid_storage), energy, energyCapacity, energyRate (FE per tick, minus drains; energy_storage); rates run on the virtual clock; see docs/generic-storage.md. Also Advanced Peripherals types playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage, environmentDetector, meBridge, rsBridge, arController. "speaker" is a recording fake (headless has no audio): playSound/playNote calls land in sim state under peripherals.<name>.sounds, and notes are capped at 8 per tick like the real speaker. "printer" is CC:Tweaked\'s printer: ink (black dye) and paper counts, or items in its 13 slots (1 a dye, 2-7 paper, 8-13 the printed pages); pages printed land in sim state under peripherals.<name>.printed. "modem" behaves like the real game: kind "wireless" (default), "ender" or "wired" (with network, block, on, localName); see craftos_network_create. Engine-emulated: "drive". Extra fixture fields (fluids, energy, cells, cpus, patterns, inputs, ...) are passed through; see docs/advanced-peripherals.md.' +
+          (versionTypeNotes() ? ` ${versionTypeNotes()}` : ""),
       ),
     size: z.number().int().min(1).optional().describe("Inventory slot count."),
     items: z

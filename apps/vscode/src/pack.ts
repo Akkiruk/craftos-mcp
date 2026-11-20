@@ -9,12 +9,66 @@ export interface PackAddon {
   name: string;
   /** Minecraft version -> mod version; a version missing here has no release of the mod. */
   versions: Record<string, string>;
-  /** Peripheral types it adds. */
+  /** Peripheral types it adds, by canonical (1.18.2) name, and every type a version adds. */
   types: string[];
+  /** Minecraft version -> how its types differ there (addons.ts AddonInfo.byVersion). */
+  byVersion?: Record<string, PackTypeChanges>;
   /** Addons it needs switched on too. */
   requires: string[];
   /** Off unless named: "all" and the default leave it out (vhcctweaks). */
   optIn?: boolean;
+}
+
+/** addons.ts AddonTypeChanges: canonical type -> the version's name, types gone there, types only there. */
+export interface PackTypeChanges {
+  rename?: Record<string, string>;
+  removed?: string[];
+  added?: string[];
+  note?: Record<string, string>;
+}
+
+/** The addons a type belongs to by either of its names (addons.ts ownersOfType), each with the canonical name. */
+export function typeOwners(
+  data: PackData,
+  type: string,
+): { addon: PackAddon; canonical: string }[] {
+  const out: { addon: PackAddon; canonical: string }[] = [];
+  for (const addon of data.addons) {
+    if (addon.types.includes(type)) {
+      out.push({ addon, canonical: type });
+      continue;
+    }
+    const renamed = Object.values(addon.byVersion ?? {})
+      .flatMap((c) => Object.entries(c.rename ?? {}))
+      .find(
+        ([canonical, name]) => name === type && addon.types.includes(canonical),
+      );
+    if (renamed) out.push({ addon, canonical: renamed[0] });
+  }
+  return out;
+}
+
+/** What the mod reports a canonical type as on `mc` (addons.ts reportedTypeOf). */
+export function reportedType(
+  addon: PackAddon,
+  canonical: string,
+  mc: string,
+): string {
+  return addon.byVersion?.[mc]?.rename?.[canonical] ?? canonical;
+}
+
+/** Whether a canonical type exists on `mc` (addons.ts typeExistsOn): not removed there, added there if added at all. */
+export function typeExistsOn(
+  addon: PackAddon,
+  canonical: string,
+  mc: string,
+): boolean {
+  const by = addon.byVersion ?? {};
+  if (by[mc]?.removed?.includes(canonical)) return false;
+  const addedOn = Object.keys(by).filter((v) =>
+    by[v]!.added?.includes(canonical),
+  );
+  return addedOn.length === 0 || addedOn.includes(mc);
 }
 
 export interface PackData {

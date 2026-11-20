@@ -1675,6 +1675,120 @@ print("printed lines")
   }, 60000);
 });
 
+// ───────────── what changed between 0.5.1.i and 6.0, on each version ─────────────
+// (create6.integration.test.ts has the 6.0 blocks and the 6.0 side of each change in depth)
+
+describe.skipIf(!ready)("Create per Minecraft version", () => {
+  for (const mc of ["1.18.2", "1.20.1", "1.21.1"] as const) {
+    const V6 = mc !== "1.18.2";
+    it(`${mc}: methods, events, setSchedule checks, package instructions (Create ${V6 ? (mc === "1.20.1" ? "6.0.8" : "6.0.10") : "0.5.1.i"})`, async () => {
+      const result = await lua(
+        `
+local V6, V21 = ${V6}, ${mc === "1.21.1"}
+local s, l = peripheral.wrap("station"), peripheral.wrap("link")
+ccunit.test("the methods 6.0 added", function()
+  ccunit.eq(s.canTrainReach ~= nil, V6)
+  ccunit.eq(s.distanceTo ~= nil, V6)
+  ccunit.eq(l.writeBytes ~= nil, V6)
+  ccunit.eq(#peripheral.getMethods("station"), V6 and 16 or 14)
+end)
+
+ccunit.test("gauges send events only on 6.0", function()
+  peripheral.call("ctl", "setTargetSpeed", 48)
+  local got = {}
+  local timer = os.startTimer(0.5)
+  while true do
+    local ev = { os.pullEvent() }
+    if ev[1] == "timer" and ev[2] == timer then break end
+    if ev[1] == "speed_change" then got[#got + 1] = ev end
+  end
+  ccunit.eq(got, V6 and { { "speed_change", "outspeedo", 48 } } or {})
+end)
+
+ccunit.test("setSchedule: which check comes first", function()
+  ccunit.eq(err(peripheral.call, "nobody", "setSchedule", "x"),
+    V6 and "there is no train present" or "bad argument #1 (table expected, got string)")
+  ccunit.eq(err(s.setSchedule, { entries = {}, cyclic = true, x = 1 }),
+    V6 and "Schedule must have at least one entry" or "Not a valid schedule")
+end)
+
+ccunit.test("getSize after a restart", function()
+  if V6 then
+    ccunit.eq({ peripheral.call("restarted", "getSize") }, { 4, 15 })
+  else
+    ccunit.truthy(err(peripheral.call, "restarted", "getSize"):find("NullPointerException", 1, true))
+  end
+end)
+
+ccunit.test("setCursorPos below 1", function()
+  if V21 then
+    ccunit.eq(err(l.setCursorPos, 0, 1), "cursor position must be larger then 0")
+  else
+    l.setCursorPos(0, 1)
+    ccunit.eq({ l.getCursorPos() }, { 0, 1 })
+  end
+end)
+
+ccunit.test("a package delivery entry: 6.0 knows it, 0.5.1 reads it as a destination", function()
+  s.setSchedule({ cyclic = false, entries = {
+    { instruction = { id = "create:package_delivery", data = {} }, conditions = {} },
+  } })
+  ccunit.eq(s.getSchedule().entries[1].instruction.id, V6 and "create:package_delivery" or "create:destination")
+end)
+`,
+        {
+          version: mc,
+          create: {
+            networks: {
+              main: { speed: 64, capacity: 4096 },
+              controlled: { source: "ctl" },
+            },
+            trains: [{ name: "Express", at: "Central" }],
+          },
+          peripherals: [
+            { name: "station", type: "Create_Station", station: "Central" },
+            { name: "nobody", type: "Create_Station", station: "Empty" },
+            { name: "link", type: "Create_DisplayLink", target: "sign" },
+            {
+              name: "restarted",
+              type: "Create_DisplayLink",
+              target: "sign",
+              restarted: true,
+            },
+            {
+              name: "ctl",
+              type: "Create_RotationSpeedController",
+              network: "main",
+            },
+            {
+              name: "outspeedo",
+              type: "Create_Speedometer",
+              network: "controlled",
+            },
+          ],
+        } as unknown as WorldConfig,
+        `versions-${mc}.test.lua`,
+      );
+      expectAllPassed(result);
+    }, 60000);
+  }
+
+  it("1.18.2 refuses the blocks Create 6.0 added", async () => {
+    await expect(
+      lua(
+        `ccunit.test("x", function() end)`,
+        {
+          version: "1.18.2",
+          peripherals: [{ name: "m", type: "Create_CreativeMotor" }],
+        } as unknown as WorldConfig,
+        "refuse6.test.lua",
+      ),
+    ).rejects.toThrow(
+      /Create 0\.5\.1\.i has no Create_CreativeMotor on Minecraft 1\.18\.2; it has one on 1\.20\.1 as Create_CreativeMotor, 1\.21\.1 as Create_CreativeMotor/,
+    );
+  }, 60000);
+});
+
 // ───────────── addons off, demo world ─────────────
 
 describe.skipIf(!ready)("Create addons switched off", () => {

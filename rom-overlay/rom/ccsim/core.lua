@@ -137,6 +137,9 @@ local function addPlayer(def)
     yaw = def.yaw or 0, pitch = def.pitch or 0,
     dimension = def.dimension or "minecraft:overworld",
     health = def.health or 20, maxHealth = def.maxHealth or 20,
+    -- Advanced Peripherals 0.7.48r+ getPlayerPos: air, respawn point; 0.7.62b may hide spectators
+    airSupply = def.airSupply, respawnPosition = def.respawnPosition, respawnDimension = def.respawnDimension,
+    respawnAngle = def.respawnAngle, gamemode = def.gamemode,
     vaultLevel = def.vaultLevel, -- Vault Hunters level (2.2.36 getPlayerVaultLevel); nil: no vault data
     equipment = def.equipment,   -- worn and held items (2.2.36 getPlayerEquipment)
     -- 2.2.37: what Vault Hunters knows about the player (ccsim/vhcc237.lua)
@@ -683,6 +686,8 @@ function M.saveNow()
     ledger = econ and M.ledger or nil,
     rejections = econ and M.rejections or nil,
     chat = M.chat,
+    -- world peripherals that failed to build at boot and were left out (peripherals.lua)
+    peripheralErrors = M.peripheralErrors and #M.peripheralErrors > 0 and M.peripheralErrors or nil,
     host = owner and owner.name or nil,
     interacting = M.interaction and M.byUuid[M.interaction.uuid] and M.byUuid[M.interaction.uuid].name or nil,
     authenticated = econ and (function()
@@ -804,18 +809,45 @@ function handlers.crashServer(cmd)
   return true
 end
 
+--- The names this computer knows its player detectors by, sorted.
+function M.playerDetectorNames()
+  local out = {}
+  for name, entry in pairs(M.peripherals) do
+    for _, t in ipairs(entry.types or {}) do
+      if t == "playerDetector" or (M.typeNames and M.typeNames.canonical(t) == "playerDetector") then
+        out[#out + 1] = name
+        break
+      end
+    end
+  end
+  table.sort(out)
+  return out
+end
+
+--- Advanced Peripherals 0.7.48r on (PlayerDetectorEntity): playerJoin / playerLeave (player, dimension) and
+--- playerChangedDimension (player, from, to) reach every computer with a player detector. 1.18.2's 0.7.31r has none.
+function M.playerEvent(event, name, from, to)
+  if M.version.mc == "1.18.2" or not M.addonOn or not M.addonOn("advanced-peripherals") then return end
+  if #M.playerDetectorNames() == 0 then return end
+  if event == "playerChangedDimension" then os.queueEvent(event, name, from, to) else os.queueEvent(event, name, from) end
+end
+
 function handlers.join(cmd)
   local p = M.findPlayer(cmd.player)
   if not p then return false, "unknown player" end
+  local was = p.online
   p.online = true
   p.onOtherServer = nil -- joining here takes them off any other server of the network
+  if not was then M.playerEvent("playerJoin", p.name, p.dimension, "") end
   return true
 end
 
 function handlers.leave(cmd)
   local p = M.findPlayer(cmd.player)
   if not p then return false, "unknown player" end
+  local was = p.online
   p.online = false
+  if was then M.playerEvent("playerLeave", p.name, p.dimension, "") end
   -- logging out clears that player's auth state and pending nonces
   M.sessions[p.uuid] = nil
   for nonce, pending in pairs(M.pending) do
@@ -847,9 +879,11 @@ end
 function handlers.setPlayerPos(cmd)
   local p = M.findPlayer(cmd.player)
   if not p then return false, "unknown player" end
+  local from = p.dimension
   for _, key in ipairs({ "x", "y", "z", "yaw", "pitch", "dimension" }) do
     if cmd[key] ~= nil then p[key] = cmd[key] end
   end
+  if p.online and p.dimension ~= from then M.playerEvent("playerChangedDimension", p.name, from, p.dimension) end
   return true
 end
 
@@ -890,6 +924,12 @@ function handlers.chat(cmd)
     message, hidden = (message:gsub("%$", "")), true
   end
   if M.hasPeripheralType and not M.hasPeripheralType("chatBox") then return true end
+  if M.version.mc ~= "1.18.2" then
+    -- 0.7.48r on: a fifth argument, the message as UTF-8 bytes (StringUtil.utf8ToByteString). The sim's strings
+    -- already are those bytes.
+    os.queueEvent("chat", p.name, message, p.uuid, hidden, message)
+    return true
+  end
   os.queueEvent("chat", p.name, message, p.uuid, hidden)
   return true
 end
@@ -898,7 +938,18 @@ function handlers.playerClick(cmd)
   local p = M.findPlayer(cmd.player)
   if not p then return false, "unknown player" end
   -- PlayerDetectorBlock fires playerClick with just the player name, to detectors only
-  if not M.hasPeripheralType or M.hasPeripheralType("playerDetector") then os.queueEvent("playerClick", p.name) end
+  if M.version.mc == "1.18.2" then
+    if not M.hasPeripheralType or M.hasPeripheralType("playerDetector") then os.queueEvent("playerClick", p.name) end
+    return true
+  end
+  -- 0.7.48r on: and the name this computer knows the clicked detector by (cmd.peripheral, else the first by name)
+  local detectors = M.playerDetectorNames()
+  local which = cmd.peripheral or detectors[1]
+  if which == nil then return true end
+  local known = false
+  for _, n in ipairs(detectors) do if n == which then known = true end end
+  if not known then return false, "no player detector " .. tostring(which) end
+  os.queueEvent("playerClick", p.name, which)
   return true
 end
 

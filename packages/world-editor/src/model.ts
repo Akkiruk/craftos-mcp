@@ -12,6 +12,18 @@ export interface AddonInfo {
   readonly name: string;
   readonly versions: Readonly<Record<string, string>>;
   readonly types: readonly string[];
+  /** Minecraft version -> how its types differ there (addons.ts AddonTypeChanges). */
+  readonly byVersion?: Readonly<
+    Record<
+      string,
+      {
+        readonly rename?: Readonly<Record<string, string>>;
+        readonly removed?: readonly string[];
+        readonly added?: readonly string[];
+        readonly note?: Readonly<Record<string, string>>;
+      }
+    >
+  >;
   readonly worldKeys?: readonly string[];
   readonly requires?: readonly string[];
   readonly docs?: string;
@@ -213,11 +225,45 @@ export function addonsOn(
   return new Set(list);
 }
 
+/** The canonical name (in `types`) of a type in an addon: itself, or the one some version renames to it. */
+export function canonicalTypeOf(
+  addon: AddonInfo,
+  type: string,
+): string | undefined {
+  if (addon.types.includes(type)) return type;
+  for (const changes of Object.values(addon.byVersion ?? {}))
+    for (const [canonical, renamed] of Object.entries(changes.rename ?? {}))
+      if (renamed === type && addon.types.includes(canonical)) return canonical;
+  return undefined;
+}
+
+/** The addon a type belongs to, by its canonical name or any version's rename (addons.ts addonOfType). */
 export function addonOfType(
   catalog: AddonCatalog,
   type: string,
 ): AddonInfo | undefined {
-  return catalog.addons.find((a) => a.types.includes(type));
+  return catalog.addons.find((a) => canonicalTypeOf(a, type) !== undefined);
+}
+
+/** Why a type of an addon does not exist on `mc` (addons.ts typeAbsence, shorter), or undefined when it does. */
+function typeMissingOn(
+  addon: AddonInfo,
+  type: string,
+  mc: string,
+): string | undefined {
+  const canonical = canonicalTypeOf(addon, type);
+  if (canonical === undefined) return undefined;
+  const by = addon.byVersion ?? {};
+  const addedOn = Object.keys(by).filter((v) =>
+    by[v]!.added?.includes(canonical),
+  );
+  const removed = by[mc]?.removed?.includes(canonical) ?? false;
+  if (!removed && (addedOn.length === 0 || addedOn.includes(mc)))
+    return undefined;
+  const note = Object.values(by)
+    .map((c) => c.note?.[canonical])
+    .find((n) => n !== undefined);
+  return `${addon.name} has no ${canonical} on Minecraft ${mc}${note ? ` (${note})` : ""}.`;
 }
 
 /** Problems the schema cannot see: an addon that is off or has no release, two things on one side. */
@@ -255,6 +301,10 @@ export function worldProblems(
         path: [...t.path, "type"],
         message: `${t.type} comes from ${a.name} (addon "${a.id}"), which is off in this world.`,
       });
+    else if (a) {
+      const missing = typeMissingOn(a, t.type, mc);
+      if (missing) out.push({ path: [...t.path, "type"], message: missing });
+    }
   }
   for (const key of Object.keys(world)) {
     const a = catalog.addons.find((x) => x.worldKeys?.includes(key));

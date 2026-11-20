@@ -5,7 +5,7 @@
 //
 // No vscode import: the unit tests load this file in plain Node.
 import { type Token, tokenize } from "./luaScan.ts";
-import type { PackData } from "./pack.ts";
+import { type PackData, typeOwners } from "./pack.ts";
 
 const SIDES = ["top", "bottom", "left", "right", "front", "back"];
 /** Where a found block goes when the program names no side: the order a player tends to build in. */
@@ -160,7 +160,10 @@ export function worldForProgram(source: string, data: PackData): TemplateWorld {
       seenTypes.add(w.type);
     }
     const type = w.type === "inventory" ? "minecraft:chest" : w.type;
-    const owners = data.addons.filter((a) => a.types.includes(type));
+    // a mod type by either name (addons.ts byVersion): the world may name it either way, the canonical one picks the preset
+    const typed = typeOwners(data, type);
+    const owners = typed.map((o) => o.addon);
+    const canonical = typed[0]?.canonical ?? type;
     const known =
       type === "monitor" ||
       CC_TYPES.has(type) ||
@@ -174,13 +177,17 @@ export function worldForProgram(source: string, data: PackData): TemplateWorld {
       (world.monitors ??= []).push({ name, blocksWide: 3, blocksHigh: 2 });
       continue;
     }
-    (world.peripherals ??= []).push({ name, type, ...(PRESETS[type] ?? {}) });
+    (world.peripherals ??= []).push({
+      name,
+      type,
+      ...(PRESETS[type] ?? PRESETS[canonical] ?? {}),
+    });
     const owner = owners[0];
     if (owner && !CC_TYPES.has(type)) {
       addons.add(owner.id);
       for (const need of owner.requires) addons.add(need);
     }
-    if (/playerDetector|chatBox|inventoryManager/.test(type))
+    if (/playerDetector|chatBox|inventoryManager/.test(canonical))
       players.add("Alice");
   }
   if (addons.size) world.addons = [...addons];

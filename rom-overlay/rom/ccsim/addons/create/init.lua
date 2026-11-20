@@ -1,5 +1,12 @@
--- ccsim create: Create 0.5.1.i and its six ComputerCraft peripherals.
+-- ccsim create: Create and its ComputerCraft peripherals, as the jar of the world's Minecraft version has them:
+-- 0.5.1.i on 1.18.2 (six peripherals, no events), 6.0.8 on 1.20.1 and 6.0.10 on 1.21.1 (eighteen peripherals and
+-- events; the 6.0-only blocks are in v6.lua). docs/create-versions.md lists every difference between the jars.
 --
+-- 6.0 was written from Creators-of-Create/Create at tags mc1.20.1-6.0.8 and mc1.21.1-6.0.10 and checked against
+-- create-1.20.1-6.0.8.jar and create-1.21.1-6.0.10.jar with javap (types, methods, mainThread flags, error strings).
+-- Between the two 6.0 jars only DisplayLink.setCursorPos (a check in 6.0.10) and one slot error's spacing differ.
+--
+-- 0.5.1.i:
 -- Written from Create's source on the mc1.18/dev branch at 2828c88 (8 Oct 2024, the build the pack's
 -- create-1.18.2-0.5.1.i.jar was made from; the repository has no 0.5.1.i tag) and checked against that jar with javap
 -- (method names, signatures, every error string). Source files, relative to src/main/java/com/simibubi/create/:
@@ -24,10 +31,32 @@ return function(core, host)
   local cfg = core.world.create or {}
   local conf = cfg.config or {}
   local MAX_RPM = tonumber(conf.maxRotationSpeed) or 256 -- CKinetics.maxRotationSpeed
+  local V6 = core.version.mc ~= "1.18.2" -- Create 6.0.8 (1.20.1) / 6.0.10 (1.21.1)
+  local V21 = core.version.mc == "1.21.1" -- 6.0.10
 
-  local M = { C = C }
+  local M = { C = C, V6 = V6, V21 = V21 }
   local byName = {} -- peripheral (or fixture object) name -> sim object
   local tickers = {} -- objects with tick(t) -> changed, busy() and skip(from, to)
+
+  -- ===== events (6.0: SyncedPeripheral.queueEvent, the attachment name first) =====
+  -- A block sends its event from its own server tick (prepareComputerEvent), so the sim's blocks look for changes
+  -- in their tick. While anything can still change, a timer on the virtual clock runs the ticks even when no
+  -- program looks; a sim command or a method call starts it again.
+
+  local queueEvent = os.queueEvent
+  function M.emit(event, name, ...) queueEvent(event, name, ...) end
+  local polling = false
+  local anyBusy
+  local function poll()
+    polling = false
+    M.catchUp()
+    if anyBusy() then M.poke() end
+  end
+  function M.poke()
+    if not V6 or polling then return end
+    polling = true
+    core.after(0.05, poll)
+  end
 
   -- ===== the clock =====
 
@@ -122,6 +151,23 @@ return function(core, host)
       if o.network then return K.effective(o.network) end
       return o.speed
     end
+    if V6 then
+      -- SpeedGaugeBlockEntity.onSpeedChanged (the speed, or overstressed flipping): speed_change with the gauge's
+      -- speed, 0 while overstressed (SpeedGaugePeripheral.prepareComputerEvent)
+      local last
+      function o.tick()
+        local speed, over = o.speed, false
+        if o.network then
+          local s = K.stats(o.network)
+          speed, over = s.speed, s.overstressed
+        end
+        local key = tostring(speed) .. (over and "!" or "")
+        if last ~= nil and key ~= last then M.emit("speed_change", def.name, over and 0 or C.float(speed)) end
+        last = key
+        return false
+      end
+      function o.busy() return false end
+    end
     return o
   end
   M.newSpeedometer = newSpeedometer
@@ -138,9 +184,41 @@ return function(core, host)
       end
       return o.stress, o.capacity
     end
+    if V6 then
+      -- StressGaugeBlockEntity.updateFromNetwork (the network's stress or capacity changed): overstressed, or
+      -- stress_change with stress and capacity (StressGaugePeripheral.prepareComputerEvent)
+      local last
+      function o.tick()
+        local stress, capacity = o.get()
+        local over = stress > capacity
+        if o.network then over = K.stats(o.network).overstressed end
+        local key = ("%s/%s%s"):format(stress, capacity, over and "!" or "")
+        if last ~= nil and key ~= last then
+          if over then M.emit("overstressed", def.name)
+          else M.emit("stress_change", def.name, C.float(stress), C.float(capacity)) end
+        end
+        last = key
+        return false
+      end
+      function o.busy() return false end
+    end
     return o
   end
   M.newStressometer = newStressometer
+
+  -- ===== creative motor (6.0: CreativeMotorBlockEntity, CreativeMotorPeripheral) =====
+  -- A network with `source: "<motor>"` turns at the generated speed; the motor adds 16384 SU per RPM
+  -- (AllBlocks.CREATIVE_MOTOR: CStress.setCapacity(16384)).
+
+  local function newCreativeMotor(def)
+    local o = { kind = "Create_CreativeMotor", def = def }
+    local initial = tonumber(def.generatedSpeed) or tonumber(def.speed) or 16 -- CreativeMotorBlockEntity.DEFAULT_SPEED
+    o.target = math.max(-MAX_RPM, math.min(MAX_RPM, C.toInt(initial)))
+    function o.setTarget(v) o.target = math.max(-MAX_RPM, math.min(MAX_RPM, v)) end -- generatedSpeed.between(-max, max)
+    function o.outputSpeed() return o.target end
+    function o.capacityPerRpm() return 16384 end
+    return o
+  end
 
   -- ===== sequenced gearshift (SequencedGearshiftBlockEntity, Instruction) =====
 
@@ -308,7 +386,8 @@ return function(core, host)
         if t.type == "sign" then
           for i = 0, #text - 1 do
             if i + line >= 4 then break end
-            t.lines[i + line + 1] = text[i + 1]
+            -- 6.0 (1.20 signs): Component.getString(sign.getMaxTextLineWidth()) keeps the first 90 characters
+            t.lines[i + line + 1] = V6 and text[i + 1]:sub(1, 90) or text[i + 1]
           end
         elseif t.type == "lectern" then
           if t.book == "none" then return end
@@ -394,10 +473,12 @@ return function(core, host)
     local m = {}
     function m.setCursorPos(x, y)
       x, y = C.int(1, x), C.int(2, y)
+      if V21 and (x < 1 or y < 1) then error("cursor position must be larger then 0", 0) end -- 6.0.10 only
       o.cursorX, o.cursorY = x - 1, y - 1
     end
     function m.getCursorPos() return o.cursorX + 1, o.cursorY + 1 end
     function m.getSize()
+      if V6 then o.updateGatheredData() end -- 6.0: looks for the target (and sends the lines) first
       if not o.activeTarget then
         C.java("java.lang.NullPointerException", 'Cannot invoke "com.simibubi.create.content.redstone.displayLink.target.DisplayTarget.provideStats(com.simibubi.create.content.redstone.displayLink.DisplayLinkContext)" because "this.blockEntity.activeTarget" is null')
       end
@@ -414,8 +495,58 @@ return function(core, host)
       o.list = list
       o.stored = true
     end
-    function m.write(text)
-      text = C.str(1, text)
+    local writeImpl
+    function m.write(text) writeImpl(C.str(1, text)) end
+    -- 6.0 writeBytes: a string's characters above 127 become "?" (getBytes(US_ASCII)); a table's entries are bytes
+    -- (& 0xff), read as UTF-8. A character above U+00FF is kept as its UTF-8 bytes (the sim's lines are bytes).
+    function m.writeBytes(...)
+      local data = (...)
+      local text
+      if type(data) == "string" then
+        text = data:gsub("[\128-\255]", "?")
+      elseif type(data) == "table" then
+        local n = 0 -- LuaTable.length: keys 1, 2, ... while there
+        while data[n + 1] ~= nil do n = n + 1 end
+        local bytes = {}
+        for i = 1, n do
+          local v = data[i] -- LuaTable.getInt: a finite number, its long's low bits
+          if type(v) ~= "number" then error(("bad item #%d (number expected, got %s)"):format(i, C.typeName(v)), 0) end
+          if v ~= v or v == math.huge or v == -math.huge then
+            error(("bad item #%d (number expected, got %s)"):format(i, v ~= v and "nan" or (v > 0 and "inf" or "-inf")), 0)
+          end
+          bytes[i] = (v < 0 and -math.floor(-v) or math.floor(v)) % 256
+        end
+        local out, i = {}, 1
+        while i <= n do -- new String(bytes, UTF_8): a bad sequence is U+FFFD
+          local b = bytes[i]
+          local need, cp = 0, b
+          if b >= 0xF0 and b <= 0xF4 then need, cp = 3, b % 8
+          elseif b >= 0xE0 and b < 0xF0 then need, cp = 2, b % 16
+          elseif b >= 0xC2 and b < 0xE0 then need, cp = 1, b % 32
+          elseif b >= 0x80 then need = -1 end
+          local ok = need >= 0
+          for j = 1, math.max(need, 0) do
+            local c = bytes[i + j]
+            if not c or c < 0x80 or c > 0xBF then ok = false break end
+            cp = cp * 64 + c % 64
+          end
+          if ok and need == 2 and (cp < 0x800 or (cp >= 0xD800 and cp <= 0xDFFF)) then ok = false end
+          if ok and need == 3 and (cp < 0x10000 or cp > 0x10FFFF) then ok = false end
+          if ok then
+            out[#out + 1] = cp < 256 and string.char(cp) or utf8.char(cp)
+            i = i + need + 1
+          else
+            out[#out + 1] = utf8.char(0xFFFD)
+            i = i + 1
+          end
+        end
+        text = table.concat(out)
+      else
+        error(("bad argument #1 (string or table expected, got %s)"):format(C.typeName(data)), 0)
+      end
+      writeImpl(text)
+    end
+    function writeImpl(text)
       local list = sourceList()
       local x, y = o.cursorX, o.cursorY
       for _ = #list, y do list[#list + 1] = "" end
@@ -446,8 +577,13 @@ return function(core, host)
     end
     function m.clear() put({}) end
     function m.update() o.tickSource() end
-    return m, { "setCursorPos", "getCursorPos", "getSize", "isColor", "isColour", "write", "clearLine", "clear", "update" },
-      { getSize = true, update = true }
+    if not V6 then
+      m.writeBytes = nil
+      return m, { "setCursorPos", "getCursorPos", "getSize", "isColor", "isColour", "write", "clearLine", "clear", "update" },
+        { getSize = true, update = true }
+    end
+    return m, { "setCursorPos", "getCursorPos", "getSize", "isColor", "isColour", "write", "writeBytes", "clearLine",
+      "clear", "update" }, { getSize = true, update = true }
   end
 
   local function stationOf(o)
@@ -507,6 +643,20 @@ return function(core, host)
       return T.fromNBT(nil, T.scheduleWrite(tr.schedule))
     end
     function m.setSchedule(...)
+      if V6 then
+        -- 6.0: the train first, then the argument and the conversion; the empty check looks at the parsed schedule
+        -- (issue 8504), and there is no "Not a valid schedule" key count any more
+        local tr = trainOrThrow(o)
+        local tbl = C.table(1, (...))
+        local tag = T.toNBT(nil, tbl)
+        if tag.t ~= C.COMPOUND then
+          C.java("java.lang.ClassCastException", "class net.minecraft.nbt.ListTag cannot be cast to class net.minecraft.nbt.CompoundTag")
+        end
+        local schedule = T.scheduleFromTag(tag)
+        if #schedule.entries == 0 then error("Schedule must have at least one entry", 0) end
+        T.setSchedule(tr, schedule, tr.schedule == nil or tr.auto)
+        return
+      end
       local tbl = C.table(1, (...))
       if C.count(tbl) ~= 2 then error("Not a valid schedule", 0) end
       local entries = tbl.entries
@@ -519,11 +669,64 @@ return function(core, host)
       local schedule = T.scheduleFromTag(tag)
       T.setSchedule(tr, schedule, tr.schedule == nil or tr.auto)
     end
-    return m, { "assemble", "disassemble", "setAssemblyMode", "isInAssemblyMode", "getStationName", "setStationName",
-      "isTrainPresent", "isTrainImminent", "isTrainEnroute", "getTrainName", "setTrainName", "hasSchedule",
-      "getSchedule", "setSchedule" },
+    local names = { "assemble", "disassemble", "setAssemblyMode", "isInAssemblyMode", "getStationName",
+      "setStationName", "isTrainPresent", "isTrainImminent", "isTrainEnroute", "getTrainName", "setTrainName",
+      "hasSchedule", "getSchedule", "setSchedule" }
+    if V6 then
+      -- 6.0 findPath: the present train's path to the nearest station matching the glob. MethodResult.of(x, null):
+      -- two values, the second nil when there is a path, else "cannot-reach" (a station matches) or "no-target"
+      function m.canTrainReach(filter)
+        filter = C.str(1, filter)
+        local d, any = T.findPath(trainOrThrow(o), filter)
+        if d then return true, nil end
+        return false, any and "cannot-reach" or "no-target"
+      end
+      function m.distanceTo(filter)
+        filter = C.str(1, filter)
+        local d, any = T.findPath(trainOrThrow(o), filter)
+        if d then return d, nil end
+        return nil, any and "cannot-reach" or "no-target"
+      end
+      names[#names + 1] = "canTrainReach"
+      names[#names + 1] = "distanceTo"
+    end
+    return m, names,
       { assemble = true, disassemble = true, setAssemblyMode = true, setStationName = true, setTrainName = true,
         setSchedule = true }
+  end
+
+  TYPES.Create_CreativeMotor = function(def, o)
+    return {
+      setGeneratedSpeed = function(speed) o.setTarget(C.int(1, speed)) end,
+      getGeneratedSpeed = function() return o.target end,
+    }, { "setGeneratedSpeed", "getGeneratedSpeed" }, { setGeneratedSpeed = true }
+  end
+
+  -- StationBlockEntity.tick (6.0): train_imminent when a train becomes imminent, then train_arrival /
+  -- train_departure when the present train changes, each with the train's name
+  local function stationWatcher(o)
+    local st = o.st
+    local seen, prevImminent, prevPresent = false, nil, false
+    function o.tick()
+      if not st.track then return false end -- getStation() is null: the tick stops before the events
+      local imminent = T.imminentTrain(st)
+      local present = imminent ~= nil and imminent.station == st
+      if seen then
+        if prevImminent == nil and imminent ~= nil then M.emit("train_imminent", o.def.name, imminent.name) end
+        if prevPresent ~= present then
+          if present then
+            M.emit("train_arrival", o.def.name, imminent.name)
+          elseif prevImminent then
+            local gone = true -- Create.RAILWAYS.trains.get(id): a removed train is null (see docs: not simulated)
+            for _, x in ipairs(T.trains) do if x == prevImminent then gone = false break end end
+            if not gone then M.emit("train_departure", o.def.name, prevImminent.name) end
+          end
+        end
+      end
+      seen, prevImminent, prevPresent = true, imminent, present
+      return false
+    end
+    function o.busy() return false end
   end
 
   local CONSTRUCT = {
@@ -532,11 +735,14 @@ return function(core, host)
     Create_RotationSpeedController = newSpeedController,
     Create_SequencedGearshift = newGearshift,
     Create_DisplayLink = newDisplayLink,
+    Create_CreativeMotor = newCreativeMotor,
     Create_Station = function(def)
-      return { kind = "Create_Station", def = def, st = T.newStation({
+      local o = { kind = "Create_Station", def = def, st = T.newStation({
         station = def.station, track = def.track, assembling = def.assembling, powered = def.powered,
         pending = def.pending, peripheral = def.name,
       }) }
+      if V6 then stationWatcher(o) end
+      return o
     end,
   }
 
@@ -551,7 +757,7 @@ return function(core, host)
     return changed
   end
 
-  local function anyBusy()
+  function anyBusy() -- the local declared with the events above
     if T.busy() then return true end
     for _, o in ipairs(tickers) do
       if o.busy and o.busy() then return true end
@@ -577,12 +783,48 @@ return function(core, host)
     end
   end
 
+  -- the peripherals Create 6.0 added (ComputerBehaviour.getPeripheralFor); all but the creative motor are in v6.lua
+  local SIX = {
+    Create_CreativeMotor = true, Create_Frogport = true, Create_Postbox = true, Create_NixieTube = true,
+    Create_Signal = true, Create_StockTicker = true, Create_Repackager = true, Create_Packager = true,
+    Create_RedstoneRequester = true, Create_TableClothShop = true, Create_Sticker = true, Create_TrainObserver = true,
+  }
+  M.SIX = SIX
+  local X -- v6.lua, loaded with the first 6.0 block
+
+  --- every method call and sim command can start a change that sends an event later: keep the ticks going
+  local function poking(fn)
+    return function(...)
+      local r = table.pack(fn(...))
+      M.poke()
+      return table.unpack(r, 1, r.n)
+    end
+  end
+  M.poking = poking
+
   function M.peripheral(def)
+    if SIX[def.type] and not V6 then
+      error(("ccsim: %s is not in Create 0.5.1.i (Minecraft 1.18.2); it came with Create 6.0 (1.20.1 and 1.21.1)")
+        :format(def.type), 0)
+    end
+    if SIX[def.type] and not CONSTRUCT[def.type] then
+      X = X or dofile("/rom/ccsim/addons/create/v6.lua")(core, host, M)
+      local p = X.peripheral(def)
+      if V6 then
+        for k, fn in pairs(p.methods) do p.methods[k] = poking(fn) end
+        M.poke()
+      end
+      return p
+    end
     local make = CONSTRUCT[def.type]
     local o = make(def)
     byName[def.name] = o
     if o.tick then tickers[#tickers + 1] = o end
     local methods, decl, mainThread = TYPES[def.type](def, o)
+    if V6 then
+      for k, fn in pairs(methods) do methods[k] = poking(fn) end
+      M.poke()
+    end
     local computerThread = {}
     for _, name in ipairs(decl) do
       if not mainThread[name] then computerThread[name] = true end
@@ -590,6 +832,7 @@ return function(core, host)
     local p = { methods = methods, methodOrder = order(decl), computerThread = computerThread, sim = o,
       exactReturns = true } -- every method returns exactly what its Java does (all are void or a non-null value)
     function p.state()
+      if o.kind == "Create_CreativeMotor" then return { generatedSpeed = o.target } end
       if o.kind == "Create_Speedometer" then return { speed = o.getSpeed(), network = o.network } end
       if o.kind == "Create_Stressometer" then
         local s, c = o.get()
@@ -764,6 +1007,12 @@ return function(core, host)
     return true
   end
 
+  if V6 then
+    -- the 6.0 blocks' commands are there from the start, so a command can name a block not built yet (v6.lua says so)
+    X = X or dofile("/rom/ccsim/addons/create/v6.lua")(core, host, M)
+    for k, fn in pairs(X.handlers) do handlers[k] = fn end
+    for k, fn in pairs(handlers) do handlers[k] = poking(fn) end
+  end
   M.handlers = handlers
 
   function M.state()
@@ -775,7 +1024,10 @@ return function(core, host)
       local s = K.stats(id)
       nets[id] = { speed = s.effective, stress = s.stress, capacity = s.capacity, overstressed = s.overstressed }
     end
-    return { gameTime = lastTick, dayTime = clock.dayTime(lastTick), trains = trains, stations = stations, networks = nets }
+    local s = { gameTime = lastTick, dayTime = clock.dayTime(lastTick), trains = trains, stations = stations,
+      networks = nets }
+    if X then X.state(s) end
+    return s
   end
 
   return M

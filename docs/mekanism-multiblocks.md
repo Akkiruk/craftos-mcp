@@ -2,7 +2,8 @@
 
 The pack runs **Mekanism 1.18.2-10.2.5.465** and **Mekanism Generators 1.18.2-10.2.5.465**. The blocks that
 reactor and power-monitor programs wrap are emulated in Lua, and the multiblocks behind them run on the virtual
-clock, tick by tick, with the formulas from the source.
+clock, tick by tick, with the formulas from the source. This page is 1.18.2; what 1.20.1 (10.4.16) and 1.21.1
+(10.7.19) change is in docs/mekanism-versions.md.
 
 | Type                         | Block                         | Addon                 | Exposes the multiblock |
 | ---------------------------- | ----------------------------- | --------------------- | ---------------------- |

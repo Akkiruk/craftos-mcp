@@ -1,4 +1,5 @@
--- ccsim create/trains: Create 0.5.1.i train stations, trains and schedules (see init.lua for the sources).
+-- ccsim create/trains: Create train stations, trains and schedules (see init.lua for the sources). 0.5.1.i on 1.18.2,
+-- 6.0.8 / 6.0.10 on 1.20.1 / 1.21.1: 6.0 adds the package delivery and retrieval instructions (V6 below).
 --
 -- Schedules are kept as Create keeps them: entries of an instruction and columns of wait conditions, each with its
 -- Id and its Data compound. setSchedule/getSchedule convert to and from Lua tables exactly as StationPeripheral does
@@ -18,6 +19,8 @@ return function(core, host, C, clock)
   local INTERVAL = 40 -- ScheduleRuntime.INTERVAL: retry after a failed navigation
   local IMMINENT = 30 -- GlobalStation.getImminentTrain: within 30 blocks
   local UNNAMED = "Unnamed Train" -- create.train.unnamed
+
+  local V6 = core.version.mc ~= "1.18.2" -- Create 6.0: package instructions (Schedule.registerInstruction)
 
   local T = { stations = {}, trains = {} }
   local linkVersion = 0
@@ -144,6 +147,12 @@ return function(core, host, C, clock)
   -- ===== schedule objects (Schedule, ScheduleEntry, ScheduleInstruction, ScheduleWaitCondition) =====
 
   local INSTRUCTIONS = { ["create:destination"] = "destination", ["create:rename"] = "rename", ["create:throttle"] = "throttle" }
+  if V6 then
+    INSTRUCTIONS["create:package_delivery"] = "package_delivery" -- DeliverPackagesInstruction
+    INSTRUCTIONS["create:package_retrieval"] = "package_retrieval" -- FetchPackagesInstruction
+  end
+  -- ScheduleInstruction.supportsConditions: only rename and throttle have no wait conditions
+  local function supportsConditions(kind) return kind ~= "rename" and kind ~= "throttle" end
   local CONDITIONS = {
     ["create:delay"] = "delay", ["create:time_of_day"] = "time_of_day", ["create:fluid_threshold"] = "fluid_threshold",
     ["create:item_threshold"] = "item_threshold", ["create:redstone_link"] = "redstone_link",
@@ -192,7 +201,7 @@ return function(core, host, C, clock)
     local s = { entries = {}, cyclic = C.getBoolean(tag, "Cyclic"), savedProgress = 0 }
     for _, e in ipairs(C.getList(tag, "Entries", C.COMPOUND).v) do
       local entry = { instruction = instructionFromTag(C.getCompound(e, "Instruction")), conditions = {} }
-      if entry.instruction.kind == "destination" then
+      if supportsConditions(entry.instruction.kind) then
         for _, column in ipairs(C.getList(e, "Conditions", C.LIST).v) do
           if column.t == C.LIST then
             local list = {}
@@ -241,7 +250,7 @@ return function(core, host, C, clock)
       it.v.Id = C.string(e.instruction.id)
       it.v.Data = C.copyTag(e.instruction.data)
       et.v.Instruction = it
-      if e.instruction.kind == "destination" then
+      if supportsConditions(e.instruction.kind) then
         local outer = C.list()
         for _, column in ipairs(e.conditions) do
           local list = C.list()
@@ -603,6 +612,20 @@ return function(core, host, C, clock)
       end
       return best
     end
+    if inst.kind == "package_delivery" or inst.kind == "package_retrieval" then
+      -- Deliver/FetchPackagesInstruction.start: the conductor check, then the packages. The sim's carriages and
+      -- postboxes hold no packages, so there is never a station to go to: delivery moves on at once, retrieval
+      -- moves on and waits the 40-tick cooldown first.
+      if not tr.conductor then
+        tr.status = "missing_conductor"
+        tr.cooldown = INTERVAL
+        return nil
+      end
+      if inst.kind == "package_retrieval" then tr.cooldown = INTERVAL end
+      tr.state = "PRE_TRANSIT"
+      tr.currentEntry = tr.currentEntry + 1
+      return nil
+    end
     if inst.kind == "rename" then
       tr.title = C.getString(inst.data, "Text")
     else
@@ -800,6 +823,24 @@ return function(core, host, C, clock)
     if not n.nav then return nil end
     if n.nav.remaining > IMMINENT then return nil end
     return n
+  end
+
+  --- StationPeripheral.findPath (6.0): the stations whose name matches the glob, then the nearest one the train can
+  --- path to. Returns the distance (nil when none is reachable) and whether any station matched at all. A station in
+  --- assembly mode cannot be approached; the station the train stands at is 0 blocks away.
+  function T.findPath(tr, filter)
+    local pattern = globPattern(filter)
+    local anyMatch, best = false, nil
+    for _, st in ipairs(T.stations) do
+      if st.track and st.name:match(pattern) then
+        anyMatch = true
+        if not st.assembling then
+          local d = (tr.station == st) and 0 or distance(tr.lastStation, st)
+          if not best or d < best then best = d end
+        end
+      end
+    end
+    return best, anyMatch or best ~= nil
   end
 
   -- ===== sim commands =====

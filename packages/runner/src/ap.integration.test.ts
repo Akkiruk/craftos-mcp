@@ -16,9 +16,25 @@ import {
   loadConfig,
   loadNamedWorld,
   SessionManager,
-  runProgram,
-  runTests,
+  runProgram as runProgramAnyVersion,
+  runTests as runTestsAnyVersion,
 } from "./index.js";
+
+/**
+ * These tests are Advanced Peripherals 0.7.31r, the 1.18.2 release: every world here runs on 1.18.2 whatever the
+ * emulator's default version (ap-versions.integration.test.ts checks 1.20.1 and 1.21.1).
+ */
+function on1182(world: WorldConfig | undefined): WorldConfig {
+  return { version: "1.18.2", ...(world ?? {}) } as WorldConfig;
+}
+const runTests: typeof runTestsAnyVersion = (c, options, ...rest) =>
+  runTestsAnyVersion(c, { ...options, world: on1182(options?.world) }, ...rest);
+const runProgram: typeof runProgramAnyVersion = (c, options, ...rest) =>
+  runProgramAnyVersion(
+    c,
+    { ...options, world: on1182(options?.world) },
+    ...rest,
+  );
 
 /**
  * Advanced Peripherals emulation, checked against behaviour read from the 0.7.30r source
@@ -873,6 +889,7 @@ end
     );
     const manager = new SessionManager(config);
     const session = manager.create([], 1, {
+      version: "1.18.2",
       players: [{ name: "Alice" }],
       peripherals: [
         { name: "cb", type: "chatBox" },
@@ -912,7 +929,10 @@ end
   it("does not fire chat events without a chat box", async () => {
     put("quiet.lua", `local e = os.pullEvent() print("got " .. e)`);
     const manager = new SessionManager(config);
-    const session = manager.create([], 1, { players: [{ name: "Alice" }] });
+    const session = manager.create([], 1, {
+      version: "1.18.2",
+      players: [{ name: "Alice" }],
+    });
     try {
       const raw = session.handle.session;
       await raw.waitForText(">", 0, 20000);

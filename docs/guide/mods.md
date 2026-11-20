@@ -28,11 +28,21 @@ The first time you use a version, craftos-mcp builds that version's CC:Tweaked f
 download, once (about 20 seconds). `craftos-mcp setup --all` builds every version at once, so you can work offline
 later.
 
-On 1.20.1 and 1.21.1, CC:Tweaked itself is that version's. Most mods act as their release for your version too. Eight
-were written from their 1.18.2 release and act as it on every version: Advanced Peripherals (0.7.31r), Mekanism and
-Mekanism Generators (10.2.5), Create (0.5.1.i), Create Crafts & Additions (1.0.0), Tom's Peripherals (1.2.1), Bigger
-Reactors and Extreme Reactors. The mods list says so: on 1.21.1 Advanced Peripherals shows "0.7.62b, acts as
-0.7.31r", and `craftos-mcp info` prints the same. See
+On 1.20.1 and 1.21.1, CC:Tweaked itself is that version's, and the mods act as their release for your version too,
+each checked against that version's jar:
+
+- Advanced Peripherals: 0.7.48r on 1.20.1, 0.7.62b on 1.21.1. On 1.21.1 its blocks are `player_detector`,
+  `chat_box` and so on, and there is no Redstone Integrator
+  ([advanced-peripherals-versions.md](../advanced-peripherals-versions.md)).
+- Mekanism and Mekanism Generators: 10.4.16 and 10.7.19 ([mekanism-versions.md](../mekanism-versions.md)).
+- Create: 6.0.8 and 6.0.10, with 6.0's new peripherals ([create-versions.md](../create-versions.md)).
+- Tom's Peripherals, Bigger Reactors and Extreme Reactors: each version's release (the Versions section of each mod's
+  doc).
+
+A world may name a renamed block by either name; the computer sees the name your version's mod reports, and a block
+your version's mod does not have is refused before the computer starts. One mod still acts as its 1.18.2 release on
+every version: Create Crafts & Additions (1.0.0). The mods list says so ("1.7.2, acts as 1.0.0" on 1.21.1), and
+`craftos-mcp info` prints the same. See
 [Choose your Minecraft version](../../README.md#choose-your-minecraft-version) in the README.
 
 ## Switch on your pack's mods

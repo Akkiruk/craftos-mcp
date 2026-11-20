@@ -11,7 +11,7 @@
 -- The world is a fixture (`world.mekanism`), the clock is the virtual clock: every 50 ms is a server tick, and
 -- the machines are caught up tick by tick whenever anything looks (a peripheral call, a state dump).
 return function(core, host)
-  local J = dofile("/rom/ccsim/mek/java.lua")()
+  local J = dofile("/rom/ccsim/mek/java.lua")(core.version and core.version.mc)
   local N = J.nbt
   local floor = math.floor
 
@@ -139,11 +139,10 @@ return function(core, host)
   end
 
   --- ItemStack as CCArgumentWrapper.wrapStack returns it: name, count, and nbt when the tag is not empty.
+  --- (1.20.1: `nbt` is SNBT text; 1.21.1: `components`, J.wrapStack)
   local function stackToLua(ty, count)
     if not ty or count <= 0 then return { name = "minecraft:air", count = 0 } end
-    local out = { name = ty.name, count = count }
-    if ty.tag and not N.isEmptyCompound(ty.tag) then out.nbt = N.toLua(ty.tag) end
-    return out
+    return J.wrapStack(ty.name, "count", count, ty.tag, type(ty.extra.components) == "string" and ty.extra.components or nil)
   end
 
   --- ItemStack.save: { id, Count, tag } (Count is the stack's size: 1 for a QIO type).
@@ -213,6 +212,21 @@ return function(core, host)
   end
 
   local function filterToLua(f)
+    if J.NEW then
+      -- BaseComputerHelper.convertFilterCommon + convert(QIOFilter): `enabled` too; 1.21.1 keys are snake_case
+      local out = { enabled = f.enabled ~= false }
+      if f.kind == "item" then
+        out.type, out.item, out.fuzzy = "QIO_ITEMSTACK_FILTER", f.item, f.fuzzy
+        if f.components then out.components = f.components
+        elseif f.tag and not N.isEmptyCompound(f.tag) then out[J.V21 and "components" or "itemNBT"] = N.toSnbt(f.tag) end
+      elseif f.kind == "tag" then
+        out.type, out.tag = "QIO_TAG_FILTER", f.tagName
+      else
+        out.type = "QIO_MODID_FILTER"
+        out[J.V21 and "modid" or "modId"] = f.modId
+      end
+      return out
+    end
     if f.kind == "item" then
       local out = { type = "QIO_ITEMSTACK_FILTER", item = f.item, fuzzy = f.fuzzy }
       if f.tag and not N.isEmptyCompound(f.tag) then out.itemNBT = N.toLua(f.tag) end
@@ -271,15 +285,60 @@ return function(core, host)
     return { kind = "modid", modId = m }
   end
 
+  --- 10.4+ SpecialConverters.convertMapToFilter for a QIOFilter: the filter, or a ComputerException's message.
+  --- 1.21.1 reads `components` and `modid` where 1.20.1 reads `itemNBT` (SNBT text) and `modId`.
+  local NEW_FILTER_TYPES = {
+    QIO_ITEMSTACK_FILTER = "item", QIO_TAG_FILTER = "tag", QIO_MODID_FILTER = "modid",
+    MINER_ITEMSTACK_FILTER = false, MINER_MODID_FILTER = false, MINER_TAG_FILTER = false,
+    SORTER_ITEMSTACK_FILTER = false, SORTER_MODID_FILTER = false, SORTER_TAG_FILTER = false,
+    OREDICTIONIFICATOR_ITEM_FILTER = false,
+  }
+  local function filterFromJavaNew(map)
+    local typeName = J.get(map, "type")
+    if type(typeName) ~= "string" then J.computerError("Missing 'type' element") end
+    local kind = typeName ~= "" and NEW_FILTER_TYPES[typeName:upper()]
+    if kind == nil then J.computerError("Unknown 'type' value") end
+    if kind == false then J.computerError(J.V21 and "Unexpected format for: type" or "Type is not of an expected format") end
+    local f = { kind = kind, enabled = true }
+    local enabled = J.get(map, "enabled")
+    if type(enabled) == "boolean" then f.enabled = enabled end
+    if kind == "item" then
+      local name = J.get(map, "item")
+      local rl = type(name) == "string" and J.resourceLocation(name)
+      if not rl or not isKnownItem(rl) then J.computerError("Invalid or missing item specified for ItemStack filter") end
+      f.item = rl
+      local raw = J.get(map, J.V21 and "components" or "itemNBT")
+      if type(raw) == "string" then
+        if J.V21 then
+          f.components = raw -- DataComponentPatch: kept as the text it came in (no component registry here)
+        else
+          local tag, msg = N.parseSnbt(raw)
+          if not tag then J.computerError("Invalid SNBT: " .. tostring(msg)) end
+          f.tag = tag
+        end
+      end
+      f.fuzzy = J.get(map, "fuzzy") == true
+    elseif kind == "tag" then
+      f.tagName = validTag(J.get(map, "tag"))
+      if not f.tagName then J.computerError("Invalid or missing tag specified for Tag filter") end
+    else
+      f.modId = validModId(J.get(map, J.V21 and "modid" or "modId"))
+      if not f.modId then J.computerError("Invalid or missing modId specified for Mod Id filter") end
+    end
+    return f
+  end
+
   local function filterFromFixture(f)
     local kind = FILTER_TYPES[tostring(f.type or ""):upper()]
+    local enabled = f.enabled ~= false -- 10.4+ filters can be off
     if kind == "item" then
-      return { kind = "item", item = J.resourceLocation(f.item) or f.item,
-        tag = f.itemNBT ~= nil and N.fromFixture(f.itemNBT) or nil, fuzzy = f.fuzzy == true }
+      return { kind = "item", item = J.resourceLocation(f.item) or f.item, enabled = enabled,
+        tag = f.itemNBT ~= nil and N.fromFixture(f.itemNBT) or nil, fuzzy = f.fuzzy == true,
+        components = type(f.components) == "string" and f.components or nil }
     elseif kind == "tag" then
-      return { kind = "tag", tagName = tostring(f.tag):lower() }
+      return { kind = "tag", tagName = tostring(f.tag):lower(), enabled = enabled }
     elseif kind == "modid" then
-      return { kind = "modid", modId = tostring(f.modId):lower() }
+      return { kind = "modid", modId = tostring(f.modId or f.modid):lower(), enabled = enabled }
     end
     error("ccsim: unknown QIO filter type '" .. tostring(f.type) .. "'", 0)
   end
@@ -427,6 +486,21 @@ return function(core, host)
   local function stored(f, ty)
     local d = f and f.data[ty.key]
     return d and d.count or 0
+  end
+
+  --- What a redstone adapter counts: its exact type, or (10.4+ fuzzy mode) every type of the item
+  --- (TileEntityQIORedstoneAdapter.getStored: getTypesForItem).
+  function Q.adapterCount(b)
+    if not b.targetType or not b.frequency then return 0 end
+    if J.NEW and b.fuzzy then
+      local n = 0
+      for _, k in ipairs(b.frequency.order) do
+        local d = b.frequency.data[k]
+        if d.type.name == b.targetType.name then n = n + d.count end
+      end
+      return n
+    end
+    return stored(b.frequency, b.targetType)
   end
 
   -- ===== drives =====
@@ -609,7 +683,10 @@ return function(core, host)
     elseif kind == "qioRedstoneAdapter" then
       if def.targetItem then block.targetType = typeOf(type(def.targetItem) == "string" and { name = def.targetItem } or def.targetItem) end
       block.trigger = tonumber(def.triggerAmount) or 0
+      block.fuzzy = def.fuzzy == true       -- 10.4+: count every type of the item
+      block.inverted = def.inverted == true -- 10.7: emit while the count is NOT reached
     end
+    if kind == "qioExporter" then block.roundRobin = def.roundRobin == true end -- 10.7
     if def.frequency ~= nil then
       local spec = def.frequency
       local name, public = spec, nil
@@ -683,6 +760,14 @@ return function(core, host)
     for _, ty in ipairs(removedOrder) do frequencyRemove(f, ty, removed[ty.key]) end
   end
 
+  --- The filters that act: every one on 1.18.2; 10.4+ skips the ones switched off (FilterManager.getEnabledFilters).
+  local function enabledFilters(b)
+    if not J.NEW then return b.filters end
+    local out = {}
+    for _, f in ipairs(b.filters) do if f.enabled ~= false then out[#out + 1] = f end end
+    return out
+  end
+
   --- TileEntityQIOExporter.getFilterEjectMap
   local function filterEjectMap(b, f)
     local seen, list = {}, {}
@@ -693,7 +778,7 @@ return function(core, host)
       seen[ty.key] = entry
       list[#list + 1] = entry
     end
-    for _, filter in ipairs(b.filters) do
+    for _, filter in ipairs(enabledFilters(b)) do
       if filter.kind == "item" and filter.fuzzy then
         for _, k in ipairs(f.order) do if f.data[k].type.name == filter.item then put(f.data[k].type) end end
       elseif filter.kind == "item" then
@@ -709,9 +794,9 @@ return function(core, host)
     local f = b.frequency
     local inv = targetInventory(b)
     if not f or not inv then return end
-    if not b.withoutFilter and #b.filters == 0 then return end
+    if not b.withoutFilter and #enabledFilters(b) == 0 then return end
     local entries
-    if #b.filters == 0 then
+    if #enabledFilters(b) == 0 then
       entries = {}
       for _, k in ipairs(f.order) do entries[#entries + 1] = { type = f.data[k].type, count = f.data[k].count } end
     else
@@ -724,7 +809,7 @@ return function(core, host)
     local f = b.frequency
     local inv = targetInventory(b)
     if not f or not inv then return end
-    if not b.withoutFilter and #b.filters == 0 then return end
+    if not b.withoutFilter and #enabledFilters(b) == 0 then return end
     local items = inv.__state()
     local typesAdded, typeCount = {}, 0
     local maxTypes, maxCount, countAdded = transitTypes(b), transitCount(b), 0
@@ -735,9 +820,9 @@ return function(core, host)
         local n = math.min(want, item.count)
         local ty = typeOf(item)
         if typesAdded[ty.key] or typeCount < maxTypes then
-          local accepted = b.withoutFilter and #b.filters == 0
+          local accepted = b.withoutFilter and #enabledFilters(b) == 0
           if not accepted then
-            for _, filter in ipairs(b.filters) do
+            for _, filter in ipairs(enabledFilters(b)) do
               if filterMatches(filter, ty) then accepted = true break end
             end
           end
@@ -850,7 +935,7 @@ return function(core, host)
     end
   end
 
-  local function frequencyToLua(f) return { key = f.name, public = f.public } end
+  local function frequencyToLua(f) return J.frequency(f.name, f.public, f.owner) end -- 1.21.1: { key, security_mode, owner }
 
   local function colorStep(color, step)
     local list = J.ENUMS.EnumColor
@@ -920,7 +1005,23 @@ return function(core, host)
 
   local function driveStackToLua(drive)
     if not drive then return { name = "minecraft:air", count = 0 } end
+    local name = "mekanism:qio_drive_" .. drive.tier
+    if J.V21 then
+      -- 10.7: the drive_metadata component ({count, types}); drive_contents (the items' UUIDs in the frequency's
+      -- saved data) is not reproduced
+      if drive.itemCount == 0 and drive.typeCount == 0 then return { name = name, count = 1 } end
+      local meta = { t = "compound", v = { count = { t = "long", v = drive.itemCount }, types = { t = "int", v = drive.typeCount } } }
+      return J.wrapStack(name, "count", 1, nil, N.toSnbt({ t = "compound", v = { ["mekanism:drive_metadata"] = meta } }))
+    end
     local mek = {}
+    if J.NEW then
+      -- 10.4: qioItemMap is a long array of item UUIDs and counts (the items live in the frequency's saved data),
+      -- not reproduced; the two counts are
+      if drive.itemCount ~= 0 then mek.qioMetaCount = { t = "long", v = drive.itemCount } end
+      if drive.typeCount ~= 0 then mek.qioMetaTypes = { t = "int", v = drive.typeCount } end
+      local tag = next(mek) and { t = "compound", v = { mekData = { t = "compound", v = mek } } } or nil
+      return J.wrapStack(name, "count", 1, tag)
+    end
     if #drive.saved > 0 then
       local list = {}
       for i, e in ipairs(drive.saved) do
@@ -1009,6 +1110,20 @@ return function(core, host)
       end },
     },
   }
+  if J.NEW then
+    -- 10.4: fuzzy mode (TileEntityQIORedstoneAdapter getFuzzyMode, setFuzzyMode, toggleFuzzyMode)
+    local A = BY_TYPE.qioRedstoneAdapter
+    A.getFuzzyMode = { {}, function(b) return ret(b.fuzzy == true) end }
+    A.setFuzzyMode = { { "boolean" }, function(b, v) requirePublic(b); b.fuzzy = v; return VOID end }
+    A.toggleFuzzyMode = { {}, function(b) requirePublic(b); b.fuzzy = not b.fuzzy; return VOID end }
+  end
+  if J.V21 then
+    -- 10.7: an inverted signal (isInverted, setSignalInverted, invertSignal)
+    local A = BY_TYPE.qioRedstoneAdapter
+    A.isInverted = { {}, function(b) return ret(b.inverted == true) end }
+    A.setSignalInverted = { { "boolean" }, function(b, v) requirePublic(b); b.inverted = v; return VOID end }
+    A.invertSignal = { {}, function(b) requirePublic(b); b.inverted = not b.inverted; return VOID end }
+  end
 
   local FILTER_METHODS = {
     getFilters = { {}, function(b)
@@ -1061,31 +1176,48 @@ return function(core, host)
       return VOID
     end },
   }
+  if J.V21 then
+    -- 10.7 round robin (isRoundRobin, setRoundRobin): an exporter here feeds one inventory, so it is only kept
+    BY_TYPE.qioExporter.isRoundRobin = { {}, function(b) return ret(b.roundRobin == true) end }
+    BY_TYPE.qioExporter.setRoundRobin = { { "boolean" }, function(b, v) requirePublic(b); b.roundRobin = v; return VOID end }
+  end
   for _, kind in ipairs({ "qioImporter", "qioExporter" }) do
     for name, m in pairs(FILTER_METHODS) do BY_TYPE[kind][name] = m end
   end
 
-  local argContext = { filter = filterFromJava, knownItem = isKnownItem }
+  local argContext = { filter = J.NEW and filterFromJavaNew or filterFromJava, knownItem = isKnownItem }
 
   --- A Mekanism peripheral over `block` with `table_` (name -> { params, fn }): methods for wrap, plus validate
   --- (computer thread) and run (server thread) for the call path in peripherals.lua.
   function Q.makePeripheral(block, table_, order)
+    if J.NEW then
+      -- 10.4+: help() / help(methodName) first, then the blocks' methods; CC 1.121.0's order (J.methodOrder)
+      local t, names = { help = J.HELP }, {}
+      for name, m in pairs(table_) do t[name] = m; names[#names + 1] = name end
+      table.sort(names)
+      table.insert(names, 1, "help")
+      table_, order = t, J.methodOrder(names)
+    end
     local p = { block = block, methods = {}, methodOrder = order }
+    local function call(m, validated)
+      local args, o = J.prepare(m, validated, argContext)
+      local r = o[2](block, table.unpack(args, 1, args.n))
+      return r
+    end
     for name, m in pairs(table_) do
-      local params, fn = m[1], m[2]
       p.methods[name] = function(...)
-        local args = J.checkArguments(name, params, table.pack(...), argContext)
+        local v = J.validate(name, m, table.pack(...), argContext)
         Q.catchUp()
-        local r = fn(block, table.unpack(args, 1, args.n))
+        local r = call(m, v)
         return table.unpack(r, 1, r.n)
       end
     end
     function p.validate(name, args)
-      return J.checkArguments(name, table_[name][1], args, argContext)
+      return J.validate(name, table_[name], args, argContext)
     end
-    function p.run(name, args)
+    function p.run(name, validated)
       Q.catchUp()
-      return table_[name][2](block, table.unpack(args, 1, args.n))
+      return call(table_[name], validated)
     end
     function p.state() return Q.blockState(block) end
     return p
@@ -1166,9 +1298,13 @@ return function(core, host)
       out.filters = {}
       for i, f in ipairs(b.filters) do out.filters[i] = filterToLua(f) end
     elseif b.kind == "qioRedstoneAdapter" then
-      local count = b.targetType and stored(b.frequency, b.targetType) or 0
-      out.powering = b.targetType ~= nil and b.frequency ~= nil and count > 0 and count >= b.trigger
+      local count = Q.adapterCount(b)
+      local hasStored = b.targetType ~= nil and b.frequency ~= nil and count > 0 and count >= b.trigger
+      -- 10.7 TileEntityQIORedstoneAdapter.onUpdateServer: shouldEmit = hasStored != inverted
+      out.powering = hasStored ~= (J.V21 and b.inverted == true)
       out.redstoneOutput = out.powering and 15 or 0
+      if J.NEW then out.fuzzy = b.fuzzy end
+      if J.V21 then out.inverted = b.inverted end
     end
     return out
   end

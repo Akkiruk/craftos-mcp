@@ -1,0 +1,615 @@
+{
+  "_source": "@LuaFunction names (aliases included) in each Advanced Peripherals jar, read with javap: 0.7.31r (1.18.2), 0.7.48r (1.20.1), 0.7.62b (1.21.1). A type missing from a version does not exist there. 0.7.31r nbtStorage.writeTable is left out: it throws IOException, so CC:Tweaked never offers it.",
+  "1.18.2": {
+    "playerDetector": {
+      "type": "playerDetector",
+      "methods": [
+        "getOnlinePlayers",
+        "getPlayerPos",
+        "getPlayersInCoords",
+        "getPlayersInCubic",
+        "getPlayersInRange",
+        "isPlayerInCoords",
+        "isPlayerInCubic",
+        "isPlayerInRange",
+        "isPlayersInCoords",
+        "isPlayersInCubic",
+        "isPlayersInRange"
+      ]
+    },
+    "chatBox": {
+      "type": "chatBox",
+      "methods": [
+        "sendFormattedMessage",
+        "sendFormattedMessageToPlayer",
+        "sendMessage",
+        "sendMessageToPlayer"
+      ]
+    },
+    "energyDetector": {
+      "type": "energyDetector",
+      "methods": [
+        "getTransferRate",
+        "getTransferRateLimit",
+        "setTransferRateLimit"
+      ]
+    },
+    "redstoneIntegrator": {
+      "type": "redstoneIntegrator",
+      "methods": [
+        "getAnalogInput",
+        "getAnalogOutput",
+        "getAnalogueInput",
+        "getAnalogueOutput",
+        "getInput",
+        "getOutput",
+        "setAnalogOutput",
+        "setAnalogueOutput",
+        "setOutput"
+      ]
+    },
+    "nbtStorage": {
+      "type": "nbtStorage",
+      "methods": ["read", "writeJson"]
+    },
+    "environmentDetector": {
+      "type": "environmentDetector",
+      "methods": [
+        "canSleepHere",
+        "canSleepPlayer",
+        "getBiome",
+        "getBlockLightLevel",
+        "getDayLightLevel",
+        "getDimensionName",
+        "getDimensionPaN",
+        "getDimensionProvider",
+        "getMoonId",
+        "getMoonName",
+        "getSkyLightLevel",
+        "getTime",
+        "isDimension",
+        "isMoon",
+        "isRaining",
+        "isSlimeChunk",
+        "isSunny",
+        "isThunder",
+        "listDimensions",
+        "scanCost",
+        "scanEntities"
+      ]
+    },
+    "arController": {
+      "type": "arController",
+      "methods": [
+        "clear",
+        "clearElement",
+        "drawCenteredString",
+        "drawCenteredStringWithId",
+        "drawCircle",
+        "drawCircleWithId",
+        "drawItemIcon",
+        "drawItemIconWithId",
+        "drawRightboundString",
+        "drawRightboundStringWithId",
+        "drawString",
+        "drawStringWithId",
+        "fill",
+        "fillCircle",
+        "fillCircleWithId",
+        "fillGradient",
+        "fillGradientWithId",
+        "fillWithId",
+        "getPlayerRotationY",
+        "getPlayerRotationZ",
+        "horizontalLine",
+        "horizontalLineWithId",
+        "isRelativeMode",
+        "setRelativeMode",
+        "verticalLine",
+        "verticalLineWithId"
+      ]
+    },
+    "geoScanner": {
+      "type": "geoScanner",
+      "methods": ["chunkAnalyze", "cost", "scan"]
+    },
+    "blockReader": {
+      "type": "blockReader",
+      "methods": ["getBlockData", "getBlockName"]
+    },
+    "inventoryManager": {
+      "type": "inventoryManager",
+      "methods": [
+        "addItemToPlayer",
+        "addItemToPlayerNBT",
+        "getArmor",
+        "getEmptySpace",
+        "getFreeSlot",
+        "getItemInHand",
+        "getItemInOffHand",
+        "getItems",
+        "getItemsChest",
+        "getOwner",
+        "isPlayerEquipped",
+        "isSpaceAvailable",
+        "isWearing",
+        "list",
+        "listChest",
+        "pullItems",
+        "pushItems",
+        "removeItemFromPlayer",
+        "removeItemFromPlayerNBT"
+      ]
+    },
+    "chunky": {
+      "type": "chunky",
+      "methods": []
+    },
+    "meBridge": {
+      "type": "meBridge",
+      "methods": [
+        "craftFluid",
+        "craftItem",
+        "exportFluid",
+        "exportFluidToPeripheral",
+        "exportItem",
+        "exportItemToPeripheral",
+        "getAvailableFluidStorage",
+        "getAvailableItemStorage",
+        "getAvgPowerInjection",
+        "getAvgPowerUsage",
+        "getCraftingCPUs",
+        "getEnergyStorage",
+        "getEnergyUsage",
+        "getItem",
+        "getMaxEnergyStorage",
+        "getTotalFluidStorage",
+        "getTotalItemStorage",
+        "getUsedFluidStorage",
+        "getUsedItemStorage",
+        "importFluid",
+        "importFluidFromPeripheral",
+        "importItem",
+        "importItemFromPeripheral",
+        "isConnected",
+        "isItemCraftable",
+        "isItemCrafting",
+        "listCells",
+        "listCraftableFluid",
+        "listCraftableItems",
+        "listFluid",
+        "listItems"
+      ]
+    },
+    "rsBridge": {
+      "type": "rsBridge",
+      "methods": [
+        "craftFluid",
+        "craftItem",
+        "exportFluid",
+        "exportFluidToPeripheral",
+        "exportItem",
+        "exportItemToPeripheral",
+        "getEnergyStorage",
+        "getEnergyUsage",
+        "getItem",
+        "getMaxEnergyStorage",
+        "getMaxFluidDiskStorage",
+        "getMaxFluidExternalStorage",
+        "getMaxItemDiskStorage",
+        "getMaxItemExternalStorage",
+        "getPattern",
+        "importFluid",
+        "importFluidFromPeripheral",
+        "importItem",
+        "importItemFromPeripheral",
+        "isConnected",
+        "isItemCraftable",
+        "isItemCrafting",
+        "listCraftableFluids",
+        "listCraftableItems",
+        "listFluids",
+        "listItems"
+      ]
+    }
+  },
+  "1.20.1": {
+    "playerDetector": {
+      "type": "playerDetector",
+      "methods": [
+        "getOnlinePlayers",
+        "getPlayer",
+        "getPlayerPos",
+        "getPlayersInCoords",
+        "getPlayersInCubic",
+        "getPlayersInRange",
+        "isPlayerInCoords",
+        "isPlayerInCubic",
+        "isPlayerInRange",
+        "isPlayersInCoords",
+        "isPlayersInCubic",
+        "isPlayersInRange"
+      ]
+    },
+    "chatBox": {
+      "type": "chatBox",
+      "methods": [
+        "sendFormattedMessage",
+        "sendFormattedMessageToPlayer",
+        "sendFormattedToastToPlayer",
+        "sendMessage",
+        "sendMessageToPlayer",
+        "sendToastToPlayer"
+      ]
+    },
+    "energyDetector": {
+      "type": "energyDetector",
+      "methods": [
+        "getTransferRate",
+        "getTransferRateLimit",
+        "setTransferRateLimit"
+      ]
+    },
+    "redstoneIntegrator": {
+      "type": "redstoneIntegrator",
+      "methods": [
+        "getAnalogInput",
+        "getAnalogOutput",
+        "getAnalogueInput",
+        "getAnalogueOutput",
+        "getInput",
+        "getOutput",
+        "setAnalogOutput",
+        "setAnalogueOutput",
+        "setOutput"
+      ]
+    },
+    "nbtStorage": {
+      "type": "nbtStorage",
+      "methods": ["read", "writeJson", "writeTable"]
+    },
+    "environmentDetector": {
+      "type": "environmentDetector",
+      "methods": [
+        "canSleepHere",
+        "canSleepPlayer",
+        "getBiome",
+        "getBlockLightLevel",
+        "getDayLightLevel",
+        "getDimension",
+        "getMoonId",
+        "getMoonName",
+        "getSkyLightLevel",
+        "getTime",
+        "isDimension",
+        "isMoon",
+        "isRaining",
+        "isSlimeChunk",
+        "isSunny",
+        "isThunder",
+        "listDimensions",
+        "scanCost",
+        "scanEntities"
+      ]
+    },
+    "geoScanner": {
+      "type": "geoScanner",
+      "methods": ["chunkAnalyze", "cost", "scan"]
+    },
+    "blockReader": {
+      "type": "blockReader",
+      "methods": [
+        "getBlockData",
+        "getBlockName",
+        "getBlockStates",
+        "isTileEntity"
+      ]
+    },
+    "inventoryManager": {
+      "type": "inventoryManager",
+      "methods": [
+        "addItemToPlayer",
+        "getArmor",
+        "getEmptySpace",
+        "getFreeSlot",
+        "getItemInHand",
+        "getItemInOffHand",
+        "getItems",
+        "getItemsChest",
+        "getOwner",
+        "isPlayerEquipped",
+        "isSpaceAvailable",
+        "isWearing",
+        "list",
+        "listChest",
+        "removeItemFromPlayer"
+      ]
+    },
+    "chunky": {
+      "type": "chunky",
+      "methods": []
+    },
+    "meBridge": {
+      "type": "meBridge",
+      "methods": [
+        "craftFluid",
+        "craftItem",
+        "exportFluid",
+        "exportFluidToPeripheral",
+        "exportItem",
+        "exportItemToPeripheral",
+        "getAvailableFluidStorage",
+        "getAvailableItemStorage",
+        "getAvgPowerInjection",
+        "getAvgPowerUsage",
+        "getCraftingCPUs",
+        "getEnergyStorage",
+        "getEnergyUsage",
+        "getItem",
+        "getMaxEnergyStorage",
+        "getTotalFluidStorage",
+        "getTotalItemStorage",
+        "getUsedFluidStorage",
+        "getUsedItemStorage",
+        "importFluid",
+        "importFluidFromPeripheral",
+        "importItem",
+        "importItemFromPeripheral",
+        "isConnected",
+        "isFluidCraftable",
+        "isFluidCrafting",
+        "isItemCraftable",
+        "isItemCrafting",
+        "listCells",
+        "listCraftableFluid",
+        "listCraftableItems",
+        "listFluid",
+        "listGas",
+        "listItems"
+      ]
+    },
+    "rsBridge": {
+      "type": "rsBridge",
+      "methods": [
+        "craftFluid",
+        "craftItem",
+        "exportFluid",
+        "exportFluidToPeripheral",
+        "exportItem",
+        "exportItemToPeripheral",
+        "getEnergyStorage",
+        "getEnergyUsage",
+        "getItem",
+        "getMaxEnergyStorage",
+        "getMaxFluidDiskStorage",
+        "getMaxFluidExternalStorage",
+        "getMaxItemDiskStorage",
+        "getMaxItemExternalStorage",
+        "getPattern",
+        "importFluid",
+        "importFluidFromPeripheral",
+        "importItem",
+        "importItemFromPeripheral",
+        "isConnected",
+        "isItemCraftable",
+        "isItemCrafting",
+        "listCraftableFluids",
+        "listCraftableItems",
+        "listFluids",
+        "listItems"
+      ]
+    }
+  },
+  "1.21.1": {
+    "playerDetector": {
+      "type": "player_detector",
+      "methods": [
+        "getOnlinePlayers",
+        "getPlayer",
+        "getPlayerPos",
+        "getPlayersInCoords",
+        "getPlayersInCubic",
+        "getPlayersInRange",
+        "isPlayerInCoords",
+        "isPlayerInCubic",
+        "isPlayerInRange",
+        "isPlayersInCoords",
+        "isPlayersInCubic",
+        "isPlayersInRange"
+      ]
+    },
+    "chatBox": {
+      "type": "chat_box",
+      "methods": [
+        "sendFormattedMessage",
+        "sendFormattedMessageToPlayer",
+        "sendFormattedToastToPlayer",
+        "sendMessage",
+        "sendMessageToPlayer",
+        "sendToastToPlayer"
+      ]
+    },
+    "energyDetector": {
+      "type": "energy_detector",
+      "methods": [
+        "getTransferRate",
+        "getTransferRateLimit",
+        "setTransferRateLimit"
+      ]
+    },
+    "nbtStorage": {
+      "type": "nbt_storage",
+      "methods": ["read", "writeJson", "writeTable"]
+    },
+    "environmentDetector": {
+      "type": "environment_detector",
+      "methods": [
+        "canSleepHere",
+        "canSleepPlayer",
+        "getBiome",
+        "getBlockLightLevel",
+        "getDayLightLevel",
+        "getDimension",
+        "getMoonId",
+        "getMoonName",
+        "getSkyLightLevel",
+        "getTime",
+        "isDimension",
+        "isMoon",
+        "isRaining",
+        "isSlimeChunk",
+        "isSunny",
+        "isThunder",
+        "listDimensions",
+        "scanCost",
+        "scanEntities"
+      ]
+    },
+    "geoScanner": {
+      "type": "geo_scanner",
+      "methods": ["chunkAnalyze", "cost", "scan"]
+    },
+    "blockReader": {
+      "type": "block_reader",
+      "methods": [
+        "getBlockData",
+        "getBlockName",
+        "getBlockStates",
+        "isTileEntity"
+      ]
+    },
+    "inventoryManager": {
+      "type": "inventory_manager",
+      "methods": [
+        "addItemToPlayer",
+        "getArmor",
+        "getEmptySpace",
+        "getFreeSlot",
+        "getItemInHand",
+        "getItemInOffHand",
+        "getItems",
+        "getItemsChest",
+        "getOwner",
+        "isPlayerEquipped",
+        "isSpaceAvailable",
+        "isWearing",
+        "list",
+        "listChest",
+        "removeItemFromPlayer"
+      ]
+    },
+    "chunky": {
+      "type": "chunky",
+      "methods": []
+    },
+    "meBridge": {
+      "type": "me_bridge",
+      "methods": [
+        "cancelCraftingTasks",
+        "craftFluid",
+        "craftItem",
+        "exportChemical",
+        "exportFluid",
+        "exportItem",
+        "getAvailableChemicalStorage",
+        "getAvailableExternalChemicalStorage",
+        "getAvailableExternalFluidStorage",
+        "getAvailableExternalItemStorage",
+        "getAvailableFluidStorage",
+        "getAvailableItemStorage",
+        "getAverageEnergyInput",
+        "getCells",
+        "getChemical",
+        "getChemicals",
+        "getCraftableFluids",
+        "getCraftableItems",
+        "getCraftingCPUs",
+        "getCraftingTask",
+        "getCraftingTasks",
+        "getDrives",
+        "getEnergyCapacity",
+        "getEnergyUsage",
+        "getFluid",
+        "getFluids",
+        "getItem",
+        "getItems",
+        "getPatterns",
+        "getStoredEnergy",
+        "getTotalChemicalStorage",
+        "getTotalExternalChemicalStorage",
+        "getTotalExternalFluidStorage",
+        "getTotalExternalItemStorage",
+        "getTotalFluidStorage",
+        "getTotalItemStorage",
+        "getUsedChemicalStorage",
+        "getUsedExternalChemicalStorage",
+        "getUsedExternalFluidStorage",
+        "getUsedExternalItemStorage",
+        "getUsedFluidStorage",
+        "getUsedItemStorage",
+        "importChemical",
+        "importFluid",
+        "importItem",
+        "isConnected",
+        "isCraftable",
+        "isCrafting",
+        "isOnline"
+      ]
+    },
+    "rsBridge": {
+      "type": "rs_bridge",
+      "methods": [
+        "cancelCraftingTasks",
+        "craftChemical",
+        "craftFluid",
+        "craftItem",
+        "exportChemical",
+        "exportFluid",
+        "exportItem",
+        "getAvailableChemicalStorage",
+        "getAvailableExternalChemicalStorage",
+        "getAvailableExternalFluidStorage",
+        "getAvailableExternalItemStorage",
+        "getAvailableFluidStorage",
+        "getAvailableItemStorage",
+        "getAverageEnergyInput",
+        "getCells",
+        "getChemical",
+        "getChemicals",
+        "getCraftableChemicals",
+        "getCraftableFluids",
+        "getCraftableItems",
+        "getCraftingTask",
+        "getCraftingTasks",
+        "getDrives",
+        "getEnergyCapacity",
+        "getEnergyUsage",
+        "getFluid",
+        "getFluids",
+        "getItem",
+        "getItems",
+        "getPatterns",
+        "getStoredEnergy",
+        "getTotalChemicalStorage",
+        "getTotalExternalChemicalStorage",
+        "getTotalExternalFluidStorage",
+        "getTotalExternalItemStorage",
+        "getTotalFluidStorage",
+        "getTotalItemStorage",
+        "getUsedChemicalStorage",
+        "getUsedExternalChemicalStorage",
+        "getUsedExternalFluidStorage",
+        "getUsedExternalItemStorage",
+        "getUsedFluidStorage",
+        "getUsedItemStorage",
+        "importChemical",
+        "importFluid",
+        "importItem",
+        "isConnected",
+        "isCraftable",
+        "isCrafting",
+        "isOnline"
+      ]
+    }
+  }
+}

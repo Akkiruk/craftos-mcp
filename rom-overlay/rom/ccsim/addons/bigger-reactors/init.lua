@@ -19,6 +19,13 @@
 -- tables of functions (CC's wrapLuaObject), made fresh on every call. Every method is a plain @LuaFunction, so every
 -- one runs at once on the computer thread. The machines run on the virtual clock: every 50 ms is a server tick, and
 -- they are caught up tick by tick whenever anything looks (a call, a state dump).
+--
+-- Minecraft 1.20.1 runs biggerreactors-1.20.1-0.6.0-beta.10.5 with phosphophyllite-1.20.1-0.7.0-alpha.0.2 (tags
+-- 0.6.0-beta.10.5 and 0.7.0-alpha.0.2, checked against both jars). Its computer ports are the same classes (only the
+-- registry calls were ported); what differs is behind `NEW` below: apiVersion(), the order the time-sliced reactor
+-- irradiates in, a fertility scaling by fuel load, manifolds in a passive reactor, the turbine's drag and its
+-- efficiency curve, and two Thermal fluid moderators. docs/bigger-reactors.md "Versions" has the whole diff. There is
+-- no release for 1.21.1: addons.ts refuses the addon there.
 return function(core, host)
   local floor, ceil, min, max, abs, exp, sqrt, cos, sin, pi =
     math.floor, math.ceil, math.min, math.max, math.abs, math.exp, math.sqrt, math.cos, math.sin, math.pi
@@ -26,7 +33,10 @@ return function(core, host)
   local _ = host
 
   local cfg = core.world.biggerReactors or {}
-  local API_VERSION = "0.6.0-beta.1.4" -- BiggerReactors.modVersion(): the mod file's version (mods.toml)
+  local MC = core.version and core.version.mc or "1.18.2"
+  local NEW = MC ~= "1.18.2" -- 0.6.0-beta.10.5 on 1.20.1; 0.6.0-beta.1.4 on 1.18.2
+  -- BiggerReactors.modVersion(): the mod file's version (mods.toml)
+  local API_VERSION = NEW and "0.6.0-beta.10.5" or "0.6.0-beta.1.4"
 
   local function fail(msg) error(msg, 0) end
 
@@ -120,6 +130,12 @@ return function(core, host)
     RotorAxialMassPerShaft = 100, RotorAxialMassPerBlade = 100, FrictionDragMultiplier = 0.0001,
     AerodynamicDragMultiplier = 0.0001, CoilDragMultiplier = 10, BatterySizePerCoilBlock = 300000,
   }
+  if NEW then
+    -- 0.6.0-beta.10.5 Config: drag five times higher, the grid-frequency efficiency curve, the fertility scaling
+    C.FrictionDragMultiplier, C.AerodynamicDragMultiplier = 0.0005, 0.0005
+    C.EffectiveGridFrequency, C.EfficiencyPeaks = 30, 2
+    C.fuelRadScalingMultiplier = 1.0
+  end
   local AMBIENT = 293.15 -- ReactorMultiblockController: simulationDescription.setAmbientTemperature(293.15)
   local MINUS_0_001F = -0.0010000000474974513 -- -0.001f in TimeSlicedReactorSimulation
 
@@ -138,6 +154,12 @@ return function(core, host)
     electrum = mod(0.53, 0.82, 1.47, 2.2), enderium = mod(0.53, 0.88, 1.6, 3), invar = mod(0.5, 0.79, 1.43, 0.6),
     lumium = mod(0.75, 0.55, 1.5, 1.8), signalum = mod(0.63, 0.66, 1.5, 1.8),
   }
+  if NEW then
+    -- 0.6.0-beta.10.5 adds moderators/thermal/destabilized_redstone and resonant_ender (fluid tags forge:redstone,
+    -- forge:ender)
+    MODERATORS.destabilized_redstone = mod(0.75, 0.55, 1.6, 2.5)
+    MODERATORS.resonant_ender = mod(0.9, 0.75, 2.0, 2)
+  end
   local function coil(e, r, b) return { efficiency = e, extractionRate = r, bonus = b } end
   local COILS = {
     iron = coil(0.33, 0.1, 1), gold = coil(0.66, 0.175, 1), copper = coil(0.396, 0.12, 1),
@@ -297,6 +319,13 @@ return function(core, host)
     local manifolds = 0
     -- the coolant tank as a moderator (CoolantTank.absorption etc.): air and the liquid, mixed by how full it is
     m.manifold = { absorption = 0, heatEfficiency = 0, moderation = 0, heatConductivity = 0, isManifold = true }
+    -- 0.6.0-beta.10.5: a passive reactor's manifolds are manifoldSignalingProperties, a copy of the default
+    -- moderator; they still count as manifolds for the heat surfaces. 0.6.0-beta.1.4 makes them plain air.
+    local passiveManifold
+    if NEW and passive then
+      passiveManifold = { absorption = default.absorption, heatEfficiency = default.heatEfficiency,
+        moderation = default.moderation, heatConductivity = default.heatConductivity, isManifold = true }
+    end
     m.cell = {}
     for i = 0, X - 1 do
       for j = 0, Y - 1 do
@@ -306,7 +335,9 @@ return function(core, host)
           if c == "rod" then
             p = false
           elseif c == "manifold" then
-            if passive then p = default else p = m.manifold; manifolds = manifolds + 1 end
+            if passiveManifold then p = passiveManifold; manifolds = manifolds + 1
+            elseif passive then p = default
+            else p = m.manifold; manifolds = manifolds + 1 end
           else
             p = c or default
           end
@@ -380,6 +411,7 @@ return function(core, host)
     end
     m.simRods = order
     m.currentRod, m.rodOffset = 0, 0
+    if NEW then m.activeYLevel, m.currentRod = -1, -1 end
     m.burnedLastTick = 0
     m.generatedLastTick = 0
     m.transitionedLastTick, m.maxTransitionedLastTick = 0, 0
@@ -411,12 +443,25 @@ return function(core, host)
     if m.fuel <= 0 then return 0 end
     local n = #m.simRods
     local X, Y, Z = m.x, m.y, m.z
-    m.currentRod = m.currentRod + 1
-    if m.currentRod >= n then
-      m.currentRod = 0
-      m.rodOffset = m.rodOffset + 1
+    local yLevel
+    if NEW then
+      -- 0.6.0-beta.10.5: one layer per tick, bottom up; a new rod for each layer, the offset moves every Y ticks
+      m.activeYLevel = m.activeYLevel + 1
+      if m.activeYLevel >= Y then
+        m.rodOffset = (m.rodOffset + 1) % n
+        m.currentRod = -1
+      end
+      m.activeYLevel = m.activeYLevel % Y
+      m.currentRod = (m.currentRod + 1) % n
+      yLevel = m.activeYLevel
+    else
+      m.currentRod = m.currentRod + 1
+      if m.currentRod >= n then
+        m.currentRod = 0
+        m.rodOffset = m.rodOffset + 1
+      end
+      yLevel = m.currentRod % Y
     end
-    local yLevel = m.currentRod % Y
     local index = (m.currentRod + m.rodOffset) % n
     local T = m.fuelHeat.temperature
     local radiationPenaltyBase = exp(-C.RadPenaltyShiftMultiplier * exp(-0.001 * C.RadPenaltyRateMultiplier * (T - 273.15)))
@@ -473,7 +518,13 @@ return function(core, host)
         end
       end
     end
-    if fuelRadAdded == fuelRadAdded then m.fertility = m.fertility + fuelRadAdded end
+    if fuelRadAdded == fuelRadAdded then
+      if NEW and C.fuelRadScalingMultiplier ~= 0 then
+        -- 0.6.0-beta.10.5: fertility gain scaled by one rod's capacity over the fuel and waste in the tank
+        fuelRadAdded = fuelRadAdded * (C.fuelRadScalingMultiplier * (C.PerFuelRodCapacity / max(1.0, m.fuel + m.waste)))
+      end
+      m.fertility = m.fertility + fuelRadAdded
+    end
     if fuelRFAdded == fuelRFAdded then absorbRF(m.fuelHeat, fuelRFAdded) end
     if caseRFAdded == caseRFAdded then absorbRF(m.stackHeat, caseRFAdded) end
     return rawFuelUsage
@@ -849,13 +900,33 @@ return function(core, host)
     if t.coilEngaged then
       local torque = rpm * t.inductorDragCoefficient * t.coilSize
       local energy = (torque ^ t.inductionEnergyExponentBonus) * t.inductionEfficiency
-      local efficiency = 0.25 * cos(rpm / (45.5 * pi)) + 0.75
-      if rpm < 450 then efficiency = min(0.5, efficiency) end
-      if rpm > 2245 then
-        efficiency = -rpm / 4490
-        efficiency = efficiency + 1
+      local efficiency
+      if NEW then
+        -- 0.6.0-beta.10.5: peaks at EffectiveGridFrequency * 60 RPM (1800) and an octave below; flat 0.5 below
+        -- 1800 / 2^1.5; a parabola down to 0 above the peak
+        local frequency = C.EffectiveGridFrequency
+        local peakRPM = frequency * 60
+        local minRPM = peakRPM / (2 ^ (C.EfficiencyPeaks - 0.5))
+        if rpm < minRPM then
+          efficiency = 0.5
+        elseif rpm > peakRPM then
+          local numerator = rpm - peakRPM
+          local denominator = 8 * frequency * peakRPM
+          local possibleEfficiency = -(numerator * numerator) / denominator
+          efficiency = max(0, possibleEfficiency + 1)
+        else
+          local logValue = -2 * (math.log(rpm / peakRPM) / math.log(2)) + 1
+          efficiency = -0.25 * cos(logValue * pi) + 0.75
+        end
+      else
+        efficiency = 0.25 * cos(rpm / (45.5 * pi)) + 0.75
+        if rpm < 450 then efficiency = min(0.5, efficiency) end
+        if rpm > 2245 then
+          efficiency = -rpm / 4490
+          efficiency = efficiency + 1
+        end
+        if efficiency < 0 then efficiency = 0 end
       end
-      if efficiency < 0 then efficiency = 0 end
       energy = energy * efficiency
       t.energyGeneratedLastTick = energy
       if energy > 1 then t.energy = t.energy + min(long(energy), t.batteryCapacity - t.energy) end

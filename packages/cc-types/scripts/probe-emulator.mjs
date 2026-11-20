@@ -23,9 +23,8 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
 const DATA = join(HERE, "..", "data");
-const { ADDONS, loadConfig, runProgram } = await import(
-  new URL("../../runner/dist/index.js", import.meta.url).href
-);
+const { ADDONS, ownersOfType, typeExistsOn, loadConfig, runProgram } =
+  await import(new URL("../../runner/dist/index.js", import.meta.url).href);
 
 /** The demo worlds have each block set up with something in it, so getters answer with real values. */
 const DEMO_WORLDS = [
@@ -156,7 +155,8 @@ function take(lines, mc, withPeripherals) {
     // A bare block is named "<world type>_9". When the type it reports belongs to another addon (Finer Peripherals'
     // chat box says "chatBox", as Advanced Peripherals' does), it is kept under its own world type, so the two mods'
     // methods stay apart.
-    const addonOf = (t) => ADDONS.find((a) => a.types.includes(t))?.id;
+    // by either name of a type a version renamed (byVersion), so a 1.21.1 name finds its mod
+    const addonOf = (t) => ownersOfType(t)[0]?.addon.id;
     const worldType =
       typeof line.name === "string" && line.name.endsWith("_9")
         ? line.name.slice(0, -2)
@@ -244,8 +244,15 @@ const BARE_FIXTURES = {
 // a mod with no 1.18.2 release is probed on the oldest version it has
 const probeVersion = (a) =>
   a.versions["1.18.2"] ? "1.18.2" : Object.keys(a.versions).sort()[0];
-const all = ADDONS.filter((a) => probeVersion(a) === "1.18.2").flatMap(
-  (a) => a.types,
+// only the types the mod's 1.18.2 release has: one a later release added (byVersion) is probed on 1.20.1 below
+const all = ADDONS.filter((a) => probeVersion(a) === "1.18.2").flatMap((a) =>
+  a.types.filter((t) => typeExistsOn(a, t, "1.18.2")),
+);
+const laterOnly = ADDONS.filter((a) => probeVersion(a) === "1.18.2").flatMap(
+  (a) =>
+    a.types
+      .filter((t) => !typeExistsOn(a, t, "1.18.2"))
+      .map((type) => ({ name: `${type}_9`, type, ...BARE_FIXTURES[type] })),
 );
 for (const type of all)
   if (!peripherals[type])
@@ -287,7 +294,7 @@ async function probeBare(label, world, dropped = [], timeoutMs = undefined) {
     }
   }
 }
-const notOn1182 = [];
+const notOn1182 = [...laterOnly];
 take(
   await probeBare("bare blocks", { peripherals: everything }, notOn1182),
   "1.18.2",
@@ -349,6 +356,18 @@ take(
   "1.20.1",
   false,
 );
+
+// The names a later Minecraft version's mod reports for a type (AddonInfo.byVersion rename), Minecraft version ->
+// name, so peripheral.find("player_detector") is typed as the playerDetector it is
+for (const [type, p] of Object.entries(peripherals)) {
+  const owner = ownersOfType(type).find((o) => o.addon.id === p.addon);
+  if (!owner) continue;
+  const renamed = {};
+  for (const [mc, changes] of Object.entries(owner.addon.byVersion ?? {}))
+    if (changes.rename?.[owner.canonical])
+      renamed[mc] = changes.rename[owner.canonical];
+  if (Object.keys(renamed).length) p.renamed = renamed;
+}
 
 mkdirSync(DATA, { recursive: true });
 writeFileSync(

@@ -5,20 +5,41 @@
 -- defaults are the ones 0.7.31r ships (PeripheralsConfig, SimpleFreeOperation, SphereOperation); with the vhcctweaks
 -- addon on (core.vhcc) they are those of the vhcctweaks server it was measured on, which differ only in the chat
 -- cooldown (1 s). world.ap.config overrides them.
+--
+-- The release followed is the world's Minecraft version's (core.version.mc): 0.7.31r on 1.18.2, 0.7.48r on 1.20.1,
+-- 0.7.62b on 1.21.1, each read from its jar and its source tag (docs/advanced-peripherals-versions.md). B.mc, B.V18,
+-- B.V20 and B.V21 say which; B.NEW is 1.20.1 or 1.21.1 (the 0.7.4x line and later).
 return function(core)
   local B = {}
 
+  B.mc = core.version and core.version.mc or "1.18.2"
+  B.V18 = B.mc == "1.18.2"
+  B.V20 = B.mc == "1.20.1"
+  B.V21 = B.mc == "1.21.1"
+  B.NEW = not B.V18
+
   B.config = {
-    playerDetMaxRange = 100000000,
+    -- 0.7.48r made -1 (unlimited) the default and the floor of the range
+    playerDetMaxRange = B.V18 and 100000000 or -1,
     enablePlayerPosFunction = true,
     morePlayerInformation = true,
+    -- from 0.7.48r (PeripheralsConfig): detectors see other dimensions when the range is unlimited; random error on
+    -- getPlayerPos is off; 0.7.62b can hide spectators (shown by default)
+    playerDetMultiDimensional = true,
+    showSpectators = true,
     defaultChatBoxPrefix = "AP",
     chatMessageCooldown = core.vhcc and 1000 or 100,
+    -- from 0.7.48r: the chat box's own range limit and dimensions; 0.7.62b limits a message's length
+    chatBoxMaxRange = -1,
+    chatBoxMultiDimensional = true,
+    chatBoxMessageSize = 1024,
     energyDetectorMaxFlow = 2147483647,
     nbtStorageMaxSize = 1048576,
     energyToFuelRate = 575,
     poweredPeripheralMaxEnergyStored = 100000000,
     enablePoweredPeripherals = false,
+    -- from 0.7.48r: chunks around a chunky turtle's own that it also force-loads
+    chunkyTurtleRadius = 0,
     scanEntities = { cooldown = 2000, maxFreeRadius = 8, maxCostRadius = 16, extraBlockCost = 0.17 },
   }
   for key, value in pairs((core.world.ap or {}).config or {}) do B.config[key] = value end
@@ -85,6 +106,66 @@ return function(core)
     return B.int(index, v)
   end
 
+  function B.optBoolean(index, v, default)
+    if v == nil then return default end
+    return B.boolean(index, v)
+  end
+
+  -- ===== CoordUtil of 0.7.48r and later (player detector and chat box ranges) =====
+
+  local EYE_HEIGHT = 1.62
+
+  --- isPlayerInBlockRangeXYZ: from the block's centre, |dx| <= rx and |dz| <= rz, and the feet-to-eyes span within
+  --- ry of the centre's y (or around it). A player in another dimension never matches unless maxRange is -1.
+  local function inBlockRange(origin, dimension, p, rx, ry, rz, sameLevelCheck)
+    if sameLevelCheck and p.dimension ~= dimension then return false end
+    local x, y, z = p.x, p.y, p.z
+    local ey = y + EYE_HEIGHT
+    if ey > y then y, ey = ey, y end -- as the source does: y becomes the higher, ey the lower
+    local bx, by, bz = origin.x + 0.5, origin.y + 0.5, origin.z + 0.5
+    return math.abs(x - bx) <= rx and math.abs(z - bz) <= rz
+      and ((y <= by and by <= ey) or math.min(math.abs(y - by), math.abs(ey - by)) <= ry)
+  end
+
+  --- CoordUtil.isInRange(pos, world, player, range, maxRange)
+  function B.inRange(origin, dimension, p, range, maxRange)
+    if range == 0 or maxRange == 0 then return false end
+    if range < 0 then
+      if maxRange < 0 then return true end
+      range = maxRange
+    elseif maxRange > 0 and range > maxRange then
+      range = maxRange
+    end
+    return inBlockRange(origin, dimension, p, range, range, range, range ~= -1)
+  end
+
+  --- CoordUtil.isInRange(pos, world, player, x, y, z, maxRange)
+  function B.inCubic(origin, dimension, p, x, y, z, maxRange)
+    local cap = maxRange ~= -1 and maxRange or 2147483647
+    x, y, z = math.min(math.abs(x), cap), math.min(math.abs(y), cap), math.min(math.abs(z), cap)
+    return inBlockRange(origin, dimension, p, x, y, z, maxRange ~= -1)
+  end
+
+  --- StringUtil.convertAndToSectionMark: "&" before a digit or lower-case letter becomes "§", "\&" becomes "&"
+  function B.andToSection(s)
+    if s == nil then return nil end
+    local out, i = {}, 1
+    while i <= #s do
+      local c = s:sub(i, i)
+      if c == "\\" and s:sub(i + 1, i + 1) == "&" then
+        out[#out + 1] = "&"
+        i = i + 2
+      elseif c == "&" and s:sub(i + 1, i + 1):match("^[0-9a-z]$") then
+        out[#out + 1] = "\167"
+        i = i + 1
+      else
+        out[#out + 1] = c
+        i = i + 1
+      end
+    end
+    return table.concat(out)
+  end
+
   -- ===== small utilities =====
 
   function B.titleCase(name)
@@ -123,7 +204,8 @@ return function(core)
     if s == "bottom" then return "down" end
     if s == "right" then return counter[front] end
     if s == "left" then return clockwise[front] end
-    error(s:upper() .. " is not a valid side", 0)
+    -- 0.7.30r upper-cases the side before it names it; 0.7.48r on lower-cases it (CoordUtil.getDirection)
+    error((B.V18 and s:upper() or s) .. " is not a valid side", 0)
   end
 
   -- ===== peripheral objects =====

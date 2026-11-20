@@ -1,4 +1,5 @@
--- ccsim addon toms-peripherals: Tom's Peripherals 1.18.2-1.2.1 (Forge), every peripheral it has.
+-- ccsim addon toms-peripherals: Tom's Peripherals 1.18.2-1.2.1 (Forge), every peripheral it has. 1.20.1-1.3.1 and
+-- 1.21.1-1.3.1 have the same Lua side (docs/toms-peripherals.md, "Versions"); only getMethods follows core.cc121.
 --
 -- Written from the mod's source and checked against the release jar (toms-peripherals-1.18.2-1.2.1.jar, javap):
 --   1.18 branch, commit 3b609fa ("1.2.1"), Forge/src/platform-shared/java/com/tom/peripherals/:
@@ -253,7 +254,7 @@ return function(core, host)
     gpuOrder[#gpuOrder + 1] = name
     return {
       methods = methods,
-      methodOrder = G.ORDER.GPUExt, -- CC's HashMap(33) of these names keeps this order
+      methodOrder = G.ORDER.GPUExt, -- CC 1.101.3's HashMap(33) and 1.121.0's HashMap() both keep this order
       computerThread = allOnComputerThread(G.ORDER.GPUExt),
       exactReturns = true, -- Java's count: none for void, one for int/boolean/Object, the array's own length
       state = g.state,
@@ -444,7 +445,7 @@ return function(core, host)
     end
     return {
       methods = methods,
-      methodOrder = ORDER, -- CC's HashMap(15) keeps the mod's order
+      methodOrder = ORDER, -- CC 1.101.3's HashMap(15) and 1.121.0's HashMap() both keep the mod's order
       computerThread = allOnComputerThread(ORDER),
       exactReturns = true, -- void setters give no value; every getter exactly one
       state = function()
@@ -530,7 +531,10 @@ return function(core, host)
     end
     return {
       methods = methods,
-      methodOrder = { "setEnabled", "reset", "listMethods", "setTimeout", "getTimeout", "isEnabled" }, -- HashMap(6)
+      -- peripheral.getMethods: CC:Tweaked 1.101.3 (1.18.2) fills a HashMap(6), 8 buckets; 1.121.0 (1.20.1, 1.21.1)
+      -- a plain HashMap(), 16 buckets, which keeps the mod's order (both checked with the JDK's HashMap)
+      methodOrder = core.cc121 and ORDER
+        or { "setEnabled", "reset", "listMethods", "setTimeout", "getTimeout", "isEnabled" },
       computerThread = allOnComputerThread(ORDER),
       exactReturns = true, -- setters and reset are void; the getters give one value
       state = function()

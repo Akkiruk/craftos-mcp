@@ -52,13 +52,25 @@ local function near(a, b, eps)
 end
 `;
 
+/**
+ * This suite is the mod's 1.18.2 release, so a world without a version runs on 1.18.2 whatever the default is (the
+ * public default is 1.21.1). The later releases have their own suites (mekanism-versions, extreme-reactors "Versions").
+ */
+function on1182(world: WorldConfig): WorldConfig {
+  return { version: "1.18.2", ...world } as WorldConfig;
+}
+
 async function lua(
   source: string,
   world: WorldConfig,
   name: string,
 ): Promise<TestRunResult> {
   put(name, PRELUDE + source);
-  return runTests(config, { paths: [name], world, timeoutMs: 60000 }, 1);
+  return runTests(
+    config,
+    { paths: [name], world: on1182(world), timeoutMs: 60000 },
+    1,
+  );
 }
 
 function expectAllPassed(result: TestRunResult): void {
@@ -78,7 +90,7 @@ async function withSession(
   timeoutMs = 10000,
 ): Promise<void> {
   const manager = new SessionManager(config);
-  const s = manager.create([], 1, w);
+  const s = manager.create([], 1, on1182(w));
   try {
     await s.handle.session.waitForText(">", 0, 20000);
     await run(async (c) => {
@@ -1547,7 +1559,7 @@ print(tostring(e))
 print("DONE")
 `,
       );
-      const s = manager.create([], 1, reactorWorld());
+      const s = manager.create([], 1, on1182(reactorWorld()));
       try {
         const term = s.handle.session;
         await term.waitForText(">", 0, 20000);
@@ -2768,6 +2780,7 @@ end)
   it("pipes fill it; a chemical is refused while it holds a fluid; unforming drops the multiblock's methods", async () => {
     const manager = new SessionManager(config);
     const s = manager.create([], 1, {
+      version: "1.18.2",
       peripherals: [{ name: "v", type: "dynamicValve", multiblock: "tank" }],
       mekanism: {
         multiblocks: {

@@ -42,7 +42,9 @@ return function(core, Q)
   local SLOT_LIMIT = 64 -- BasicInventorySlot.DEFAULT_LIMIT
   local EJECT_DELAY = 10 -- TileComponentEjector.outputItems: tickDelay = 10
 
-  local TRANSMISSIONS = { "ITEM", "FLUID", "GAS", "INFUSION", "PIGMENT", "SLURRY", "ENERGY", "HEAT" }
+  -- 10.7 (1.21.1): one CHEMICAL type and one chemical buffer where 10.2 / 10.4 have gas, infusion, pigment, slurry
+  local TRANSMISSIONS = J.V21 and { "ITEM", "FLUID", "CHEMICAL", "ENERGY", "HEAT" }
+    or { "ITEM", "FLUID", "GAS", "INFUSION", "PIGMENT", "SLURRY", "ENERGY", "HEAT" }
   local SIDES = { "FRONT", "LEFT", "RIGHT", "BACK", "TOP", "BOTTOM" }
   local DIRECTIONS = { "DOWN", "UP", "NORTH", "SOUTH", "WEST", "EAST" } -- Direction ordinal order (EnumSet order)
   local DATA_ORDER = J.ENUMS.DataType
@@ -92,6 +94,13 @@ return function(core, Q)
       pigment = stackSpec(spec.pigment, CHEMICAL_BUFFER), slurry = stackSpec(spec.slurry, CHEMICAL_BUFFER),
       energy = math.min(tonumber(spec.energy) or 0, ENERGY_BUFFER), temperature = tonumber(spec.temperature) or 300,
     }
+    if J.V21 then
+      -- one chemical tank: `chemical`, else the first of the old four the fixture names
+      f.chemical = stackSpec(spec.chemical or spec.gas or spec.infuseType or spec.infusion or spec.pigment or spec.slurry,
+        CHEMICAL_BUFFER)
+      f.gas, f.infusion, f.pigment, f.slurry = nil, nil, nil, nil
+      f.energy = math.floor(f.energy) -- a long of joules
+    end
     if spec.item and spec.item.name then
       local ty = Q.typeOf(spec.item)
       local count = math.min(spec.item.count or 1, math.min(SLOT_LIMIT, ty.maxCount))
@@ -283,12 +292,12 @@ return function(core, Q)
     hasFrequency = { {}, function(b) return ret(validFrequency(b) ~= nil) end },
     getFrequencies = { {}, function()
       local out = {}
-      for _, f in ipairs(frequencies) do if f.public then out[#out + 1] = { key = f.name, public = true } end end
+      for _, f in ipairs(frequencies) do if f.public then out[#out + 1] = J.frequency(f.name, true, f.owner) end end
       return ret(out)
     end },
     getFrequency = { {}, function(b)
       local f = frequencyOf(b)
-      return ret({ key = f.name, public = f.public })
+      return ret(J.frequency(f.name, f.public, f.owner))
     end },
     setFrequency = { { "String" }, function(b, name)
       Q.requirePublic(b)
@@ -332,7 +341,11 @@ return function(core, Q)
     getOwnerName = { {}, function(b) return ret(b.ownerName) end },
     getSecurityMode = { {}, function(b) return ret(b.security) end },
     -- TileComponentConfig
-    getConfigurableTypes = { {}, function() return ret({ "ITEM", "FLUID", "GAS", "INFUSION", "PIGMENT", "SLURRY", "ENERGY", "HEAT" }) end },
+    getConfigurableTypes = { {}, function()
+      local out = {}
+      for i, t in ipairs(TRANSMISSIONS) do out[i] = t end
+      return ret(out)
+    end },
     canEject = { { "TransmissionType" }, function(b, t) return ret(supported(b, t).canEject) end },
     isEjecting = { { "TransmissionType" }, function(b, t) return ret(supported(b, t).ejecting) end },
     setEjecting = { { "TransmissionType", "boolean" }, function(b, t, ejecting)
@@ -453,10 +466,14 @@ return function(core, Q)
     end }
   end
   tankMethods("Fluid", "fluid", FLUID_BUFFER, fluidToLua)
-  tankMethods("Gas", "gas", CHEMICAL_BUFFER, chemicalToLua)
-  tankMethods("InfuseType", "infusion", CHEMICAL_BUFFER, chemicalToLua)
-  tankMethods("Pigment", "pigment", CHEMICAL_BUFFER, chemicalToLua)
-  tankMethods("Slurry", "slurry", CHEMICAL_BUFFER, chemicalToLua)
+  if J.V21 then
+    tankMethods("Chemical", "chemical", CHEMICAL_BUFFER, chemicalToLua) -- 10.7 getBufferChemical*
+  else
+    tankMethods("Gas", "gas", CHEMICAL_BUFFER, chemicalToLua)
+    tankMethods("InfuseType", "infusion", CHEMICAL_BUFFER, chemicalToLua)
+    tankMethods("Pigment", "pigment", CHEMICAL_BUFFER, chemicalToLua)
+    tankMethods("Slurry", "slurry", CHEMICAL_BUFFER, chemicalToLua)
+  end
 
   --- What CC's pushItems/pullItems reach through MekanismPeripheral.getTarget(): getCapability(ITEM_HANDLER) with no
   --- side. Without a frequency there are no slots, so no handler; with one, the read-only proxy (one slot that
@@ -493,7 +510,7 @@ return function(core, Q)
       out.frequencies[#out.frequencies + 1] = {
         name = f.name, public = f.public,
         item = f.item and Q.stackToLua(f.item.type, f.item.count) or nil,
-        fluid = f.fluid, gas = f.gas, infuseType = f.infusion, pigment = f.pigment, slurry = f.slurry,
+        fluid = f.fluid, gas = f.gas, infuseType = f.infusion, pigment = f.pigment, slurry = f.slurry, chemical = f.chemical,
         energy = f.energy, temperature = f.temperature,
       }
     end

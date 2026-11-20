@@ -6,6 +6,10 @@ Extreme Reactors is **not in the pack**. The emulator follows the latest Forge 1
 `github.com/ZeroNoRyouki/ZeroCore2` tag `1.18.2-2.1.39`. Method names, type names and messages were checked in both
 jars with `javap`. CC:Tweaked behaviour comes from the pack's 1.101.3 jar.
 
+On Minecraft 1.20.1 the addon acts as **ExtremeReactors2 1.20.1-2.0.97** (ZeroCore2 1.20.1-2.1.48), on 1.21.1 as
+**1.21.1-2.4.28** (ZeroCore2 1.21.1-2.4.21). Everything below is 2.0.71 unless [Versions](#versions) at the end says
+otherwise; the Energizer (`BigReactors-Energizer`) exists only there.
+
 Nothing here could be measured in game, because the mod is not installed. Every number below is read from the
 source and has not been compared with a running reactor.
 
@@ -204,4 +208,73 @@ rotor speed and energy, flow, vent, inductor) and `addons["extreme-reactors"].ga
 - Turbine coils are a material count. The mod counts only coil blocks that sit validly around the rotor (and where
   they sit does not change the numbers); the emulator trusts the count. Blades and shafts are counts too.
 - Reactor overheating has no consequence in the mod either (`ReactorLogic.java:118-120` is a TODO).
-- The heat exchanger, fluidizer and reprocessor have no computer ports in this version.
+- The heat exchanger, fluidizer and reprocessor have no computer ports in any of the three releases.
+- A computer port only exists in the reinforced variant (`Content.Blocks` registers `reinforced_reactorcomputerport`
+  and `reinforced_turbinecomputerport` only, in all three releases), but the fixture's default variant is `basic`.
+  A basic machine with a port cannot be built in game; its numbers are still the basic variant's.
+
+## Versions
+
+| Minecraft | ExtremeReactors2 | ZeroCore2     | Jars                                                                                                                  |
+| --------- | ---------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 1.18.2    | 1.18.2-2.0.71    | 1.18.2-2.1.39 | Modrinth; sha1 `f23a8a13…` and `2caa5870…` match Modrinth's                                                           |
+| 1.20.1    | 1.20.1-2.0.97    | 1.20.1-2.1.48 | CurseForge files 7344727 (2578824 bytes) and 7344725 (1341342 bytes); `mods.toml` pins `[1.20.1-2.1.48,1.21-2.2.0)`   |
+| 1.21.1    | 1.21.1-2.4.28    | 1.21.1-2.4.21 | CurseForge files 7344744 (2554779 bytes) and 7344742 (1551013 bytes); `mods.toml` pins `[1.21.1-2.4.21,1.21.1-2.5.0)` |
+
+Method: every class of the three jars was decompiled with `javap -c -p -constants` and diffed with the constant-pool
+numbers stripped; the sources were read at tags `1.18.2-2.0.71`, `1.20.1-2.0.96` and `1.21.1-2.4.27` (the last two
+final releases are not tagged). The 2.0.96 → 2.0.97 and 2.4.27 → 2.4.28 jars were diffed too: only `MultiblockReactor`,
+`MultiblockTurbine`, `MultiBlockEnergizer` and client classes changed, and only to read block states through
+`WorldHelper.getLoadedBlockStateOrAir` (no unloaded chunks), so the tags' logic is the released logic.
+
+Unchanged on all three, with the evidence:
+
+- **ZeroCore's computer code** (`ZC/compat/computer/*`: argument checks, messages, `EMPTY_RESULT`, the server-thread
+  queue, the sorted method collection): 0 differing instructions between the 1.18.2 and 1.20.1 jars; 1.21.1 only
+  swaps `NonNullConsumer` for `Consumer`, NeoForge packages and Mojang names. `WideAmount` arithmetic is the same.
+- **The method lists and type strings** of the reactor and turbine ports (`BigReactors-Reactor`,
+  `BigReactors-Turbine`, the same 37 + 26 own methods: identical string constants in all three jars), so
+  `extreme-reactors-surface.json` holds for both machines on every version.
+- `ReactorLogic` (radiation, heat, fertility), `TurbineLogic`'s physics, `TurbineData`, `FuelRodsMap`'s order, `Heat`,
+  `FluidContainer`'s boiling and condensing, the fuels and their reactions, the turbine variants (apart from the
+  extraction rate below) and the coils.
+
+What changed (simulated: `NEW` = 1.20.1 and 1.21.1, `V121` = 1.21.1 in `init.lua`):
+
+| What                                      | 1.18.2 (2.0.71)                               | 1.20.1 (2.0.97)                                                                                                                                                                                                             | 1.21.1 (2.4.28)                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `getCoolantType()`, `getHotFluidType()`   | the registry name, `""` when empty            | the `Optional<String>` itself (the `.orElse("")` is gone); CC 1.121.0's `toValue` cannot convert it (`makeLuaObject` finds no methods) and logs "Received unknown type": always one `nil`                                   | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| `getControlRodLocation(i)`                | a `BlockPos`: `nil`                           | `{ x, y, z }`: the rod's position minus `getMinimumCoord()` (control rods sit in the top casing, so `y` is the outer height - 1)                                                                                            | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Reactor energy buffer                     | `partEnergyCapacity * parts`                  | `* powerProductionMultiplier * reactorPowerProductionMultiplier * the variant's energy efficiency` (basic `0.8f`: 1300000 becomes 1040000.0155)                                                                             | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Turbine energy buffer                     | `partEnergyCapacity * parts`                  | `* powerProductionMultiplier * turbinePowerProductionMultiplier`                                                                                                                                                            | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Reinforced reactor                        | efficiency `0.85f`, extracts 5,000,000 FE/t   | efficiency `1`, 50,000,000 FE/t (charger 25,000); solid and fluid fuel conversion 1                                                                                                                                         | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Reinforced turbine                        | extracts 5,000,000 FE/t                       | 50,000,000 FE/t (its efficiency 0.85 → 1 is not used by any formula)                                                                                                                                                        | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Basic reactor fuel conversion             | solid 0.5                                     | solid 1 (ingots into an access port; the fixture has no such port, not simulated)                                                                                                                                           | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Taking a machine apart (`erSetAssembled`) | switches it off                               | stays on (`onMachineDisassembled` has the lines commented out); a turbine's rotor still stops                                                                                                                               | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Last-tick stats                           | zeroed at the start of each tick              | the same                                                                                                                                                                                                                    | set when they happen and never zeroed: `getEnergyProducedLastTick`, `getHotFluidProducedLastTick`, `getFuelConsumedLastTick` (an idle or empty reactor keeps its last value), the turbine's `getEnergyProducedLastTick`, `getFluidFlowRate` and `getBladeEfficiency` (which only moves when there is excess steam) |
+| Moderators                                |                                               | adds Draconic `draconium`, `draconium_awakened`; Thermal Extra `dragonsteel`, `twinite`, `shellite`; Allthemodium `allthemodium`, `vibranium`, `unobtainium` and their `molten_` fluids; Thermal fluids `ender`, `redstone` | the same, under `c:` tags (`c:storage_blocks/gold`); both `forge:` and `c:` spellings are taken on every version                                                                                                                                                                                                   |
+| `BigReactors-Energizer`                   | does not exist (refused: `byVersion` `added`) | new: see below                                                                                                                                                                                                              | same as 1.20.1                                                                                                                                                                                                                                                                                                     |
+| Config ranges                             | power multipliers 0.5 to 100 / 10             | 0.005 to 100 (not checked by the emulator)                                                                                                                                                                                  | same                                                                                                                                                                                                                                                                                                               |
+
+### The Energizer (1.20.1 and 1.21.1)
+
+`ER/energizer/computer/EnergizerComputerPeripheral`, `MultiBlockEnergizer`, `variant/EnergizerVariant`, ZeroCore's
+`MeteredWideEnergyBuffer`. Type `BigReactors-Energizer`; the 9 common methods plus `getActive`, `setActive(bool)`
+(queued for the server tick), `getEnergyStored`, `getEnergyCapacity`, `getEnergyIoLastTick`,
+`getEnergyInsertedLastTick`, `getEnergyExtractedLastTick` (each also as `...AsText`), `getEnergyStats` and
+`getEnergyStatsAsText` (keys `energyStored`, `energyCapacity`, `energyIoLastTick`, `energyInsertedLastTick`,
+`energyExtractedLastTick`, `energySystem`). No `getVariant`.
+
+- Every interior block is a cell of `WideAmount.MAX_VALUE / 27000` = 683212743470724.1339 FE; the capacity is that
+  times the interior volume, as an unsigned long turned into a double (`mathUnsignedLongToDouble`). Outer size 3 to
+  32 a side.
+- Inactive: `insertEnergy` and `extractEnergy` give 0 and nothing is pushed out. Active: the output ports get the
+  stored energy (`distributeEnergyEqually`).
+- The meter counts what went in and out since the last controller tick; `getEnergyIoLastTick` is in minus out,
+  clamped at 0.
+
+Fixture: `{ "type": "BigReactors-Energizer", "dimensions": [5, 5, 5], "active": false, "energy": 0, "input": 0,
+"load": 0, "connected": true, "assembled": true, "position": [0, 0, 0] }` (`input`: FE a tick a generator pushes in;
+`load`: FE a tick the output ports take). Sim commands: `erSetInput {peripheral, rate}`, `erSetLoad`,
+`erDrainEnergy` (only while active, metered), `erSetActive`, `erSetAssembled`, `erSetConnected`. Not simulated: the
+charging port (items), a reactor or turbine feeding it directly, merging two energizers.

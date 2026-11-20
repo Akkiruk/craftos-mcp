@@ -4,6 +4,16 @@
 -- emulator answered when every method of every Create peripheral was called (docs/create.md).
 -- Do not edit: run probe-emulator.mjs and generate.mjs again.
 
+---Create: `Create_CreativeMotor`, as craftos-mcp emulates it.
+---@class create.CreativeMotor
+local CreativeMotor = {}
+
+---@return number
+function CreativeMotor.getGeneratedSpeed() end
+
+---@param speed number
+function CreativeMotor.setGeneratedSpeed(speed) end
+
 ---Create: `Create_DisplayLink`, as craftos-mcp emulates it.
 ---@class create.DisplayLink
 local DisplayLink = {}
@@ -35,6 +45,103 @@ function DisplayLink.update() end
 ---@param text string
 function DisplayLink.write(text) end
 
+---Create: `Create_Frogport`, `Create_Postbox`, as craftos-mcp emulates them.
+---@class create.Frogport
+local Frogport = {}
+
+---@return string
+function Frogport.getAddress() end
+
+---@return string
+function Frogport.getConfiguration() end
+
+---@param slot number
+---@return nil
+function Frogport.getItemDetail(slot) end
+
+---@return table
+function Frogport.list() end
+
+---@param a string
+function Frogport.setAddress(a) end
+
+---@param config string
+---@return any ...
+function Frogport.setConfiguration(config) end
+
+---@class create.Postbox: create.Frogport
+
+---Create: `Create_NixieTube`, as craftos-mcp emulates it.
+---@class create.NixieTube
+local NixieTube = {}
+
+---@param ... any
+function NixieTube.setSignal(...) end
+
+---@param arg1 string
+function NixieTube.setText(arg1) end
+
+---@param arg1 string
+---@return any ...
+function NixieTube.setTextColor(arg1) end
+
+---@param colour string
+---@return any ...
+function NixieTube.setTextColour(colour) end
+
+---Create: `Create_Packager`, `Create_Repackager`, as craftos-mcp emulates them.
+---@class create.Packager
+local Packager = {}
+
+---@return string
+function Packager.getAddress() end
+
+---@param slot number
+---@return nil
+function Packager.getItemDetail(slot) end
+
+---@return nil
+function Packager.getPackage() end
+
+---@return table
+function Packager.list() end
+
+---@return boolean
+function Packager.makePackage() end
+
+---@param a? any
+function Packager.setAddress(a) end
+
+---@class create.Repackager: create.Packager
+
+---Create: `Create_RedstoneRequester`, as craftos-mcp emulates it.
+---@class create.RedstoneRequester
+local RedstoneRequester = {}
+
+---@return string
+function RedstoneRequester.getAddress() end
+
+---@return string
+function RedstoneRequester.getConfiguration() end
+
+---@return table
+function RedstoneRequester.getRequest() end
+
+function RedstoneRequester.request() end
+
+---@param a string
+function RedstoneRequester.setAddress(a) end
+
+---@param config string
+---@return any ...
+function RedstoneRequester.setConfiguration(config) end
+
+---@param arg1 number
+function RedstoneRequester.setCraftingRequest(arg1) end
+
+---@param ... any
+function RedstoneRequester.setRequest(...) end
+
 ---Create: `Create_RotationSpeedController`, as craftos-mcp emulates it.
 ---@class create.RotationSpeedController
 local RotationSpeedController = {}
@@ -57,6 +164,27 @@ function SequencedGearshift.move(distance) end
 
 ---@param angle number
 function SequencedGearshift.rotate(angle) end
+
+---Create: `Create_Signal`, as craftos-mcp emulates it.
+---@class create.Signal
+local Signal = {}
+
+function Signal.cycleSignalType() end
+
+---@return string
+function Signal.getSignalType() end
+
+---@return string
+function Signal.getState() end
+
+---@return boolean
+function Signal.isForcedRed() end
+
+---@return table
+function Signal.listBlockingTrainNames() end
+
+---@param powered boolean
+function Signal.setForcedRed(powered) end
 
 ---Create: `Create_Speedometer`, as craftos-mcp emulates it.
 ---@class create.Speedometer
@@ -114,6 +242,48 @@ function Station.setStationName(name) end
 ---@return any ...
 function Station.setTrainName(name) end
 
+---Create: `Create_Sticker`, as craftos-mcp emulates it.
+---@class create.Sticker
+local Sticker = {}
+
+---@return boolean
+function Sticker.extend() end
+
+---@return boolean
+function Sticker.isAttachedToBlock() end
+
+---@return boolean
+function Sticker.isExtended() end
+
+---@return boolean
+function Sticker.retract() end
+
+---@return boolean
+function Sticker.toggle() end
+
+---Create: `Create_StockTicker`, as craftos-mcp emulates it.
+---@class create.StockTicker
+local StockTicker = {}
+
+---@param slot number
+---@return nil
+function StockTicker.getItemDetail(slot) end
+
+---@param slot number
+---@return any ...
+function StockTicker.getStockItemDetail(slot) end
+
+---@return table
+function StockTicker.list() end
+
+---@param arg1 string
+---@return number
+function StockTicker.requestFiltered(arg1) end
+
+---@param detailed? any
+---@return table
+function StockTicker.stock(detailed) end
+
 ---Create: `Create_Stressometer`, as craftos-mcp emulates it.
 ---@class create.Stressometer
 local Stressometer = {}
@@ -123,3 +293,47 @@ function Stressometer.getStress() end
 
 ---@return number
 function Stressometer.getStressCapacity() end
+
+---Create: `Create_TableClothShop`, as craftos-mcp emulates it.
+---@class create.TableClothShop
+local TableClothShop = {}
+
+---@return any ...
+function TableClothShop.getAddress() end
+
+---@return any ...
+function TableClothShop.getPriceTagCount() end
+
+---@return any ...
+function TableClothShop.getPriceTagItem() end
+
+---@return any ...
+function TableClothShop.getWares() end
+
+---@return boolean
+function TableClothShop.isShop() end
+
+---@param a string
+---@return any ...
+function TableClothShop.setAddress(a) end
+
+---@param n? any
+---@return any ...
+function TableClothShop.setPriceTagCount(n) end
+
+---@param name? any
+---@return any ...
+function TableClothShop.setPriceTagItem(name) end
+
+---@param ... any
+function TableClothShop.setWares(...) end
+
+---Create: `Create_TrainObserver`, as craftos-mcp emulates it.
+---@class create.TrainObserver
+local TrainObserver = {}
+
+---@return nil
+function TrainObserver.getPassingTrainName() end
+
+---@return boolean
+function TrainObserver.isTrainPassing() end

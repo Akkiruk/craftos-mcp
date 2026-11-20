@@ -198,8 +198,100 @@ test("peripherals of an addon that is off", () => {
     ["advanced-peripherals"],
     "the world file's addons",
   );
-  assert.deepEqual(codes(newer), ["addon-no-release"]);
-  assert.match(newer[0].message, /no release for Minecraft 1\.21\.1/);
+  // and Advanced Peripherals 0.7.62b names its blocks chat_box, me_bridge, player_detector there
+  assert.deepEqual(codes(newer), [
+    "type-renamed",
+    "type-renamed",
+    "type-renamed",
+    "addon-no-release",
+  ]);
+  assert.match(
+    newer[0].message,
+    /reports this peripheral as "chat_box", not "chatBox"/,
+  );
+  assert.match(newer[1].message, /"me_bridge"/);
+  assert.match(newer[2].message, /"player_detector"/);
+  assert.match(newer[3].message, /no release for Minecraft 1\.21\.1/);
   // a world's empty list switches everything off
   assert.equal(scan(src, "1.18.2", [], "the world file's addons").length, 4);
+});
+
+test("a type a mod renames or drops on the file's Minecraft version (addons.ts byVersion), on a made-up mod", () => {
+  const fake = {
+    newest: "1.21.1",
+    versions: [
+      { mc: "1.18.2", cc: "1.101.3" },
+      { mc: "1.21.1", cc: "1.121.0" },
+    ],
+    addons: [
+      {
+        id: "fake-mod",
+        name: "Fake Mod",
+        versions: { "1.18.2": "1.0", "1.21.1": "3.0" },
+        requires: [],
+        types: ["oldName", "gone", "fresh"],
+        byVersion: {
+          "1.21.1": {
+            rename: { oldName: "old_name" },
+            removed: ["gone"],
+            added: ["fresh"],
+            note: { gone: "replaced by redstone_relay" },
+          },
+        },
+      },
+    ],
+  };
+  const scanFake = (source, mc) =>
+    scanLua(source, {
+      data: fake,
+      mc,
+      addons: "",
+      addonsFrom: "craftos-mcp.addons",
+    });
+  // the old name on the version that renamed it, and the new name on the version before
+  const old = scanFake('local d = peripheral.find("oldName")', "1.21.1");
+  assert.deepEqual(codes(old), ["type-renamed"]);
+  assert.match(
+    old[0].message,
+    /On Minecraft 1\.21\.1, Fake Mod 3\.0 reports this peripheral as "old_name", not "oldName"/,
+  );
+  assert.deepEqual(
+    codes(scanFake('local d = peripheral.find("old_name")', "1.18.2")),
+    ["type-renamed"],
+  );
+  // the version's own name, or both names for a program that runs on several versions
+  assert.deepEqual(
+    scanFake('local d = peripheral.find("old_name")', "1.21.1"),
+    [],
+  );
+  assert.deepEqual(
+    scanFake('local d = peripheral.find("oldName")', "1.18.2"),
+    [],
+  );
+  assert.deepEqual(
+    scanFake(
+      'local d = peripheral.find("oldName") or peripheral.find("old_name")',
+      "1.21.1",
+    ),
+    [],
+  );
+  // gone there, or only on another version
+  const gone = scanFake('if peripheral.hasType(n, "gone") then end', "1.21.1");
+  assert.deepEqual(codes(gone), ["type-not-on-version"]);
+  assert.match(
+    gone[0].message,
+    /Fake Mod 3\.0 does not have on Minecraft 1\.21\.1 \(replaced by redstone_relay\)/,
+  );
+  assert.deepEqual(scanFake('peripheral.find("gone")', "1.18.2"), []);
+  assert.deepEqual(codes(scanFake('peripheral.find("fresh")', "1.18.2")), [
+    "type-not-on-version",
+  ]);
+  // the mod off: either name says so as before
+  const off = scanLua('peripheral.find("old_name")', {
+    data: fake,
+    mc: "1.21.1",
+    addons: "none",
+    addonsFrom: "craftos-mcp.addons",
+  });
+  assert.deepEqual(codes(off), ["addon-off"]);
 });

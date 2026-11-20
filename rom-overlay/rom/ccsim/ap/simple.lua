@@ -1,5 +1,7 @@
 -- ccsim ap/simple: playerDetector, chatBox, energyDetector, redstoneIntegrator, nbtStorage.
--- Behaviour follows AdvancedPeripherals 0.7.30r source (see ap/base.lua).
+-- Behaviour follows AdvancedPeripherals 0.7.30r source on 1.18.2, and the 0.7.48r (1.20.1) and 0.7.62b (1.21.1) tags
+-- for the detector and chat box there (newPlayerDetector, newChatBox; see ap/base.lua). The energy detector, redstone
+-- integrator and NBT storage did not change; 1.21.1 has no redstone integrator (ap/types.lua refuses it).
 return function(core, B)
   local F = {}
 
@@ -19,7 +21,191 @@ return function(core, B)
       and p.z >= math.min(a.z, b.z) and p.z < math.max(a.z, b.z)
   end
 
+  --- The player detector of 0.7.48r (1.20.1) and 0.7.62b (1.21.1): CoordUtil's block-centre ranges, every dimension
+  --- seen while the range is unlimited (the default), getPlayerPos with decimals and more fields.
+  local function newPlayerDetector(def)
+    local self = B.new(def)
+    local m = self.methods
+    local origin, dimension = pos(def), dimensionOf(def)
+    local maxRange = B.config.playerDetMaxRange
+
+    local function multiDimensional()
+      if not B.config.playerDetMultiDimensional then return false end
+      -- 0.7.48r also takes the old default (100000000) as unlimited; 0.7.62b only -1
+      if B.V20 then return maxRange == -1 or maxRange >= 100000000 end
+      return maxRange == -1
+    end
+
+    local function visible(p)
+      if not p.online then return false end
+      if B.V21 and not B.config.showSpectators and p.gamemode == "spectator" then return false end
+      return true
+    end
+
+    --- 0.7.48r: every player on the server, skipping other dimensions unless multi-dimensional.
+    --- 0.7.62b: the server's players when multi-dimensional, else the detector's level's.
+    local function players()
+      local out = {}
+      local multi = multiDimensional()
+      for _, p in ipairs(core.players) do
+        if visible(p) and (multi or p.dimension == dimension) then out[#out + 1] = p end
+      end
+      return out
+    end
+
+    --- PlayerList.getPlayerByName (any case), then 0.7.62b's own checks
+    local function byName(username)
+      local found
+      for _, p in ipairs(core.players) do
+        if p.online and p.name:lower() == username:lower() then found = p break end
+      end
+      if found == nil then
+        if not multiDimensional() then
+          -- the source reads player.level() of the null it got
+          error("Java Exception Thrown: java.lang.NullPointerException", 0)
+        end
+        return nil
+      end
+      if not multiDimensional() and found.dimension ~= dimension then return nil end
+      if B.V21 and not B.config.showSpectators and found.gamemode == "spectator" then return nil end
+      return found
+    end
+
+    local function blockPos(index, tbl)
+      tbl = B.table(index, tbl)
+      if type(tbl.x) ~= "number" or type(tbl.y) ~= "number" or type(tbl.z) ~= "number" then
+        error("Table should be block position table", 0)
+      end
+      local function int(v) return v < 0 and math.ceil(v) or math.floor(v) end -- Number.intValue
+      return { x = int(tbl.x), y = int(tbl.y), z = int(tbl.z) }
+    end
+
+    local function inRange(p, range) return B.inRange(origin, dimension, p, range, maxRange) end
+    local function inCubic(p, x, y, z) return B.inCubic(origin, dimension, p, x, y, z, maxRange) end
+    --- the box is the world's getNearbyPlayers (the detector's own level), after a Manhattan distance check
+    local function inCoords(p, a, b)
+      local d = math.abs(p.x - origin.x) + math.abs(p.z - origin.z)
+      if d > (maxRange ~= -1 and maxRange or 2147483647) then return false end
+      return p.dimension == dimension and inBox(p, a, b)
+    end
+
+    local function names(filter)
+      local out = {}
+      for _, p in ipairs(players()) do if filter(p) then out[#out + 1] = p.name end end
+      return out
+    end
+    local function any(filter)
+      for _, p in ipairs(players()) do if filter(p) then return true end end
+      return false
+    end
+
+    function m.getOnlinePlayers()
+      if B.V20 then -- the server's player names, whatever the dimension
+        local out = {}
+        for _, p in ipairs(core.players) do if p.online then out[#out + 1] = p.name end end
+        return out
+      end
+      return names(function() return true end)
+    end
+
+    function m.getPlayersInCoords(first, second)
+      local a, b = blockPos(1, first), blockPos(2, second)
+      return names(function(p) return inCoords(p, a, b) end)
+    end
+    function m.getPlayersInCubic(x, y, z)
+      x, y, z = B.int(1, x), B.int(2, y), B.int(3, z)
+      return names(function(p) return inCubic(p, x, y, z) end)
+    end
+    function m.getPlayersInRange(range)
+      range = B.int(1, range)
+      return names(function(p) return inRange(p, range) end)
+    end
+    function m.isPlayersInCoords(first, second)
+      local a, b = blockPos(1, first), blockPos(2, second)
+      return any(function(p) return inCoords(p, a, b) end)
+    end
+    function m.isPlayersInCubic(x, y, z)
+      x, y, z = B.int(1, x), B.int(2, y), B.int(3, z)
+      return any(function(p) return inCubic(p, x, y, z) end)
+    end
+    function m.isPlayersInRange(range)
+      range = B.int(1, range)
+      return any(function(p) return inRange(p, range) end)
+    end
+
+    -- 0.7.48r walks its list for an exact name; 0.7.62b asks the server by name, in any case
+    local function one(username, test)
+      if B.V21 then
+        local p = byName(username)
+        return p ~= nil and test(p)
+      end
+      return any(function(p) return test(p) and p.name == username end)
+    end
+    function m.isPlayerInCoords(first, second, username)
+      local a, b = blockPos(1, first), blockPos(2, second)
+      username = B.string(3, username)
+      return one(username, function(p) return inCoords(p, a, b) end)
+    end
+    function m.isPlayerInCubic(x, y, z, username)
+      x, y, z = B.int(1, x), B.int(2, y), B.int(3, z)
+      username = B.string(4, username)
+      return one(username, function(p) return inCubic(p, x, y, z) end)
+    end
+    function m.isPlayerInRange(range, username)
+      range = B.int(1, range)
+      username = B.string(2, username)
+      return one(username, function(p) return inRange(p, range) end)
+    end
+
+    function m.getPlayerPos(username, decimals)
+      if not B.config.enablePlayerPosFunction then
+        error("This function is disabled in the config. Activate it or ask an admin if he can activate it.", 0)
+      end
+      local found
+      if B.V21 then
+        found = byName(B.string(1, username))
+        if found == nil then return nil end
+        if maxRange ~= -1 and not inRange(found, maxRange) then return nil end
+      else
+        for _, p in ipairs(players()) do
+          if p.name == B.string(1, username) then -- read for each player, as the source does
+            if maxRange == -1 or inRange(p, maxRange) then found = p end
+            break
+          end
+        end
+        if not found then return {}, "PLAYER_NOT_FOUND" end
+      end
+      decimals = math.min(B.optInt(2, decimals, 0), 4)
+      local unit = 10 ^ decimals
+      local info = {
+        x = math.floor(found.x * unit) / unit,
+        y = math.floor(found.y * unit) / unit,
+        z = math.floor(found.z * unit) / unit,
+      }
+      if B.config.morePlayerInformation then
+        if B.V21 then info.uuid, info.name = found.uuid, found.name end
+        info.yaw, info.pitch = found.yaw, found.pitch
+        info.dimension = found.dimension
+        info.eyeHeight = 1.62
+        info.health, info.maxHealth = found.health or 20, found.maxHealth or 20
+        if B.V20 then info.maxHeatlh = info.maxHealth end -- 0.7.48r keeps the misspelt key too
+        info.airSupply = found.airSupply or 300
+        if type(found.respawnPosition) == "table" then
+          local r = found.respawnPosition
+          info.respawnPosition = { x = math.floor(r.x or 0), y = math.floor(r.y or 0), z = math.floor(r.z or 0) }
+        end
+        info.respawnDimension = found.respawnDimension or "minecraft:overworld"
+        info.respawnAngle = found.respawnAngle or 0
+      end
+      return info
+    end
+    m.getPlayer = m.getPlayerPos
+
+    return self
+  end
+
   function F.playerDetector(def)
+    if B.NEW then return newPlayerDetector(def) end
     local self = B.new(def)
     local m = self.methods
     local origin, dimension = pos(def), dimensionOf(def)
@@ -152,9 +338,206 @@ return function(core, B)
     return self
   end
 
+  -- Advanced Peripherals' own formatted messages: the message is a JSON text component (Component.Serializer). The
+  -- chat log keeps its plain text (text, translate or keybind of each part, then its extras), after the prefix.
+  local function componentText(c)
+    local kind = type(c)
+    if kind == "string" or kind == "number" or kind == "boolean" then return tostring(c) end
+    if kind ~= "table" then return nil end
+    if c[1] ~= nil then
+      local parts = {}
+      for i, part in ipairs(c) do
+        parts[i] = componentText(part)
+        if parts[i] == nil then return nil end
+      end
+      return table.concat(parts)
+    end
+    local text = c.text or c.translate or c.keybind
+    if text == nil then return nil end
+    local parts = { tostring(text) }
+    if type(c.extra) == "table" then
+      for _, part in ipairs(c.extra) do
+        local t = componentText(part)
+        if t == nil then return nil end
+        parts[#parts + 1] = t
+      end
+    end
+    return table.concat(parts)
+  end
+
+  --- The component's text, or nil, "incorrect json" when it parses to no component (as fromJson's null)
+  local function parseComponent(json)
+    local ok, value = pcall(textutils.unserializeJSON, json)
+    if not ok or value == nil then return nil end
+    return componentText(value)
+  end
+
   -- ===== chatBox =====
 
+  --- The chat box of 0.7.48r (1.20.1) and 0.7.62b (1.21.1): every method takes a range (CoordUtil's block-centre
+  --- range, -1 everyone), "&" codes in the prefix and bracket colour, a UTF-8 flag, toasts; 0.7.62b limits the length.
+  local function newChatBox(def)
+    local self = B.new(def)
+    local m = self.methods
+    local origin, dimension = pos(def), dimensionOf(def)
+    local cooldown = B.config.chatMessageCooldown
+    B.addOperation(self, "chatMessage", {
+      name = "chatMessage", type = "SimpleFreeOperation", cooldown = cooldown,
+    })
+    local BRACKET_ERROR = "incorrect bracket string (e.g. [], {}, <>, ...)"
+
+    local function lookup(nameOrUuid)
+      local p
+      if nameOrUuid:match("^%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$") then
+        p = core.byUuid[nameOrUuid:lower()]
+      else
+        p = core.byName[nameOrUuid:lower()]
+      end
+      return p and p.online and p or nil
+    end
+
+    --- appendPrefix: <colour><open>§r<prefix><colour><close>§r <message>; an empty prefix is the default one
+    local function compose(text, prefix, brackets, color)
+      prefix = B.andToSection(prefix or B.config.defaultChatBoxPrefix)
+      if prefix == "" then prefix = B.config.defaultChatBoxPrefix end
+      local first = prefix:sub(1, 1)
+      if first == "{" or first == "[" or first == '"' then
+        local parsed = parseComponent(prefix)
+        if parsed ~= nil then prefix = parsed end
+      end
+      if brackets == nil or brackets == "" then brackets = "[]" end
+      color = B.andToSection(color or "")
+      return color .. brackets:sub(1, 1) .. "\167r" .. prefix .. color .. brackets:sub(2, 2) .. "\167r " .. text
+    end
+
+    local function tooLong(message) return B.V21 and #message > B.config.chatBoxMessageSize end
+
+    local function reaches(p, range)
+      if not B.config.chatBoxMultiDimensional and p.dimension ~= dimension then return false end
+      return B.inRange(origin, dimension, p, range, B.config.chatBoxMaxRange)
+    end
+
+    local function deliver(player, text, extra)
+      local entry = { to = player.name, text = text, time = core.instant(), kind = "chatBox", from = def.name }
+      for k, v in pairs(extra or {}) do entry[k] = v end
+      core.chat[#core.chat + 1] = entry
+    end
+
+    local function broadcast(text, range)
+      for _, p in ipairs(core.players) do
+        if p.online and reaches(p, range) then deliver(p, text) end
+      end
+      core.save()
+      return true
+    end
+
+    -- 0 message, 1 prefix, 2 brackets, 3 color, 4 range, 5 utf8
+    local function toAll(formatted)
+      return function(message, prefix, brackets, color, range, utf8)
+        return B.perform(self, "chatMessage", cooldown, nil, function()
+          B.optBoolean(6, utf8, false)
+          message = B.string(1, message)
+          if tooLong(message) then return nil, "Message is too long" end
+          range = B.optInt(5, range, -1)
+          local text = message
+          if formatted then
+            text = parseComponent(message)
+            if text == nil then return nil, "incorrect json" end
+          end
+          brackets = B.optString(3, brackets)
+          if brackets ~= nil and #brackets ~= 2 then return nil, BRACKET_ERROR end
+          prefix = B.optString(2, prefix)
+          color = B.optString(4, color, "")
+          return broadcast(compose(text, prefix, brackets, color), range)
+        end)
+      end
+    end
+    m.sendMessage = toAll(false)
+    m.sendFormattedMessage = toAll(true)
+
+    -- 0 message, 1 player, 2 prefix, 3 brackets, 4 color, 5 range, 6 utf8 (0.7.62b reads its formatted form's flag
+    -- from 5, the range's place)
+    local function toPlayer(formatted)
+      return function(message, username, prefix, brackets, color, range, utf8)
+        return B.perform(self, "chatMessage", cooldown, nil, function()
+          if formatted and B.V21 then B.optBoolean(6, range, false) else B.optBoolean(7, utf8, false) end
+          message = B.string(1, message)
+          if tooLong(message) then return nil, "Message is too long" end
+          username = B.string(2, username)
+          range = B.optInt(6, range, -1)
+          local player = lookup(username)
+          if not player then return nil, "incorrect player name/uuid" end
+          local text = message
+          if formatted then
+            text = parseComponent(message)
+            if text == nil then return nil, "incorrect json" end
+          end
+          brackets = B.optString(4, brackets)
+          if brackets ~= nil and #brackets ~= 2 then return nil, BRACKET_ERROR end
+          prefix = B.optString(3, prefix)
+          color = B.optString(5, color, "")
+          local line = compose(text, prefix, brackets, color)
+          if not B.config.chatBoxMultiDimensional and player.dimension ~= dimension then
+            return false, "NOT_SAME_DIMENSION"
+          end
+          if B.inRange(origin, dimension, player, range, B.config.chatBoxMaxRange) then
+            deliver(player, line)
+            core.save()
+          end
+          return true
+        end)
+      end
+    end
+    m.sendMessageToPlayer = toPlayer(false)
+    m.sendFormattedMessageToPlayer = toPlayer(true)
+
+    -- 0 message, 1 title, 2 player, 3 prefix, 4 brackets, 5 color, 6 range, 7 utf8. The toast is kept in the chat
+    -- log with kind "toast" and its title.
+    local function toast(formatted)
+      return function(message, title, username, prefix, brackets, color, range, utf8)
+        return B.perform(self, "chatMessage", cooldown, nil, function()
+          B.optBoolean(8, utf8, false)
+          message = B.string(1, message)
+          if tooLong(message) then return nil, "Message is too long" end
+          title = B.string(2, title)
+          username = B.string(3, username)
+          range = B.optInt(7, range, -1)
+          local player = lookup(username)
+          if not player then return nil, "incorrect player name/uuid" end
+          local text, heading = message, title
+          if formatted then
+            text = parseComponent(message)
+            if text == nil then return nil, "incorrect json for message" end
+            heading = parseComponent(title)
+            if heading == nil then return nil, "incorrect json for title" end
+          end
+          brackets = B.optString(5, brackets)
+          if brackets ~= nil and #brackets ~= 2 then
+            -- the formatted toast's message has its own typo
+            return nil, formatted and "incorrect bracket string (e.g. [], {}, <>, ,,,)" or BRACKET_ERROR
+          end
+          prefix = B.optString(4, prefix)
+          color = B.optString(6, color, "")
+          local line = compose(text, prefix, brackets, color)
+          if not B.config.chatBoxMultiDimensional and player.dimension ~= dimension then
+            return false, "NOT_SAME_DIMENSION"
+          end
+          if B.inRange(origin, dimension, player, range, B.config.chatBoxMaxRange) then
+            deliver(player, line, { kind = "toast", title = heading })
+            core.save()
+          end
+          return true
+        end)
+      end
+    end
+    m.sendToastToPlayer = toast(false)
+    m.sendFormattedToastToPlayer = toast(true)
+
+    return self
+  end
+
   function F.chatBox(def)
+    if B.NEW then return newChatBox(def) end
     local self = B.new(def)
     local m = self.methods
     local origin, dimension = pos(def), dimensionOf(def)
@@ -253,40 +636,6 @@ return function(core, B)
         return nil, "sendFormattedMessageToPlayer is disabled on this server for security"
       end
       return self
-    end
-
-    -- Advanced Peripherals' own formatted messages: the message is a JSON text component (Component.Serializer). The
-    -- chat log keeps its plain text (text, translate or keybind of each part, then its extras), after the prefix.
-    local function componentText(c)
-      local kind = type(c)
-      if kind == "string" or kind == "number" or kind == "boolean" then return tostring(c) end
-      if kind ~= "table" then return nil end
-      if c[1] ~= nil then
-        local parts = {}
-        for i, part in ipairs(c) do
-          parts[i] = componentText(part)
-          if parts[i] == nil then return nil end
-        end
-        return table.concat(parts)
-      end
-      local text = c.text or c.translate or c.keybind
-      if text == nil then return nil end
-      local parts = { tostring(text) }
-      if type(c.extra) == "table" then
-        for _, part in ipairs(c.extra) do
-          local t = componentText(part)
-          if t == nil then return nil end
-          parts[#parts + 1] = t
-        end
-      end
-      return table.concat(parts)
-    end
-
-    --- The component's text, or nil, "incorrect json" when it parses to no component (as fromJson's null)
-    local function parseComponent(json)
-      local ok, value = pcall(textutils.unserializeJSON, json)
-      if not ok or value == nil then return nil end
-      return componentText(value)
     end
 
     function m.sendFormattedMessage(json, prefix, brackets, bracketColor, range)
@@ -475,6 +824,33 @@ return function(core, B)
       end
       stored = parsed
       return true
+    end
+
+    if B.NEW then
+      -- 0.7.30r's writeTable throws IOException, so CC:Tweaked never offers it; from 0.7.48r it exists. The table is
+      -- stored as NBTUtil.toDirectNBT makes it: booleans become 1/0, keys strings, anything else dropped. The size
+      -- check is Java serialization's byte count, estimated here from the serialised table.
+      local function direct(v)
+        local t = type(v)
+        if t == "boolean" then return v and 1 or 0 end
+        if t == "number" or t == "string" then return v end
+        if t == "table" then
+          local out = {}
+          for k, x in pairs(v) do
+            local d = direct(x)
+            if d ~= nil then out[tostring(k)] = d end
+          end
+          return out
+        end
+        return nil
+      end
+      function m.writeTable(data)
+        data = B.table(1, data)
+        local ok, text = pcall(textutils.serialize, data, { compact = true })
+        if ok and #text > B.config.nbtStorageMaxSize then return nil, "JSON size is bigger than allowed" end
+        stored = direct(data)
+        return true
+      end
     end
 
     function self.state() return stored end

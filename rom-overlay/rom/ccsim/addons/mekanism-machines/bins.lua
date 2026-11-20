@@ -31,6 +31,11 @@ return function(E)
     B.newBlock(spec, mb, O)
     mb.item = B.stack(spec.item)
     if mb.item then mb.item.count = min(mb.item.count, mb.cap) end
+    -- 10.4+: `locked = true` locks it to its item (or `locked = "<item>"`)
+    if E.J.NEW and spec.locked and not mb.creative then
+      local name = type(spec.locked) == "string" and spec.locked or (mb.item and mb.item.name)
+      if name then mb.lock = { name = E.J.resourceLocation(name) or name, count = 1 } end
+    end
     mb.block.active = spec.active == true
     mb.delayTicks, mb.pushed = 0, 0
     mb.tanks = {}
@@ -72,13 +77,34 @@ return function(E)
 
   function K.state(mb)
     return B.state(mb, { item = mb.item and { name = mb.item.name, count = mb.item.count }, capacity = mb.cap,
-      pushed = mb.pushed })
+      pushed = mb.pushed, locked = mb.lock and mb.lock.name or nil })
   end
 
   local OWN = {
     getStored = { {}, function(c) return B.item(c.mb.item) end },
     getCapacity = { {}, function(c) return c.mb.cap end },
   }
+  if E.J.NEW then
+    -- 10.4+ TileEntityBin: the lock (BinInventorySlot.setLocked: not creative, not the same state, not empty to lock).
+    -- unlock() calls setLocked(true) in both 10.4.16 and 10.7.19, so a locked bin answers "This bin is not locked!"
+    -- and an unlocked one with items gets locked: kept as the jar does it.
+    local function setLocked(mb, lock)
+      if mb.creative or (mb.lock ~= nil) == lock or (lock and not mb.item) then return false end
+      mb.lock = lock and { name = mb.item.name, count = 1 } or nil
+      return true
+    end
+    OWN.isLocked = { {}, function(c) return c.mb.lock ~= nil end }
+    OWN.getLock = { {}, function(c) return B.item(c.mb.lock) end }
+    OWN.lock = E.void({}, function(c)
+      if c.mb.creative then E.J.computerError("Creative bins cannot be locked!") end
+      if not c.mb.item then E.J.computerError("Empty bins cannot be locked!") end
+      if not setLocked(c.mb, true) then E.J.computerError("This bin is already locked!") end
+    end)
+    OWN.unlock = E.void({}, function(c)
+      if c.mb.creative then E.J.computerError("Creative bins cannot be unlocked!") end
+      if not setLocked(c.mb, true) then E.J.computerError("This bin is not locked!") end
+    end)
+  end
 
   K.types = {}
   for tier in pairs(TIERS) do

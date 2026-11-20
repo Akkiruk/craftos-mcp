@@ -233,16 +233,19 @@ The agent runs them with `craftos_run` and `craftos_test`, the same as these com
   with `pushItems`, `pullItems`, `pushFluid` and levels that move over time.
 - **Peripherals from other mods**, written from each mod's source and checked against its jar, each one an addon
   you switch on only if your pack has it (see [Choose your mods](#choose-your-mods)):
-  - Advanced Peripherals 0.7.31r: player, energy and environment detectors, chat box, redstone integrator, NBT
-    storage, AR controller, ME and RS bridges.
-  - Mekanism 10.2.5: QIO, the Quantum Entangloporter, the boiler and induction matrix; with Mekanism Generators, the
-    fission reactor, turbine and fusion reactor, running tick by tick (a reactor left alone melts down).
-  - Create 0.5.1: train stations with schedules and trains on the clock, gauges, speed controllers, sequenced
-    gearshifts and the display link; Create Crafts & Additions 1.0.0's motor, accumulator, relay and digital adapter.
-  - Tom's Peripherals 1.2.1: the GPU with its full drawing API, pixel-exact and in screenshots, keyboard, redstone
-    port and watchdog.
-  - Bigger Reactors 0.6.0 and Extreme Reactors 2.0.71: reactors and turbines with their real heat, fuel and rotor
-    physics.
+  - Advanced Peripherals (0.7.31r, 0.7.48r, 0.7.62b): player, energy and environment detectors, chat box, redstone
+    integrator, NBT storage, AR controller, ME and RS bridges, each under the name and with the methods its version
+    has (`player_detector` on 1.21.1).
+  - Mekanism (10.2.5, 10.4.16, 10.7.19): QIO, the Quantum Entangloporter, the boiler and induction matrix; with
+    Mekanism Generators, the fission reactor, turbine and fusion reactor, running tick by tick (a reactor left alone
+    melts down). On 1.21.1, gases are chemicals, as in the game.
+  - Create (0.5.1, 6.0): train stations with schedules and trains on the clock, gauges, speed controllers, sequenced
+    gearshifts and the display link, plus Create 6's stock ticker, packager, frogport and postbox; Create Crafts &
+    Additions 1.0.0's motor, accumulator, relay and digital adapter.
+  - Tom's Peripherals: the GPU with its full drawing API, pixel-exact and in screenshots, keyboard, redstone port
+    and watchdog.
+  - Bigger Reactors and Extreme Reactors: reactors and turbines with their real heat, fuel and rotor physics, and
+    Extreme Reactors' energizer on 1.20.1 and 1.21.1.
   - Mobs with a computer in them (Minecraft 1.20.1): CC: Androids 1.3.0 androids that walk, mine, fight and carry;
     CC: Drones 0.0.1, CC: Drones+ 0.2.0 and AC-Drones alpha 7 drones that fly on the game's own physics. The
     computer is the mob, in the block world a turtle lives in.
@@ -716,11 +719,12 @@ The whole story: [Coming from CraftOS-PC](docs/coming-from-craftos-pc.md).
 | `1.20.1`           | 1.121.0    | CC itself and turtles (1.20.1 block data) as in 1.121.0                                |
 | `1.18.2`           | 1.101.3    | Complete: CC itself (Lua 5.1, no `goto`), turtles, modems and every 1.18.2 mod below   |
 
-Most mods act as their release for the version you pick (the table below gives it). Eight were written from their
-1.18.2 release and act as that one on every version: Advanced Peripherals, Mekanism, Mekanism Generators, Create,
-Create Crafts & Additions, Tom's Peripherals, Bigger Reactors and Extreme Reactors. On 1.21.1, say, Advanced
-Peripherals is 0.7.62b in the game but acts as 0.7.31r here; the app's mods list and `craftos-mcp info` say
-"acts as 0.7.31r" next to it.
+Every mod acts as its release for the version you pick (the table below gives it), read from that release's jar:
+on 1.21.1 Advanced Peripherals' detector is `player_detector`, not `playerDetector`, and Mekanism has chemicals
+instead of gases. A world may name a block either way; the program sees the name its version really reports, and a
+block its version doesn't have (the redstone integrator on 1.21.1) is refused with the reason. The one exception is
+Create Crafts & Additions, which acts as 1.0.0 on every version; the app's mods list and `craftos-mcp info` say
+"acts as 1.0.0" next to it.
 
 The default is the newest version there is. Pick another per world with `"version": "1.18.2"`, for the MCP server
 with `CRAFTOS_VERSION`, or on the command line with `--mc 1.18.2`; use the one your server runs. The npm package sets
@@ -745,14 +749,14 @@ a peripheral your server does not have. Set `CRAFTOS_ADDONS` for the MCP server,
 
 | Id                           | Mod                                                                        |
 | ---------------------------- | -------------------------------------------------------------------------- |
-| `advanced-peripherals`       | Advanced Peripherals 0.7.31r (on every version)                            |
-| `mekanism`                   | Mekanism 10.2.5 (on every version)                                         |
-| `mekanism-generators`        | Mekanism Generators 10.2.5 (on every version; needs `mekanism`)            |
-| `create`                     | Create 0.5.1.i (on every version)                                          |
+| `advanced-peripherals`       | Advanced Peripherals 0.7.31r (1.18.2), 0.7.48r (1.20.1), 0.7.62b (1.21.1)  |
+| `mekanism`                   | Mekanism 10.2.5 (1.18.2), 10.4.16 (1.20.1), 10.7.19 (1.21.1)               |
+| `mekanism-generators`        | Mekanism Generators, as Mekanism; needs `mekanism`                         |
+| `create`                     | Create 0.5.1.i (1.18.2), 6.0.8 (1.20.1), 6.0.10 (1.21.1)                   |
 | `create-additions`           | Create Crafts & Additions 1.0.0 (on every version; needs `create`)         |
-| `toms-peripherals`           | Tom's Peripherals 1.18.2-1.2.1 (on every version)                          |
-| `bigger-reactors`            | Bigger Reactors 1.18.2-0.6.0-beta.1.4 (1.18.2, 1.20.1)                     |
-| `extreme-reactors`           | Extreme Reactors 1.18.2-2.0.71 (on every version)                          |
+| `toms-peripherals`           | Tom's Peripherals 1.2.1 (1.18.2), 1.3.1 (1.20.1, 1.21.1)                   |
+| `bigger-reactors`            | Bigger Reactors 0.6.0-beta.1.4 (1.18.2), 0.6.0-beta.10.5 (1.20.1)          |
+| `extreme-reactors`           | Extreme Reactors 2.0.71 (1.18.2), 2.0.97 (1.20.1), 2.4.28 (1.21.1)         |
 | `unlimited-peripheral-works` | UnlimitedPeripheralWorks 1.9.2 (1.20.1, 1.21.1)                            |
 | `metaphysics`                | Metaphysics 0.0.6 (1.20.1)                                                 |
 | `some-peripherals`           | Some Peripherals 0.0.12 (1.18.2)                                           |
@@ -968,8 +972,10 @@ docs/          Architecture, security model, peripherals, turtles, conformance
 
 ## Known limits
 
-- Minecraft 1.18.2 is the complete one. On 1.20.1 and 1.21.1, eight big mods (Advanced Peripherals, Mekanism, Create
-  and others) still act as their 1.18.2 release (see [Choose your Minecraft version](#choose-your-minecraft-version)). Older versions (1.16.5, 1.12.2) are not supported.
+- Minecraft 1.18.2 is the most complete one; on 1.20.1 and 1.21.1 turtles still use older block data in places, and
+  Create Crafts & Additions acts as its 1.18.2 release (see [Choose your Minecraft version](#choose-your-minecraft-version)).
+  Create 6's package logistics records requests but does not pack or carry anything yet. Older versions (1.16.5,
+  1.12.2) are not supported.
 - Only the mods listed above are simulated, and each from its source: where a mechanic is too large to copy (Create's
   stress network and track graph, multiblock formation) it is a fixture instead. Each mod's doc ends with what is not
   simulated or not confirmed. Pocket computer upgrades and most of Advanced Peripherals' turtle upgrades are not

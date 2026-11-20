@@ -838,7 +838,20 @@ export interface BinSpec {
   active?: boolean;
   /** A block below takes whatever is pushed. @default false */
   below?: boolean;
+  /** 1.20.1+ (Mekanism 10.4): locked to its item (true) or to the item named. @default false */
+  locked?: boolean | string;
 }
+/** Mekanism radioactive waste barrel (1.20.1 and 1.21.1: computer support came with Mekanism 10.4). */
+export interface RadioactiveWasteBarrelSpec extends MekTileBase {
+  /** Stored chemical, mB of spent nuclear waste or `{ name, amount }` (at most 512,000). */
+  stored?: MekTankSpec;
+  /** false: the chemical is in mekanism:waste_barrel_decay_blacklist. Else 1 mB decays every 20 ticks. @default true */
+  decays?: boolean;
+}
+/** Mekanism industrial alarm (1.20.1 and 1.21.1). */
+export interface IndustrialAlarmSpec extends MekTileBase, MekRedstoneTile {}
+/** Mekanism personal chest, personal barrel or security desk (1.20.1 and 1.21.1): direction and security only. */
+export interface PersonalStorageSpec extends MekTileBase {}
 
 /** Mekanism electric machine (enrichment chamber, crusher, energized smelter). */
 export interface ElectricMachineSpec
@@ -1142,7 +1155,10 @@ export interface SeismicVibratorSpec
   extends MekTileBase,
     MekRedstoneTile,
     MekEnergyStore,
-    MekEnergySlot {}
+    MekEnergySlot {
+  /** 1.20.1+ getBlockAt / getColumnAt: "x,y,z" (chunk relative x and z, world y) to block id; the rest is air. */
+  seismicBlocks?: Record<string, string>;
+}
 /** Mekanism laser, laser amplifier or laser tractor beam. */
 export interface LaserSpec
   extends MekTileBase,
@@ -2082,6 +2098,116 @@ export interface CreateSequencedGearshiftSpec {
 /** Create train station. */
 export interface CreateStationSpec extends CreateStationFields {}
 
+// Create 6.0 only (1.20.1, 1.21.1): docs/create-versions.md
+
+/** An item in a Create 6.0 fixture; `package` makes it a package with that address and contents. */
+export interface CreateItemSpec extends ItemSpec {
+  /** A cardboard package: its address and up to 9 stacks. */
+  package?: {
+    /** The address it is sent to. @default "" */
+    address?: string;
+    /** Its contents, up to 9 stacks. */
+    items?: ItemSpec[];
+  };
+}
+/** Create creative motor (6.0): drives a network whose `source` names it. */
+export interface CreateCreativeMotorSpec {
+  /** Generated RPM at the start (whole, within ±maxRotationSpeed). @default 16 */
+  generatedSpeed?: number;
+}
+/** Create sticker (6.0). */
+export interface CreateStickerSpec {
+  /** Extended at the start. @default false */
+  extended?: boolean;
+  /** The block in front can take glue. @default true */
+  attached?: boolean;
+}
+/** Create train signal (6.0). */
+export interface CreateSignalSpec {
+  /** false: no signal boundary (INVALID, "no signal"). @default true */
+  signal?: boolean;
+  /** Entry or cross signal. @default "ENTRY_SIGNAL" */
+  signalType?: "ENTRY_SIGNAL" | "CROSS_SIGNAL";
+  /** State with no train in the section. @default "GREEN" */
+  clear?: "GREEN" | "YELLOW";
+  /** Names of the trains in the section behind it (RED). */
+  trains?: string[];
+  /** Redstone forces it red. @default false */
+  powered?: boolean;
+}
+/** Create train observer (6.0): trains pass with the createTrainPass command. */
+export interface CreateTrainObserverSpec {}
+/** Create nixie tube (6.0). */
+export interface CreateNixieTubeSpec {
+  /** Tubes in the row. @default 1 */
+  tubes?: number;
+  /** Text colour, a dye name. @default "orange" */
+  colour?: string;
+}
+/** Create frogport / postbox (6.0): 18 slots of packages. */
+export interface CreatePackagePortSpec {
+  /** Address filter. @default "" */
+  address?: string;
+  /** false: not connected (getConfiguration is nil). @default true */
+  target?: boolean;
+  /** Accepts packages ("send_recieve"), else "send". @default true */
+  accepts?: boolean;
+  /** Packages in its inventory. */
+  items?: CreateItemSpec[];
+}
+/** Create packager / repackager (6.0). */
+export interface CreatePackagerSpec {
+  /** A world inventory's name it faces; false: none; unset: its own (`items`, `size`). */
+  inventory?: string | false;
+  /** Its own inventory's items. */
+  items?: CreateItemSpec[];
+  /** Its own inventory's slots. @default 27 */
+  size?: number;
+  /** The address on a sign on it. @default "" */
+  address?: string;
+  /** On a stock link (packager only): makePackage does nothing. @default false */
+  linked?: boolean;
+  /** "none": nothing takes the box (createTakePackage does). @default "belt" */
+  output?: "belt" | "none";
+}
+/** Create logistics blocks that see a network's stock (6.0). */
+export interface CreateStockSpec {
+  /** create.stock key. @default "main" */
+  network?: string;
+  /** Its own stock instead. */
+  stock?: CreateItemSpec[];
+}
+/** Create stock ticker (6.0). */
+export interface CreateStockTickerSpec extends CreateStockSpec {
+  /** Its 27-slot payment inventory. */
+  payments?: CreateItemSpec[];
+}
+/** Create redstone requester (6.0). */
+export interface CreateRedstoneRequesterSpec extends CreateStockSpec {
+  /** Where the request is sent. @default "" */
+  address?: string;
+  /** Send what there is when the stock is short. @default false */
+  allowPartial?: boolean;
+  /** Up to 9 items. */
+  request?: ItemSpec[];
+}
+/** Create table cloth (6.0). */
+export interface CreateTableClothShopSpec {
+  /** What it sells: a shop when there are any. */
+  wares?: ItemSpec[];
+  /** Where bought wares are sent. @default "" */
+  address?: string;
+  /** The price. */
+  priceTag?: {
+    /** Item id. @default "minecraft:air" */
+    item?: string;
+    /** 1 to 100. @default 1 */
+    count?: number;
+  };
+  /** Items placed on it by hand (setWares refuses). */
+  items?: ItemSpec[];
+}
+
 /** Create settings: kinetic networks, stations without computers, trains. */
 export interface CreateWorld {
   /** Game tick at boot. @default 0 */
@@ -2100,6 +2226,8 @@ export interface CreateWorld {
   distances?: Record<string, number>;
   /** Trains, placed the first time anything looks. */
   trains?: CreateTrain[];
+  /** Create 6.0: logistics networks' stock by network id (Stock Ticker, Redstone Requester). */
+  stock?: Record<string, CreateItemSpec[]>;
 }
 
 // ===== Create Crafts & Additions =====
@@ -2544,6 +2672,28 @@ export interface ExtremeReactorsTurbineSpec {
   load?: number;
   /** Stored FE. @default 0 */
   energy?: number;
+  /** A controller is connected. @default true */
+  connected?: boolean;
+  /** Assembled. @default true */
+  assembled?: boolean;
+  /** Lowest corner, for the mbGet*Coordinate methods. @default [0,0,0] */
+  position?: ExtremeDimensions;
+}
+
+/** An Extreme Reactors Energizer (Minecraft 1.20.1 and 1.21.1 only): energy cells in a casing. */
+export interface ExtremeReactorsEnergizerSpec {
+  /** Outer size, 3x3x3 to 32x32x32; every interior block is a cell. @default [3,3,3] */
+  dimensions?: ExtremeDimensions;
+  /** Same as `dimensions`. */
+  size?: ExtremeDimensions;
+  /** On at the start; while off nothing goes in or out. @default false */
+  active?: boolean;
+  /** Stored FE. @default 0 */
+  energy?: number;
+  /** FE per tick a generator pushes in through an input power port. @default 0 */
+  input?: number;
+  /** FE per tick the output power ports push out. @default 0 */
+  load?: number;
   /** A controller is connected. @default true */
   connected?: boolean;
   /** Assembled. @default true */
@@ -5070,6 +5220,11 @@ export interface PeripheralTypeMap {
   modificationStation: ModificationStationSpec;
   dimensionalStabilizer: DimensionalStabilizerSpec;
   diversionTransporter: DiversionTransporterSpec;
+  radioactiveWasteBarrel: RadioactiveWasteBarrelSpec;
+  industrialAlarm: IndustrialAlarmSpec;
+  personalChest: PersonalStorageSpec;
+  personalBarrel: PersonalStorageSpec;
+  securityDesk: PersonalStorageSpec;
   basicEnergyCube: EnergyCubeSpec;
   advancedEnergyCube: EnergyCubeSpec;
   eliteEnergyCube: EnergyCubeSpec;
@@ -5157,6 +5312,18 @@ export interface PeripheralTypeMap {
   Create_RotationSpeedController: CreateRotationSpeedControllerSpec;
   Create_SequencedGearshift: CreateSequencedGearshiftSpec;
   Create_Station: CreateStationSpec;
+  Create_CreativeMotor: CreateCreativeMotorSpec;
+  Create_Frogport: CreatePackagePortSpec;
+  Create_Postbox: CreatePackagePortSpec;
+  Create_NixieTube: CreateNixieTubeSpec;
+  Create_Signal: CreateSignalSpec;
+  Create_StockTicker: CreateStockTickerSpec;
+  Create_Repackager: CreatePackagerSpec;
+  Create_Packager: CreatePackagerSpec;
+  Create_RedstoneRequester: CreateRedstoneRequesterSpec;
+  Create_TableClothShop: CreateTableClothShopSpec;
+  Create_Sticker: CreateStickerSpec;
+  Create_TrainObserver: CreateTrainObserverSpec;
   // Create Crafts & Additions (redstone_relay is above)
   electric_motor: ElectricMotorSpec;
   modular_accumulator: ModularAccumulatorSpec;
@@ -5172,6 +5339,7 @@ export interface PeripheralTypeMap {
   BiggerReactors_Turbine: BiggerReactorsTurbineSpec;
   "BigReactors-Reactor": ExtremeReactorsReactorSpec;
   "BigReactors-Turbine": ExtremeReactorsTurbineSpec;
+  "BigReactors-Energizer": ExtremeReactorsEnergizerSpec;
   // UnlimitedPeripheralWorks
   universal_scanner: UniversalScannerSpec;
   ultimate_sensor: UltimateSensorSpec;

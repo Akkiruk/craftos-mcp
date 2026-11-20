@@ -13,9 +13,11 @@ The addon id is `bigger-reactors`. The Lua is `rom-overlay/rom/ccsim/addons/bigg
 `packages/runner/src/bigger-reactors.integration.test.ts` (with an independent TypeScript port of the Java for the
 numbers). Method list: `packages/runner/src/bigger-reactors-surface.json`. Demo world: `worlds/bigger-reactors-demo.json`.
 
-The addon can be switched on for Minecraft 1.18.2 and 1.20.1 (where it names `1.20.1-0.6.0-beta.10.5`, the release a
-later round follows; the Lua is 1.18.2's). There is no Bigger Reactors for 1.21.1, so a 1.21.1 world cannot switch it
-on; give such a world `"version": "1.18.2"`.
+The addon can be switched on for Minecraft 1.18.2 and 1.20.1, and acts as each version's own release: 1.20.1 runs
+**biggerreactors-1.20.1-0.6.0-beta.10.5** with **phosphophyllite-1.20.1-0.7.0-alpha.0.2**. What differs is in
+[Versions](#versions) at the end; everything else below holds on both. There is no Bigger Reactors for 1.21.1 (none on
+CurseForge, the only host), so a 1.21.1 world cannot switch it on; give such a world `"version": "1.18.2"` or
+`"1.20.1"`.
 
 Paths below are relative to `src/main/java/net/roguelogix/biggerreactors/`. `R/` is `multiblocks/reactor/`, `T/` is
 `multiblocks/turbine/`.
@@ -205,7 +207,8 @@ handles invalid; rebuilding a turbine stops its rotor). `craftos_sim_state` has 
 ## Not simulated / not confirmed
 
 - **Nothing was measured in game.** The mod is not in the pack. All numbers come from reading the source.
-- The heat exchanger and its computer port (`BiggerReactors_HeatExchanger`) are not emulated.
+- The heat exchanger and its computer port (type `BiggerReactors_Heat-Exchanger`, `HeatExchangerPeripheral`) are not
+  emulated. Both releases have it, with the same methods (deviation 87).
 - The rod shuffle uses a seeded `java.util.Random`; the mod seeds it from the clock, so its order differs every load.
 - `Math.cos`/`Math.sin`/`Math.pow`/`Math.exp` may differ from C's by one unit in the last place, so the rays and the
   temperatures can differ in the last digits from a real server.
@@ -219,3 +222,50 @@ handles invalid; rebuilding a turbine stops its rotor). `craftos_sim_state` has 
 - Reactor `wasteOutlet` takes every whole ingot; a real inventory can fill up.
 - A very long `advance` with an active reactor catches up tick by tick; around 20 minutes of game time costs a few
   seconds.
+
+## Versions
+
+| Minecraft | Bigger Reactors          | Phosphophyllite | Jar (CurseForge file id, size)                                 |
+| --------- | ------------------------ | --------------- | -------------------------------------------------------------- |
+| 1.18.2    | 1.18.2-0.6.0-beta.1.4    | 0.6.0-beta.1.6  | 4385005, 1140737 bytes; Phosphophyllite 4380158, 1120843 bytes |
+| 1.20.1    | 1.20.1-0.6.0-beta.10.5   | 0.7.0-alpha.0.2 | 6085277, 1243943 bytes; Phosphophyllite 6085275, 455071 bytes  |
+| 1.21.1    | none (no release exists) |                 | the addon is refused (`versions.test.ts`)                      |
+
+Method: both jars of each version were decompiled with `javap -c -p -constants` and diffed class by class with the
+constant-pool numbers stripped; the source tags `0.6.0-beta.1.4` and `0.6.0-beta.10.5` (and Phosphophyllite's) were
+diffed the same way to read the changes, then checked against the 1.20.1 jar (its `Config$Turbine` constants, the new
+fields and the efficiency curve are there). The 1.20.1 jar's `mods.toml` pins Phosphophyllite to
+`[0.7.0-alpha.0.2, 0.7.0-alpha.1)`. `reactor2/` in the 1.20.1 jar is a new reactor that is not registered
+(`package-info` has `@IgnoreRegistration`), so it is not in the game.
+
+Unchanged, with the evidence:
+
+- **The computer API.** `ReactorPeripheral`, `TurbinePeripheral` and `HeatExchangerPeripheral` (and their inner
+  `Battery`, `CoolantTank`, `FuelTank`, `ControlRod`, `Rotor`, `FluidTank`, `Vent` classes) differ only where the port
+  to 1.20.1 renamed Forge and Phosphophyllite classes (`getRegistryName()` became `ForgeRegistries.FLUIDS.getKey()`,
+  which gives the same string; `MultiblockController.AssemblyState` became `IValidatedMultiblock.AssemblyState`). The
+  same type strings (`BiggerReactors_Reactor`, `BiggerReactors_Turbine`, `BiggerReactors_Heat-Exchanger`), methods,
+  argument checks, error strings (`Invalid multiblock controller`, `Invalid reactor state`, `Invalid control rod
+object`) and no `mainThread`. So `bigger-reactors-surface.json` holds for both, and there is no `byVersion`.
+- Phosphophyllite's `HeatBody` is byte-for-byte the same source. `Battery`, `FuelTank`, `SimUtil` (the rays),
+  `ReactorControlRodTile`, the turbine's `FluidTank`, the coils (`ebest/coils`) and the water transition are the same.
+- The controllers' tick order, the ports and the ejection of waste only moved to Phosphophyllite 0.7's new multiblock
+  interfaces.
+
+What changed on 1.20.1 (all simulated, `NEW` in `init.lua`; the tests run the reference port of each release):
+
+| What                           | 1.18.2 (0.6.0-beta.1.4)                                                                  | 1.20.1 (0.6.0-beta.10.5)                                                                                                                                                                                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiVersion()`                 | `"0.6.0-beta.1.4"`                                                                       | `"0.6.0-beta.10.5"` (`ModFileInfo.versionString()` of the jar)                                                                                                                                                                                                        |
+| Which rod and layer irradiate  | `currentRod++`; layer `currentRod % height`; offset +1 per full pass                     | layer goes 0, 1, ... height-1 one per tick; each tick the next rod; after each sweep of the layers the rod restarts at 0 and the offset moves by 1 (`TimeSlicedReactorSimulation.radiate`)                                                                            |
+| Fertility gain                 | `+= fuelRadAdded`                                                                        | `fuelRadAdded *= fuelRadScalingMultiplier (1.0) * PerFuelRodCapacity (4000) / max(1, fuel + waste)` first: a full reactor gains much less fertility per tick, a nearly empty one more                                                                                 |
+| Manifolds in a passive reactor | plain air (no tank to stand for)                                                         | `manifoldSignalingProperties`: air's numbers for the rays and the fuel heat path, but still manifolds for the surfaces: `fuelToManifoldSurfaceArea` counts them and `stackToCoolantSystemRFKT` adds their faces, so a passive reactor with manifolds makes more power |
+| Active coolant transition      | `toTransition = rf / latentHeat`, then `* multiplier`                                    | `rf / (latentHeat * multiplier)`; with the default `OutputMultiplier = ActiveOutputMultiplier = 1` the numbers are the same (not observable here: the emulator has no config for them)                                                                                |
+| Turbine drag                   | `FrictionDragMultiplier = AerodynamicDragMultiplier = 0.0001`                            | `0.0005` both (25 times the drag, as it is squared)                                                                                                                                                                                                                   |
+| Turbine coil efficiency        | `0.25 cos(rpm / (45.5 pi)) + 0.75`, at most 0.5 below 450 RPM, `1 - rpm/4490` above 2245 | `EffectiveGridFrequency = 30`, `EfficiencyPeaks = 2`: peak at 1800 RPM; 0.5 flat below `1800 / 2^1.5` (636 RPM); between, `-0.25 cos((1 - 2 log2(rpm/1800)) pi) + 0.75` (peaks at 900 and 1800); above 1800, `max(0, 1 - (rpm-1800)^2 / (8 * 30 * 1800))`             |
+| Moderators                     |                                                                                          | adds `moderators/thermal/destabilized_redstone` (fluid tag `forge:redstone`: 0.75, 0.55, 1.6, 2.5) and `resonant_ender` (`forge:ender`: 0.9, 0.75, 2.0, 2); the legend takes them as `destabilized_redstone` and `resonant_ender`                                     |
+| Merging two reactors           | the merged one is switched off                                                           | it stays on (`merge` no longer calls `setActive`): not simulated, the emulator has no merges                                                                                                                                                                          |
+| Validation messages            |                                                                                          | new keys (`multiblock.error.biggerreactors.reactor.dangling_rod` with a position, ...): not simulated, `brSetAssembled` has no reasons                                                                                                                                |
+| Uranium ore, raw uranium, JEI  |                                                                                          | new items and world generation: nothing a computer sees                                                                                                                                                                                                               |
+
+The heat exchanger port (deviation 87) exists on both with the same methods; it is still not emulated.

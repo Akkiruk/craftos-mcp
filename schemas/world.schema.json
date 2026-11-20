@@ -2723,6 +2723,18 @@
           "type": "boolean",
           "default": false
         },
+        "locked": {
+          "description": "1.20.1+ (Mekanism 10.4): locked to its item (true) or to the item named.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": false
+        },
         "name": {},
         "type": {},
         "x": {},
@@ -6274,6 +6286,24 @@
       },
       "additionalProperties": false
     },
+    "CreateCreativeMotorSpecFields": {
+      "description": "Create creative motor (6.0): drives a network whose `source` names it.",
+      "type": "object",
+      "properties": {
+        "generatedSpeed": {
+          "description": "Generated RPM at the start (whole, within ±maxRotationSpeed).",
+          "type": "number",
+          "default": 16
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
     "CreateDisplayBoardTarget": {
       "description": "A display board a Display Link writes to.",
       "type": "object",
@@ -6478,6 +6508,109 @@
       },
       "additionalProperties": false
     },
+    "CreateItemSpec": {
+      "description": "An item in a Create 6.0 fixture; `package` makes it a package with that address and contents.",
+      "type": "object",
+      "properties": {
+        "package": {
+          "description": "A cardboard package: its address and up to 9 stacks.",
+          "type": "object",
+          "properties": {
+            "address": {
+              "description": "The address it is sent to.",
+              "type": "string",
+              "default": ""
+            },
+            "items": {
+              "description": "Its contents, up to 9 stacks.",
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ItemSpec"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "name": {
+          "description": "Item id.",
+          "type": "string",
+          "examples": [
+            "minecraft:iron_ingot"
+          ]
+        },
+        "count": {
+          "description": "Stack size.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "nbt": {
+          "description": "The item's NBT: stacks merge only when name and nbt are equal; list() reports it."
+        },
+        "maxCount": {
+          "description": "Stack limit in a slot.",
+          "type": "number",
+          "default": 64
+        },
+        "displayName": {
+          "description": "getItemDetail's display name. Default: the registry name in title case.",
+          "type": "string"
+        },
+        "contents": {
+          "description": "vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.",
+          "markdownDescription": "vhcctweaks 2.2.37, a container item (a Sophisticated backpack, a shulker box, a vault barrel, or any item with `itemHandler`): inner slot (1-based) to item. Absent: empty (a backpack nobody opened). Not in getItemDetail.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/ItemSpec"
+          }
+        },
+        "containerSlots": {
+          "description": "2.2.37: the container's slot count. Default: backpacks by tier (27, 54, 81, 108, 120), shulker boxes 27, the wooden vault barrel 36, other vault barrels 45.",
+          "type": "number"
+        },
+        "itemHandler": {
+          "description": "2.2.37: another mod's bag with a Forge item handler: a container like a backpack (its nbt stays when its contents change).",
+          "type": "boolean"
+        },
+        "outputFilter": {
+          "description": "2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason.",
+          "markdownDescription": "2.2.37: a backpack's filter upgrade: only `allow` (when given) and never `deny` item ids may leave. A refused inner move moves 0 with no reason.",
+          "type": "object",
+          "properties": {
+            "allow": {
+              "description": "Item ids that may leave; when given, nothing else may.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deny": {
+              "description": "Item ids that may never leave.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "blockEntityTag": {
+          "description": "2.2.37: a shulker box's other BlockEntityTag keys: it keeps a tag (an nbt hash) once emptied.",
+          "type": "object"
+        },
+        "identifiesTo": {
+          "description": "2.2.37 identify: the vaultData the piece has once identified. Default: a seeded, plausible roll that keeps the level and rarity rules.",
+          "type": "object"
+        },
+        "identifiable": {
+          "description": "2.2.37 identify: false is an item Vault Hunters cannot identify even with a vaultData state.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "count"
+      ]
+    },
     "CreateLecternTarget": {
       "description": "A lectern a Display Link writes to.",
       "type": "object",
@@ -6569,6 +6702,29 @@
       },
       "additionalProperties": false
     },
+    "CreateNixieTubeSpecFields": {
+      "description": "Create nixie tube (6.0).",
+      "type": "object",
+      "properties": {
+        "tubes": {
+          "description": "Tubes in the row.",
+          "type": "number",
+          "default": 1
+        },
+        "colour": {
+          "description": "Text colour, a dye name.",
+          "type": "string",
+          "default": "orange"
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
     "CreateNixieTubeTarget": {
       "description": "Nixie tubes a Display Link writes to.",
       "type": "object",
@@ -6591,6 +6747,98 @@
       "required": [
         "type"
       ],
+      "additionalProperties": false
+    },
+    "CreatePackagePortSpecFields": {
+      "description": "Create frogport / postbox (6.0): 18 slots of packages.",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Address filter.",
+          "type": "string",
+          "default": ""
+        },
+        "target": {
+          "description": "false: not connected (getConfiguration is nil).",
+          "type": "boolean",
+          "default": true
+        },
+        "accepts": {
+          "description": "Accepts packages (\"send_recieve\"), else \"send\".",
+          "type": "boolean",
+          "default": true
+        },
+        "items": {
+          "description": "Packages in its inventory.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CreateItemSpec"
+          }
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
+    "CreatePackagerSpecFields": {
+      "description": "Create packager / repackager (6.0).",
+      "type": "object",
+      "properties": {
+        "inventory": {
+          "description": "A world inventory's name it faces; false: none; unset: its own (`items`, `size`).",
+          "markdownDescription": "A world inventory's name it faces; false: none; unset: its own (`items`, `size`).",
+          "anyOf": [
+            {
+              "enum": [
+                false
+              ]
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "items": {
+          "description": "Its own inventory's items.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CreateItemSpec"
+          }
+        },
+        "size": {
+          "description": "Its own inventory's slots.",
+          "type": "number",
+          "default": 27
+        },
+        "address": {
+          "description": "The address on a sign on it.",
+          "type": "string",
+          "default": ""
+        },
+        "linked": {
+          "description": "On a stock link (packager only): makePackage does nothing.",
+          "type": "boolean",
+          "default": false
+        },
+        "output": {
+          "description": "\"none\": nothing takes the box (createTakePackage does).",
+          "enum": [
+            "none",
+            "belt"
+          ],
+          "default": "belt"
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
       "additionalProperties": false
     },
     "CreatePendingAssembly": {
@@ -6616,6 +6864,48 @@
           "description": "Top speed, blocks/s.",
           "type": "number"
         }
+      },
+      "additionalProperties": false
+    },
+    "CreateRedstoneRequesterSpecFields": {
+      "description": "Create redstone requester (6.0).",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Where the request is sent.",
+          "type": "string",
+          "default": ""
+        },
+        "allowPartial": {
+          "description": "Send what there is when the stock is short.",
+          "type": "boolean",
+          "default": false
+        },
+        "request": {
+          "description": "Up to 9 items.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemSpec"
+          }
+        },
+        "network": {
+          "description": "create.stock key.",
+          "type": "string",
+          "default": "main"
+        },
+        "stock": {
+          "description": "Its own stock instead.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CreateItemSpec"
+          }
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
       },
       "additionalProperties": false
     },
@@ -6763,6 +7053,52 @@
       },
       "additionalProperties": false
     },
+    "CreateSignalSpecFields": {
+      "description": "Create train signal (6.0).",
+      "type": "object",
+      "properties": {
+        "signal": {
+          "description": "false: no signal boundary (INVALID, \"no signal\").",
+          "type": "boolean",
+          "default": true
+        },
+        "signalType": {
+          "description": "Entry or cross signal.",
+          "enum": [
+            "ENTRY_SIGNAL",
+            "CROSS_SIGNAL"
+          ],
+          "default": "ENTRY_SIGNAL"
+        },
+        "clear": {
+          "description": "State with no train in the section.",
+          "enum": [
+            "YELLOW",
+            "GREEN"
+          ],
+          "default": "GREEN"
+        },
+        "trains": {
+          "description": "Names of the trains in the section behind it (RED).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "powered": {
+          "description": "Redstone forces it red.",
+          "type": "boolean",
+          "default": false
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
     "CreateSignTarget": {
       "description": "A sign a Display Link writes to.",
       "type": "object",
@@ -6896,6 +7232,61 @@
       },
       "additionalProperties": false
     },
+    "CreateStickerSpecFields": {
+      "description": "Create sticker (6.0).",
+      "type": "object",
+      "properties": {
+        "extended": {
+          "description": "Extended at the start.",
+          "type": "boolean",
+          "default": false
+        },
+        "attached": {
+          "description": "The block in front can take glue.",
+          "type": "boolean",
+          "default": true
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
+    "CreateStockTickerSpecFields": {
+      "description": "Create stock ticker (6.0).",
+      "type": "object",
+      "properties": {
+        "payments": {
+          "description": "Its 27-slot payment inventory.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CreateItemSpec"
+          }
+        },
+        "network": {
+          "description": "create.stock key.",
+          "type": "string",
+          "default": "main"
+        },
+        "stock": {
+          "description": "Its own stock instead.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CreateItemSpec"
+          }
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
     "CreateStressometerSpecFields": {
       "description": "Create stressometer.",
       "type": "object",
@@ -6914,6 +7305,55 @@
           "description": "Fixed capacity, SU.",
           "type": "number",
           "default": 0
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
+    "CreateTableClothShopSpecFields": {
+      "description": "Create table cloth (6.0).",
+      "type": "object",
+      "properties": {
+        "wares": {
+          "description": "What it sells: a shop when there are any.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemSpec"
+          }
+        },
+        "address": {
+          "description": "Where bought wares are sent.",
+          "type": "string",
+          "default": ""
+        },
+        "priceTag": {
+          "description": "The price.",
+          "type": "object",
+          "properties": {
+            "item": {
+              "description": "Item id.",
+              "type": "string",
+              "default": "minecraft:air"
+            },
+            "count": {
+              "description": "1 to 100.",
+              "type": "number",
+              "default": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "items": {
+          "description": "Items placed on it by hand (setWares refuses).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ItemSpec"
+          }
         },
         "name": {},
         "type": {},
@@ -7047,6 +7487,19 @@
       },
       "additionalProperties": false
     },
+    "CreateTrainObserverSpecFields": {
+      "description": "Create train observer (6.0): trains pass with the createTrainPass command.",
+      "type": "object",
+      "properties": {
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
     "CreateWaitCondition": {
       "description": "A wait condition: create:delay / create:idle `{ value, time_unit }` (0 ticks, 1 seconds, 2 minutes), create:time_of_day `{ hour, minute, rotation? }`, create:item_threshold `{ threshold (a string), operator (0 more, 1 less, 2 equal), measure?, item? }`, create:fluid_threshold `{ threshold, operator, bucket? }`, create:redstone_link `{ frequency: [item, item], inverted? }`, create:player_count `{ count, exact? }`, create:unloaded, create:powered.",
       "type": "object",
@@ -7142,6 +7595,16 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/CreateTrain"
+          }
+        },
+        "stock": {
+          "description": "Create 6.0: logistics networks' stock by network id (Stock Ticker, Redstone Requester).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/CreateItemSpec"
+            }
           }
         }
       },
@@ -9106,6 +9569,14 @@
             }
           ]
         },
+        "chemical": {
+          "description": "1.21.1 (Mekanism 10.7): the one chemical buffer (default: the first of gas, infuseType, pigment, slurry).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/EntangloporterStack"
+            }
+          ]
+        },
         "energy": {
           "description": "Joules.",
           "type": "number"
@@ -9870,6 +10341,85 @@
           "type": "number",
           "default": 1
         }
+      },
+      "additionalProperties": false
+    },
+    "ExtremeReactorsEnergizerSpecFields": {
+      "description": "An Extreme Reactors Energizer (Minecraft 1.20.1 and 1.21.1 only): energy cells in a casing.",
+      "type": "object",
+      "properties": {
+        "dimensions": {
+          "description": "Outer size, 3x3x3 to 32x32x32; every interior block is a cell.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExtremeDimensions"
+            }
+          ],
+          "default": [
+            3,
+            3,
+            3
+          ]
+        },
+        "size": {
+          "description": "Same as `dimensions`.",
+          "markdownDescription": "Same as `dimensions`.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExtremeDimensions"
+            }
+          ]
+        },
+        "active": {
+          "description": "On at the start; while off nothing goes in or out.",
+          "type": "boolean",
+          "default": false
+        },
+        "energy": {
+          "description": "Stored FE.",
+          "type": "number",
+          "default": 0
+        },
+        "input": {
+          "description": "FE per tick a generator pushes in through an input power port.",
+          "type": "number",
+          "default": 0
+        },
+        "load": {
+          "description": "FE per tick the output power ports push out.",
+          "type": "number",
+          "default": 0
+        },
+        "connected": {
+          "description": "A controller is connected.",
+          "type": "boolean",
+          "default": true
+        },
+        "assembled": {
+          "description": "Assembled.",
+          "type": "boolean",
+          "default": true
+        },
+        "position": {
+          "description": "Lowest corner, for the mbGet*Coordinate methods.",
+          "markdownDescription": "Lowest corner, for the mbGet*Coordinate methods.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExtremeDimensions"
+            }
+          ],
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
       },
       "additionalProperties": false
     },
@@ -12723,6 +13273,77 @@
           "additionalProperties": false
         }
       ]
+    },
+    "IndustrialAlarmSpecFields": {
+      "description": "Mekanism industrial alarm (1.20.1 and 1.21.1).",
+      "type": "object",
+      "properties": {
+        "formed": {
+          "description": "false: the block starts unformed (only the tile's own methods).",
+          "type": "boolean",
+          "default": true
+        },
+        "facing": {
+          "description": "Facing, for getDirection.",
+          "enum": [
+            "north",
+            "south",
+            "east",
+            "west",
+            "up",
+            "down",
+            "NORTH",
+            "SOUTH",
+            "EAST",
+            "WEST",
+            "UP",
+            "DOWN"
+          ],
+          "default": "NORTH"
+        },
+        "security": {
+          "description": "Security mode; setters fail unless PUBLIC.",
+          "enum": [
+            "PUBLIC",
+            "PRIVATE",
+            "TRUSTED",
+            "public",
+            "private",
+            "trusted"
+          ],
+          "default": "PUBLIC"
+        },
+        "owner": {
+          "description": "Owner: a player name or UUID the world knows, or a raw UUID.",
+          "type": "string"
+        },
+        "redstoneMode": {
+          "description": "Redstone control (setRedstoneMode refuses PULSE).",
+          "enum": [
+            "DISABLED",
+            "HIGH",
+            "LOW",
+            "PULSE",
+            "disabled",
+            "high",
+            "low",
+            "pulse"
+          ],
+          "default": "DISABLED"
+        },
+        "powered": {
+          "description": "Redstone signal at the start (the mekSetRedstone command changes it).",
+          "type": "boolean",
+          "default": false
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
     },
     "InfusingFactorySpecFields": {
       "description": "Mekanism infusing factory.",
@@ -17719,6 +18340,11 @@
                 "modificationStation",
                 "dimensionalStabilizer",
                 "diversionTransporter",
+                "radioactiveWasteBarrel",
+                "industrialAlarm",
+                "personalChest",
+                "personalBarrel",
+                "securityDesk",
                 "basicEnergyCube",
                 "advancedEnergyCube",
                 "eliteEnergyCube",
@@ -17804,6 +18430,18 @@
                 "Create_RotationSpeedController",
                 "Create_SequencedGearshift",
                 "Create_Station",
+                "Create_CreativeMotor",
+                "Create_Frogport",
+                "Create_Postbox",
+                "Create_NixieTube",
+                "Create_Signal",
+                "Create_StockTicker",
+                "Create_Repackager",
+                "Create_Packager",
+                "Create_RedstoneRequester",
+                "Create_TableClothShop",
+                "Create_Sticker",
+                "Create_TrainObserver",
                 "electric_motor",
                 "modular_accumulator",
                 "portable_energy_interface",
@@ -17816,6 +18454,7 @@
                 "BiggerReactors_Turbine",
                 "BigReactors-Reactor",
                 "BigReactors-Turbine",
+                "BigReactors-Energizer",
                 "universal_scanner",
                 "ultimate_sensor",
                 "item_pedestal",
@@ -17985,6 +18624,11 @@
                 "Mekanism modification station. (Mekanism)",
                 "Mekanism dimensional stabilizer. (Mekanism)",
                 "Mekanism diversion transporter. (Mekanism)",
+                "Mekanism radioactive waste barrel (1.20.1 and 1.21.1: computer support came with Mekanism 10.4). (Mekanism)",
+                "Mekanism industrial alarm (1.20.1 and 1.21.1). (Mekanism)",
+                "Mekanism personal chest, personal barrel or security desk (1.20.1 and 1.21.1): direction and security only. (Mekanism)",
+                "Mekanism personal chest, personal barrel or security desk (1.20.1 and 1.21.1): direction and security only. (Mekanism)",
+                "Mekanism personal chest, personal barrel or security desk (1.20.1 and 1.21.1): direction and security only. (Mekanism)",
                 "Mekanism energy cube. (Mekanism)",
                 "Mekanism energy cube. (Mekanism)",
                 "Mekanism energy cube. (Mekanism)",
@@ -18070,6 +18714,18 @@
                 "Create rotation speed controller. (Create)",
                 "Create sequenced gearshift. (Create)",
                 "Create train station. (Create)",
+                "Create creative motor (6.0): drives a network whose `source` names it. (Create)",
+                "Create frogport / postbox (6.0): 18 slots of packages. (Create)",
+                "Create frogport / postbox (6.0): 18 slots of packages. (Create)",
+                "Create nixie tube (6.0). (Create)",
+                "Create train signal (6.0). (Create)",
+                "Create stock ticker (6.0). (Create)",
+                "Create packager / repackager (6.0). (Create)",
+                "Create packager / repackager (6.0). (Create)",
+                "Create redstone requester (6.0). (Create)",
+                "Create table cloth (6.0). (Create)",
+                "Create sticker (6.0). (Create)",
+                "Create train observer (6.0): trains pass with the createTrainPass command. (Create)",
                 "Create Crafts & Additions electric motor. (Create Crafts & Additions)",
                 "Create Crafts & Additions modular accumulator. (Create Crafts & Additions)",
                 "Create Crafts & Additions portable energy interface. (Create Crafts & Additions)",
@@ -18082,6 +18738,7 @@
                 "A Bigger Reactors turbine. (Bigger Reactors)",
                 "An Extreme Reactors reactor. (Extreme Reactors)",
                 "An Extreme Reactors turbine. (Extreme Reactors)",
+                "An Extreme Reactors Energizer (Minecraft 1.20.1 and 1.21.1 only): energy cells in a casing. (Extreme Reactors)",
                 "UnlimitedPeripheralWorks universal scanner. Its position is the scan centre. (UnlimitedPeripheralWorks)",
                 "UnlimitedPeripheralWorks ultimate sensor. Its `dimension` is what the dimension inspector reports. (UnlimitedPeripheralWorks)",
                 "UnlimitedPeripheralWorks item pedestal: a one-slot inventory. (UnlimitedPeripheralWorks)",
@@ -19427,6 +20084,81 @@
           "if": {
             "properties": {
               "type": {
+                "const": "radioactiveWasteBarrel"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/RadioactiveWasteBarrelSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "industrialAlarm"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/IndustrialAlarmSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "personalChest"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/PersonalStorageSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "personalBarrel"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/PersonalStorageSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "securityDesk"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/PersonalStorageSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "basicEnergyCube"
               }
             },
@@ -20702,6 +21434,186 @@
           "if": {
             "properties": {
               "type": {
+                "const": "Create_CreativeMotor"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateCreativeMotorSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_Frogport"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreatePackagePortSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_Postbox"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreatePackagePortSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_NixieTube"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateNixieTubeSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_Signal"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateSignalSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_StockTicker"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateStockTickerSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_Repackager"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreatePackagerSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_Packager"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreatePackagerSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_RedstoneRequester"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateRedstoneRequesterSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_TableClothShop"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateTableClothShopSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_Sticker"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateStickerSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Create_TrainObserver"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/CreateTrainObserverSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "electric_motor"
               }
             },
@@ -20876,6 +21788,21 @@
           },
           "then": {
             "$ref": "#/definitions/ExtremeReactorsTurbineSpecFields"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "BigReactors-Energizer"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "$ref": "#/definitions/ExtremeReactorsEnergizerSpecFields"
           }
         },
         {
@@ -22241,6 +23168,11 @@
                     "modificationStation",
                     "dimensionalStabilizer",
                     "diversionTransporter",
+                    "radioactiveWasteBarrel",
+                    "industrialAlarm",
+                    "personalChest",
+                    "personalBarrel",
+                    "securityDesk",
                     "basicEnergyCube",
                     "advancedEnergyCube",
                     "eliteEnergyCube",
@@ -22326,6 +23258,18 @@
                     "Create_RotationSpeedController",
                     "Create_SequencedGearshift",
                     "Create_Station",
+                    "Create_CreativeMotor",
+                    "Create_Frogport",
+                    "Create_Postbox",
+                    "Create_NixieTube",
+                    "Create_Signal",
+                    "Create_StockTicker",
+                    "Create_Repackager",
+                    "Create_Packager",
+                    "Create_RedstoneRequester",
+                    "Create_TableClothShop",
+                    "Create_Sticker",
+                    "Create_TrainObserver",
                     "electric_motor",
                     "modular_accumulator",
                     "portable_energy_interface",
@@ -22338,6 +23282,7 @@
                     "BiggerReactors_Turbine",
                     "BigReactors-Reactor",
                     "BigReactors-Turbine",
+                    "BigReactors-Energizer",
                     "universal_scanner",
                     "ultimate_sensor",
                     "item_pedestal",
@@ -22490,6 +23435,58 @@
         }
       ]
     },
+    "PersonalStorageSpecFields": {
+      "description": "Mekanism personal chest, personal barrel or security desk (1.20.1 and 1.21.1): direction and security only.",
+      "type": "object",
+      "properties": {
+        "formed": {
+          "description": "false: the block starts unformed (only the tile's own methods).",
+          "type": "boolean",
+          "default": true
+        },
+        "facing": {
+          "description": "Facing, for getDirection.",
+          "enum": [
+            "north",
+            "south",
+            "east",
+            "west",
+            "up",
+            "down",
+            "NORTH",
+            "SOUTH",
+            "EAST",
+            "WEST",
+            "UP",
+            "DOWN"
+          ],
+          "default": "NORTH"
+        },
+        "security": {
+          "description": "Security mode; setters fail unless PUBLIC.",
+          "enum": [
+            "PUBLIC",
+            "PRIVATE",
+            "TRUSTED",
+            "public",
+            "private",
+            "trusted"
+          ],
+          "default": "PUBLIC"
+        },
+        "owner": {
+          "description": "Owner: a player name or UUID the world knows, or a raw UUID.",
+          "type": "string"
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
+    },
     "PipeSpecFields": {
       "description": "Mekanism mechanical pipe or pressurized tube.",
       "type": "object",
@@ -22621,6 +23618,42 @@
         },
         "maxHealth": {
           "description": "Most health points. Default 20.",
+          "type": "number"
+        },
+        "airSupply": {
+          "description": "Air left, in ticks (Advanced Peripherals 0.7.48r+ getPlayerPos). Default 300.",
+          "type": "number"
+        },
+        "respawnPosition": {
+          "description": "Where the player respawns (bed or anchor), as getPlayerPos reports it from 0.7.48r. Default none.",
+          "type": "object",
+          "properties": {
+            "x": {
+              "description": "Block X.",
+              "type": "number"
+            },
+            "y": {
+              "description": "Block Y.",
+              "type": "number"
+            },
+            "z": {
+              "description": "Block Z.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "z"
+          ],
+          "additionalProperties": false
+        },
+        "respawnDimension": {
+          "description": "The respawn point's dimension. Default \"minecraft:overworld\".",
+          "type": "string"
+        },
+        "respawnAngle": {
+          "description": "The respawn point's angle. Default 0.",
           "type": "number"
         },
         "vaultLevel": {
@@ -24094,6 +25127,21 @@
         "triggerAmount": {
           "description": "Redstone adapter: the count that turns the signal on.",
           "type": "number"
+        },
+        "fuzzy": {
+          "description": "Redstone adapter, 1.20.1+ (Mekanism 10.4): count every type of the item.",
+          "type": "boolean",
+          "default": false
+        },
+        "inverted": {
+          "description": "Redstone adapter, 1.21.1 (Mekanism 10.7): emit while the count is not reached.",
+          "type": "boolean",
+          "default": false
+        },
+        "roundRobin": {
+          "description": "Exporter, 1.21.1: round robin (kept; one target inventory here).",
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -24275,6 +25323,21 @@
           "description": "Redstone adapter: the count that turns the signal on.",
           "type": "number"
         },
+        "fuzzy": {
+          "description": "Redstone adapter, 1.20.1+ (Mekanism 10.4): count every type of the item.",
+          "type": "boolean",
+          "default": false
+        },
+        "inverted": {
+          "description": "Redstone adapter, 1.21.1 (Mekanism 10.7): emit while the count is not reached.",
+          "type": "boolean",
+          "default": false
+        },
+        "roundRobin": {
+          "description": "Exporter, 1.21.1: round robin (kept; one target inventory here).",
+          "type": "boolean",
+          "default": false
+        },
         "x": {},
         "y": {},
         "z": {},
@@ -24349,6 +25412,15 @@
         "modId": {
           "description": "Mod id filters: the mod id.",
           "type": "string"
+        },
+        "enabled": {
+          "description": "1.20.1+ (Mekanism 10.4): the filter is on.",
+          "type": "boolean",
+          "default": true
+        },
+        "components": {
+          "description": "1.21.1: the item's data components as SNBT text, the way getFilters returns them.",
+          "type": "string"
         }
       },
       "required": [
@@ -24405,6 +25477,72 @@
       "required": [
         "name"
       ]
+    },
+    "RadioactiveWasteBarrelSpecFields": {
+      "description": "Mekanism radioactive waste barrel (1.20.1 and 1.21.1: computer support came with Mekanism 10.4).",
+      "type": "object",
+      "properties": {
+        "stored": {
+          "description": "Stored chemical, mB of spent nuclear waste or `{ name, amount }` (at most 512,000).",
+          "markdownDescription": "Stored chemical, mB of spent nuclear waste or `{ name, amount }` (at most 512,000).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MekTankSpec"
+            }
+          ]
+        },
+        "decays": {
+          "description": "false: the chemical is in mekanism:waste_barrel_decay_blacklist. Else 1 mB decays every 20 ticks.",
+          "type": "boolean",
+          "default": true
+        },
+        "formed": {
+          "description": "false: the block starts unformed (only the tile's own methods).",
+          "type": "boolean",
+          "default": true
+        },
+        "facing": {
+          "description": "Facing, for getDirection.",
+          "enum": [
+            "north",
+            "south",
+            "east",
+            "west",
+            "up",
+            "down",
+            "NORTH",
+            "SOUTH",
+            "EAST",
+            "WEST",
+            "UP",
+            "DOWN"
+          ],
+          "default": "NORTH"
+        },
+        "security": {
+          "description": "Security mode; setters fail unless PUBLIC.",
+          "enum": [
+            "PUBLIC",
+            "PRIVATE",
+            "TRUSTED",
+            "public",
+            "private",
+            "trusted"
+          ],
+          "default": "PUBLIC"
+        },
+        "owner": {
+          "description": "Owner: a player name or UUID the world knows, or a raw UUID.",
+          "type": "string"
+        },
+        "name": {},
+        "type": {},
+        "x": {},
+        "y": {},
+        "z": {},
+        "dimension": {}
+      },
+      "additionalProperties": false
     },
     "RadioTowerSpecFields": {
       "description": "Classic Peripherals radio: a tower (x, y, z the base), mini antenna, or turtle or pocket radio.",
@@ -25829,6 +26967,13 @@
       "description": "Mekanism seismic vibrator.",
       "type": "object",
       "properties": {
+        "seismicBlocks": {
+          "description": "1.20.1+ getBlockAt / getColumnAt: \"x,y,z\" (chunk relative x and z, world y) to block id; the rest is air.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "formed": {
           "description": "false: the block starts unformed (only the tile's own methods).",
           "type": "boolean",

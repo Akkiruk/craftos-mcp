@@ -79,6 +79,21 @@ export interface PlayerSpec extends PlethoraPlayerFields {
   health?: number;
   /** Most health points. Default 20. */
   maxHealth?: number;
+  /** Air left, in ticks (Advanced Peripherals 0.7.48r+ getPlayerPos). Default 300. */
+  airSupply?: number;
+  /** Where the player respawns (bed or anchor), as getPlayerPos reports it from 0.7.48r. Default none. */
+  respawnPosition?: {
+    /** Block X. */
+    x: number;
+    /** Block Y. */
+    y: number;
+    /** Block Z. */
+    z: number;
+  };
+  /** The respawn point's dimension. Default "minecraft:overworld". */
+  respawnDimension?: string;
+  /** The respawn point's angle. Default 0. */
+  respawnAngle?: number;
   /** Vault Hunters level, read by 2.2.36's ccvault.getPlayerVaultLevel. Omit for a player with no vault data. */
   vaultLevel?: number;
   /** What the player wears and holds, read by 2.2.36's ccvault.getPlayerEquipment. Items as in chests. */
@@ -506,6 +521,10 @@ export interface QioFilterSpec {
   tag?: string;
   /** Mod id filters: the mod id. */
   modId?: string;
+  /** 1.20.1+ (Mekanism 10.4): the filter is on. @default true */
+  enabled?: boolean;
+  /** 1.21.1: the item's data components as SNBT text, the way getFilters returns them. */
+  components?: string;
 }
 
 /**
@@ -563,6 +582,12 @@ export interface QioBlockSpec {
   targetItem?: string | QioItemSpec;
   /** Redstone adapter: the count that turns the signal on. */
   triggerAmount?: number;
+  /** Redstone adapter, 1.20.1+ (Mekanism 10.4): count every type of the item. @default false */
+  fuzzy?: boolean;
+  /** Redstone adapter, 1.21.1 (Mekanism 10.7): emit while the count is not reached. @default false */
+  inverted?: boolean;
+  /** Exporter, 1.21.1: round robin (kept; one target inventory here). @default false */
+  roundRobin?: boolean;
   /** Other block fields, passed to the sim as they are. */
   [extra: string]: unknown;
 }
@@ -664,6 +689,8 @@ export interface EntangloporterFrequencySpec {
   pigment?: EntangloporterStack;
   /** Slurry buffer. */
   slurry?: EntangloporterStack;
+  /** 1.21.1 (Mekanism 10.7): the one chemical buffer (default: the first of gas, infuseType, pigment, slurry). */
+  chemical?: EntangloporterStack;
   /** Joules. */
   energy?: number;
   /** Kelvin, default 300. */
@@ -1534,6 +1561,11 @@ export function shownState<T extends SimState | undefined>(state: T): T {
 }
 
 export interface SimState {
+  /**
+   * World peripherals that failed to build at boot, each "peripheral 'name' (type): error". They are left out and the
+   * rest of the world comes up; absent when every one built.
+   */
+  peripheralErrors?: string[];
   /** Turtles: where it is, its fuel, slots and upgrades. */
   turtle?: TurtleSpec & { slots?: Record<string, ItemSpec> };
   /** Block worlds: every block the sim changed, "x,y,z" -> block ({} for air). */

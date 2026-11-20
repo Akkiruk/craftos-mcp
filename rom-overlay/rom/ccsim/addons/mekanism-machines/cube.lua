@@ -11,7 +11,7 @@ return function(E)
 
   local TIERS = {
     basic = { 4000000, 4000 }, advanced = { 16000000, 16000 }, elite = { 64000000, 64000 },
-    ultimate = { 256000000, 256000 }, creative = { 1.8446744073709552e19, 1.8446744073709552e19 },
+    ultimate = { 256000000, 256000 }, creative = { FL.MAX, FL.MAX }, -- FloatingLong.MAX_VALUE; 10.7 Long.MAX_VALUE
   }
 
   local K = { kind = "energyCube" }

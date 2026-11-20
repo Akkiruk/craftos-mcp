@@ -3611,6 +3611,24 @@ function InductionPort.isFormed() end
 ---@param mode boolean
 function InductionPort.setMode(mode) end
 
+---Mekanism: `industrialAlarm`, as craftos-mcp emulates it.
+---@class mekanism.IndustrialAlarm
+local IndustrialAlarm = {}
+
+---@return string
+function IndustrialAlarm.getDirection() end
+
+---@return string
+function IndustrialAlarm.getRedstoneMode() end
+
+---@param ... any
+---@return any ...
+function IndustrialAlarm.help(...) end
+
+---@param ... any
+---@return any ...
+function IndustrialAlarm.setRedstoneMode(...) end
+
 ---Mekanism: `isotopicCentrifuge`, as craftos-mcp emulates it.
 ---@class mekanism.IsotopicCentrifuge
 local IsotopicCentrifuge = {}
@@ -4597,6 +4615,30 @@ function PaintingMachine.setRedstoneMode(mode) end
 ---@param v boolean
 function PaintingMachine.setStrictInput(v) end
 
+---Mekanism: `personalBarrel`, `personalChest`, `securityDesk`, as craftos-mcp emulates them.
+---@class mekanism.PersonalBarrel
+local PersonalBarrel = {}
+
+---@return string
+function PersonalBarrel.getDirection() end
+
+---@return nil
+function PersonalBarrel.getOwnerName() end
+
+---@return nil
+function PersonalBarrel.getOwnerUUID() end
+
+---@return string
+function PersonalBarrel.getSecurityMode() end
+
+---@param ... any
+---@return any ...
+function PersonalBarrel.help(...) end
+
+---@class mekanism.PersonalChest: mekanism.PersonalBarrel
+
+---@class mekanism.SecurityDesk: mekanism.PersonalBarrel
+
 ---Mekanism: `precisionSawmill`, as craftos-mcp emulates it.
 ---@class mekanism.PrecisionSawmill
 local PrecisionSawmill = {}
@@ -5419,6 +5461,32 @@ function QuantumEntangloporter.setOutputColor(color) end
 
 ---@param v boolean
 function QuantumEntangloporter.setStrictInput(v) end
+
+---Mekanism: `radioactiveWasteBarrel`, as craftos-mcp emulates it.
+---@class mekanism.RadioactiveWasteBarrel
+local RadioactiveWasteBarrel = {}
+
+---@return number
+function RadioactiveWasteBarrel.getCapacity() end
+
+---@return number
+function RadioactiveWasteBarrel.getComparatorLevel() end
+
+---@return string
+function RadioactiveWasteBarrel.getDirection() end
+
+---@return number
+function RadioactiveWasteBarrel.getFilledPercentage() end
+
+---@return number
+function RadioactiveWasteBarrel.getNeeded() end
+
+---@return { amount: number, name: string }
+function RadioactiveWasteBarrel.getStored() end
+
+---@param ... any
+---@return any ...
+function RadioactiveWasteBarrel.help(...) end
 
 ---Mekanism: `resistiveHeater`, as craftos-mcp emulates it.
 ---@class mekanism.ResistiveHeater

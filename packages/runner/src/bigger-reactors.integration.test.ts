@@ -254,6 +254,9 @@ class RefReactor {
   rods: { x: number; z: number; insertion: number }[] = [];
   rodXZ: Record<string, { insertion: number }> = {};
   simRods: { x: number; z: number; insertion: number }[];
+  /** 0.6.0-beta.10.5 (Minecraft 1.20.1) instead of 0.6.0-beta.1.4 */
+  newer: boolean;
+  activeYLevel = -1;
   currentRod = 0;
   rodOffset = 0;
   fuel: number;
@@ -292,10 +295,13 @@ class RefReactor {
       coolant?: number;
       coolantSupply?: number;
       level?: number;
+      mc?: string;
     },
   ) {
     [this.x, this.y, this.z] = [dims[0]! - 2, dims[1]! - 2, dims[2]! - 2];
     this.passive = o.passive;
+    this.newer = (o.mc ?? "1.18.2") !== "1.18.2";
+    if (this.newer) this.currentRod = -1;
     const { x: X, y: Y, z: Z } = this;
     const col = (i: number, k: number): Mod | "rod" | "manifold" => {
       const c = layout[i]![k]!;
@@ -319,7 +325,8 @@ class RefReactor {
         for (let k = 0; k < Z; k++) {
           let c = col(i, k);
           if (c === "manifold") {
-            if (this.passive) c = AIR;
+            // 0.6.0-beta.10.5: a passive reactor keeps its manifolds (air for the rays, still manifold surfaces)
+            if (this.passive && !this.newer) c = AIR;
             else manifolds++;
           }
           this.cells[i]![j]![k] = c;
@@ -416,12 +423,24 @@ class RefReactor {
     if (this.fuel <= 0) return 0;
     const { x: X, y: Y, z: Z } = this;
     const n = this.simRods.length;
-    this.currentRod++;
-    if (this.currentRod >= n) {
-      this.currentRod = 0;
-      this.rodOffset++;
+    let yLevel: number;
+    if (this.newer) {
+      this.activeYLevel++;
+      if (this.activeYLevel >= Y) {
+        this.rodOffset = (this.rodOffset + 1) % n;
+        this.currentRod = -1;
+      }
+      this.activeYLevel %= Y;
+      this.currentRod = (this.currentRod + 1) % n;
+      yLevel = this.activeYLevel;
+    } else {
+      this.currentRod++;
+      if (this.currentRod >= n) {
+        this.currentRod = 0;
+        this.rodOffset++;
+      }
+      yLevel = this.currentRod % Y;
     }
-    const yLevel = this.currentRod % Y;
     const idx = (this.currentRod + this.rodOffset) % n;
     const T = this.fuelHeat.t;
     const penalty = Math.exp(-15 * Math.exp(-0.001 * 2.5 * (T - 273.15)));
@@ -474,6 +493,8 @@ class RefReactor {
         }
       }
     }
+    if (this.newer)
+      fuelRad *= 1.0 * (4000 / Math.max(1.0, this.fuel + this.waste));
     this.fertility += fuelRad;
     this.fuelHeat.t += fuelRF / this.fuelHeat.rfk;
     this.stackHeat.t += caseRF / this.stackHeat.rfk;
@@ -579,13 +600,16 @@ class RefTurbine {
   vent: "OVERFLOW" | "CLOSED" | "ALL" = "OVERFLOW";
   load: number;
   hasSteam = false;
+  /** 0.6.0-beta.10.5 (Minecraft 1.20.1): drag 0.0005 and the grid-frequency efficiency curve */
+  newer: boolean;
 
   constructor(
     dims: number[],
     rotor: number[][],
     coils: number,
-    o: { load?: number; flowRate?: number },
+    o: { load?: number; flowRate?: number; mc?: string },
   ) {
+    this.newer = (o.mc ?? "1.18.2") !== "1.18.2";
     [this.ix, this.iy, this.iz] = [dims[0]! - 2, dims[1]! - 2, dims[2]! - 2];
     this.maxMax = (this.ix * this.iz - 1) * 5000;
     const tri = (u: number) => Math.floor(((1 + u) * u) / 2);
@@ -664,17 +688,32 @@ class RefTurbine {
     if (this.vent === "ALL") this.water = 0;
     const torque = rpm * this.drag * this.coils;
     let energy = Math.pow(torque, this.bonus) * this.eff;
-    let e = 0.25 * Math.cos(rpm / (45.5 * Math.PI)) + 0.75;
-    if (rpm < 450) e = Math.min(0.5, e);
-    if (rpm > 2245) e = -rpm / 4490 + 1;
-    if (e < 0) e = 0;
+    let e: number;
+    if (this.newer) {
+      const peak = 30 * 60;
+      const minRPM = peak / Math.pow(2, 2 - 0.5);
+      if (rpm < minRPM) e = 0.5;
+      else if (rpm > peak) {
+        const num = rpm - peak;
+        e = Math.max(0, -(num * num) / (8 * 30 * peak) + 1);
+      } else {
+        const lv = -2 * (Math.log(rpm / peak) / Math.log(2)) + 1;
+        e = -0.25 * Math.cos(lv * Math.PI) + 0.75;
+      }
+    } else {
+      e = 0.25 * Math.cos(rpm / (45.5 * Math.PI)) + 0.75;
+      if (rpm < 450) e = Math.min(0.5, e);
+      if (rpm > 2245) e = -rpm / 4490 + 1;
+      if (e < 0) e = 0;
+    }
     energy *= e;
     this.generated = energy;
     if (energy > 1)
       this.energy += Math.min(long(energy), this.batteryCap - this.energy);
     this.rotorEnergy -= torque;
-    this.rotorEnergy -= this.rotorMass * Math.pow(rpm * 0.0001, 2);
-    this.rotorEnergy -= this.linear * Math.pow(rpm * 0.0001, 2);
+    const dragMult = this.newer ? 0.0005 : 0.0001;
+    this.rotorEnergy -= this.rotorMass * Math.pow(rpm * dragMult, 2);
+    this.rotorEnergy -= this.linear * Math.pow(rpm * dragMult, 2);
     if (this.rotorEnergy < 0) this.rotorEnergy = 0;
     if (this.load > 0) this.energy -= Math.min(this.load, this.energy);
     if (this.water > 0 && pushWater) this.water -= pushWater(this.water);
@@ -1082,214 +1121,304 @@ end)
 
 // ───────────── the simulation on the virtual clock ─────────────
 
-describe.skipIf(!ready)("Bigger Reactors simulation", () => {
-  it("a passively cooled reactor, tick for tick against the Java", async () => {
-    const layout = ["X.X", ".G.", "X.X"];
-    await withSession(
-      {
-        biggerReactors: { seed: 7 },
-        peripherals: [
-          {
-            name: "r",
-            type: "BiggerReactors_Reactor",
-            dimensions: [5, 6, 5],
+// The numbers differ between the 1.18.2 and the 1.20.1 release (docs/bigger-reactors.md "Versions"): each check runs on
+// both, against the reference port of that release. There is no 1.21.1 release.
+for (const mc of ["1.18.2", "1.20.1"] as const)
+  describe.skipIf(!ready)(`Bigger Reactors simulation on ${mc}`, () => {
+    it("a passively cooled reactor, tick for tick against the Java", async () => {
+      const layout = ["X.X", ".G.", "X.X"];
+      await withSession(
+        {
+          version: mc,
+          biggerReactors: { seed: 7 },
+          peripherals: [
+            {
+              name: "r",
+              type: "BiggerReactors_Reactor",
+              dimensions: [5, 6, 5],
+              layout,
+              legend: { G: "graphite" },
+              fuel: 12000,
+              active: true,
+              load: 40,
+              rodLevel: 25,
+            },
+          ],
+        } as WorldConfig,
+        async (step) => {
+          const ref = new RefReactor(
+            [5, 6, 5],
             layout,
-            legend: { G: "graphite" },
-            fuel: 12000,
-            active: true,
-            load: 40,
-            rodLevel: 25,
-          },
-        ],
-      } as WorldConfig,
-      async (step) => {
-        const ref = new RefReactor(
-          [5, 6, 5],
-          layout,
-          { G: GRAPHITE },
-          {
-            passive: true,
-            fuel: 12000,
-            load: 40,
-            seed: 7,
-            level: 25,
-          },
-        );
-        let done = 0;
-        for (const seconds of [0.05, 0.5, 3, 20, 40]) {
-          const st = await step({ cmd: "advance", seconds });
-          const n = gameTime(st);
-          while (done < n) {
-            ref.tick();
-            done++;
+            { G: GRAPHITE },
+            {
+              passive: true,
+              fuel: 12000,
+              load: 40,
+              seed: 7,
+              level: 25,
+              mc,
+            },
+          );
+          let done = 0;
+          for (const seconds of [0.05, 0.5, 3, 20, 40]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              ref.tick();
+              done++;
+            }
+            const s = machine(st, "r");
+            expect(s.fuel).toBe(ref.fuel);
+            expect(s.waste).toBe(ref.waste);
+            near(s.partialUsed, ref.partial);
+            near(s.burnedLastTick, ref.burned);
+            near(s.fertility, ref.fertility);
+            near(s.fuelHeat, ref.fuelHeat.t);
+            near(s.stackHeat, ref.stackHeat.t);
+            expect(s.producedLastTick).toBe(ref.generated);
+            expect(s.energy).toBe(ref.energy);
           }
-          const s = machine(st, "r");
-          expect(s.fuel).toBe(ref.fuel);
-          expect(s.waste).toBe(ref.waste);
-          near(s.partialUsed, ref.partial);
-          near(s.burnedLastTick, ref.burned);
-          near(s.fertility, ref.fertility);
-          near(s.fuelHeat, ref.fuelHeat.t);
-          near(s.stackHeat, ref.stackHeat.t);
-          expect(s.producedLastTick).toBe(ref.generated);
-          expect(s.energy).toBe(ref.energy);
-        }
-        // the numbers a control program reads have moved the right way
-        const s = machine(await step({ cmd: "advance", seconds: 0.05 }), "r");
-        expect(s.fuelHeat as number).toBeGreaterThan(400);
-        expect(s.energy as number).toBeGreaterThan(0);
-        expect(s.producedLastTick as number).toBeGreaterThan(0);
-        expect(s.fuel as number).toBeLessThan(12000);
-        expect(s.fuelReactivity as number).toBeGreaterThan(1);
-      },
-    );
-  }, 180000);
+          // the numbers a control program reads have moved the right way
+          const s = machine(await step({ cmd: "advance", seconds: 0.05 }), "r");
+          expect(s.fuelHeat as number).toBeGreaterThan(400);
+          expect(s.energy as number).toBeGreaterThan(0);
+          expect(s.producedLastTick as number).toBeGreaterThan(0);
+          expect(s.fuel as number).toBeLessThan(12000);
+          expect(s.fuelReactivity as number).toBeGreaterThan(1);
+        },
+      );
+    }, 180000);
 
-  it("an actively cooled reactor boils water into a turbine, tick for tick", async () => {
-    const layout = ["XMX", "MXM", "XMX"];
-    await withSession(
-      {
-        peripherals: [
-          {
-            name: "r",
-            type: "BiggerReactors_Reactor",
-            cooling: "active",
-            dimensions: [5, 7, 5],
+    it("a passively cooled reactor with manifolds (they count as manifold surfaces from 1.20.1)", async () => {
+      const layout = ["XMX", "MXM", "XMX"];
+      await withSession(
+        {
+          version: mc,
+          biggerReactors: { seed: 3 },
+          peripherals: [
+            {
+              name: "r",
+              type: "BiggerReactors_Reactor",
+              dimensions: [5, 6, 5],
+              layout,
+              fuel: 15000,
+              active: true,
+              rodLevel: 10,
+            },
+          ],
+        } as WorldConfig,
+        async (step) => {
+          const ref = new RefReactor(
+            [5, 6, 5],
             layout,
-            fuel: 20000,
-            coolant: 40000,
-            coolantSupply: 300,
-            active: true,
-            steamTo: "t",
-          },
+            {},
+            { passive: true, fuel: 15000, seed: 3, level: 10, mc },
+          );
+          let done = 0;
+          for (const seconds of [0.05, 1, 10]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              ref.tick();
+              done++;
+            }
+            const s = machine(st, "r");
+            expect(s.fuel).toBe(ref.fuel);
+            near(s.fertility, ref.fertility);
+            near(s.fuelHeat, ref.fuelHeat.t);
+            near(s.stackHeat, ref.stackHeat.t);
+            expect(s.producedLastTick).toBe(ref.generated);
+            expect(s.energy).toBe(ref.energy);
+          }
+          // the release really differs: 1.20.1 counts 12 rod-to-manifold faces a layer (4 layers), 1.18.2 none
+          expect(ref.fuelToManifold).toBe(mc === "1.18.2" ? 0 : 48);
+        },
+      );
+    }, 180000);
+
+    it("an actively cooled reactor boils water into a turbine, tick for tick", async () => {
+      const layout = ["XMX", "MXM", "XMX"];
+      await withSession(
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "r",
+              type: "BiggerReactors_Reactor",
+              cooling: "active",
+              dimensions: [5, 7, 5],
+              layout,
+              fuel: 20000,
+              coolant: 40000,
+              coolantSupply: 300,
+              active: true,
+              steamTo: "t",
+            },
+            {
+              name: "t",
+              type: "BiggerReactors_Turbine",
+              dimensions: [7, 10, 7],
+              rotor: [
+                [2, 2, 2, 2],
+                [2, 2, 2, 2],
+                [2, 2, 2, 2],
+                [2, 2, 2, 2],
+                [2, 2, 2, 2],
+                [2, 2, 2, 2],
+                [0, 0, 0, 0],
+                [0, 0, 0, 0],
+              ],
+              coils: { gold: 16 },
+              active: true,
+              load: 500,
+            },
+          ],
+        } as WorldConfig,
+        async (step) => {
+          const r = new RefReactor(
+            [5, 7, 5],
+            layout,
+            {},
+            {
+              passive: false,
+              fuel: 20000,
+              coolant: 40000,
+              coolantSupply: 300,
+              mc,
+            },
+          );
+          // "M" is a coolant manifold in an active reactor
+          const t = new RefTurbine(
+            [7, 10, 7],
+            [...Array(6).fill([2, 2, 2, 2]), [0, 0, 0, 0], [0, 0, 0, 0]],
+            16,
+            { load: 500, mc },
+          );
+          let done = 0;
+          for (const seconds of [0.05, 1, 10, 30]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              r.tick((v) => t.fillSteam(v));
+              t.tick((w) => r.fillWater(w));
+              done++;
+            }
+            const sr = machine(st, "r");
+            const stt = machine(st, "t");
+            expect(sr.fuel).toBe(r.fuel);
+            near(sr.fuelHeat, r.fuelHeat.t);
+            near(sr.stackHeat, r.stackHeat.t);
+            expect(sr.coolant).toBe(r.liquid);
+            expect(sr.steam).toBe(r.vapor);
+            expect(sr.transitionedLastTick).toBe(r.transitioned);
+            expect(sr.maxTransitionedLastTick).toBe(r.maxTransitioned);
+            expect(stt.steam).toBe(t.steam);
+            expect(stt.water).toBe(t.water);
+            expect(stt.flowLastTick).toBe(t.flowLast);
+            near(stt.rpm, t.rpm());
+            near(stt.efficiencyLastTick, t.efficiency);
+            expect(stt.energy).toBe(t.energy);
+            expect(stt.producedLastTick).toBe(long(t.generated));
+          }
+          const st = await step({ cmd: "advance", seconds: 0.05 });
+          expect(
+            machine(st, "r").transitionedLastTick as number,
+          ).toBeGreaterThan(0);
+          expect(machine(st, "t").rpm as number).toBeGreaterThan(10);
+        },
+      );
+    }, 240000);
+
+    it("a turbine on its own: spin-up, flow, vents and the inductor", async () => {
+      await withSession(
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "t",
+              type: "BiggerReactors_Turbine",
+              dimensions: [7, 12, 7],
+              shafts: 10,
+              bladeLength: 2,
+              bladedShafts: 8,
+              coils: { gold: 16 },
+              active: true,
+              steamSupply: "full",
+              waterDrain: "full",
+              load: 2000,
+            },
+          ],
+        },
+        async (step) => {
+          const ref = new RefTurbine(
+            [7, 12, 7],
+            [...Array(8).fill([2, 2, 2, 2]), [0, 0, 0, 0], [0, 0, 0, 0]],
+            16,
+            { load: 2000, mc },
+          );
+          let done = 0;
+          for (const seconds of [0.05, 2, 20, 60]) {
+            const st = await step({ cmd: "advance", seconds });
+            const n = gameTime(st);
+            while (done < n) {
+              ref.tick((w) => w, ref.tankCap);
+              done++;
+            }
+            const s = machine(st, "t");
+            near(s.rpm, ref.rpm());
+            near(s.efficiencyLastTick, ref.efficiency);
+            expect(s.flowLastTick).toBe(ref.flowLast);
+            expect(s.energy).toBe(ref.energy);
+            expect(s.producedLastTick).toBe(long(ref.generated));
+          }
+          let s = machine(await step({ cmd: "advance", seconds: 0.05 }), "t");
+          expect(s.rpm as number).toBeGreaterThan(100);
+          // on 1.20.1 the 5x drag keeps the rotor slow enough that the 2000 FE/t load takes all it makes
+          if (mc === "1.18.2") expect(s.energy as number).toBeGreaterThan(0);
+          // disengage the inductor: no power, the rotor speeds up
+          const rpm = s.rpm as number;
+          await step({ cmd: "brSetLoad", peripheral: "t", rate: 0 });
+          const result = await step({ cmd: "advance", seconds: 0.05 });
+          expect(machine(result, "t").load).toBe(0);
+          s = machine(result, "t");
+          expect(s.rpm as number).toBeGreaterThan(rpm * 0.9);
+        },
+      );
+    }, 240000);
+
+    it("apiVersion() is the release's version", async () => {
+      expectAllPassed(
+        await lua(
+          `
+local want = ${JSON.stringify(mc === "1.18.2" ? "0.6.0-beta.1.4" : "0.6.0-beta.10.5")}
+ccunit.test("apiVersion", function()
+  ccunit.eq(peripheral.wrap("r").apiVersion(), want)
+  ccunit.eq(peripheral.wrap("t").apiVersion(), want)
+end)
+ccunit.finish()
+`,
           {
-            name: "t",
-            type: "BiggerReactors_Turbine",
-            dimensions: [7, 10, 7],
-            rotor: [
-              [2, 2, 2, 2],
-              [2, 2, 2, 2],
-              [2, 2, 2, 2],
-              [2, 2, 2, 2],
-              [2, 2, 2, 2],
-              [2, 2, 2, 2],
-              [0, 0, 0, 0],
-              [0, 0, 0, 0],
+            version: mc,
+            peripherals: [
+              { name: "r", type: "BiggerReactors_Reactor" },
+              { name: "t", type: "BiggerReactors_Turbine" },
             ],
-            coils: { gold: 16 },
-            active: true,
-            load: 500,
-          },
-        ],
-      } as WorldConfig,
-      async (step) => {
-        const r = new RefReactor(
-          [5, 7, 5],
-          layout,
-          {},
-          {
-            passive: false,
-            fuel: 20000,
-            coolant: 40000,
-            coolantSupply: 300,
-          },
-        );
-        // "M" is a coolant manifold in an active reactor
-        const t = new RefTurbine(
-          [7, 10, 7],
-          [...Array(6).fill([2, 2, 2, 2]), [0, 0, 0, 0], [0, 0, 0, 0]],
-          16,
-          { load: 500 },
-        );
-        let done = 0;
-        for (const seconds of [0.05, 1, 10, 30]) {
-          const st = await step({ cmd: "advance", seconds });
-          const n = gameTime(st);
-          while (done < n) {
-            r.tick((v) => t.fillSteam(v));
-            t.tick((w) => r.fillWater(w));
-            done++;
-          }
-          const sr = machine(st, "r");
-          const stt = machine(st, "t");
-          expect(sr.fuel).toBe(r.fuel);
-          near(sr.fuelHeat, r.fuelHeat.t);
-          near(sr.stackHeat, r.stackHeat.t);
-          expect(sr.coolant).toBe(r.liquid);
-          expect(sr.steam).toBe(r.vapor);
-          expect(sr.transitionedLastTick).toBe(r.transitioned);
-          expect(sr.maxTransitionedLastTick).toBe(r.maxTransitioned);
-          expect(stt.steam).toBe(t.steam);
-          expect(stt.water).toBe(t.water);
-          expect(stt.flowLastTick).toBe(t.flowLast);
-          near(stt.rpm, t.rpm());
-          near(stt.efficiencyLastTick, t.efficiency);
-          expect(stt.energy).toBe(t.energy);
-          expect(stt.producedLastTick).toBe(long(t.generated));
-        }
-        const st = await step({ cmd: "advance", seconds: 0.05 });
-        expect(machine(st, "r").transitionedLastTick as number).toBeGreaterThan(
-          0,
-        );
-        expect(machine(st, "t").rpm as number).toBeGreaterThan(10);
-      },
-    );
-  }, 240000);
+          } as WorldConfig,
+          `br-api-${mc}.test.lua`,
+        ),
+      );
+    }, 60000);
+  });
 
-  it("a turbine on its own: spin-up, flow, vents and the inductor", async () => {
-    await withSession(
-      {
-        peripherals: [
-          {
-            name: "t",
-            type: "BiggerReactors_Turbine",
-            dimensions: [7, 12, 7],
-            shafts: 10,
-            bladeLength: 2,
-            bladedShafts: 8,
-            coils: { gold: 16 },
-            active: true,
-            steamSupply: "full",
-            waterDrain: "full",
-            load: 2000,
-          },
-        ],
-      },
-      async (step) => {
-        const ref = new RefTurbine(
-          [7, 12, 7],
-          [...Array(8).fill([2, 2, 2, 2]), [0, 0, 0, 0], [0, 0, 0, 0]],
-          16,
-          { load: 2000 },
-        );
-        let done = 0;
-        for (const seconds of [0.05, 2, 20, 60]) {
-          const st = await step({ cmd: "advance", seconds });
-          const n = gameTime(st);
-          while (done < n) {
-            ref.tick((w) => w, ref.tankCap);
-            done++;
-          }
-          const s = machine(st, "t");
-          near(s.rpm, ref.rpm());
-          near(s.efficiencyLastTick, ref.efficiency);
-          expect(s.flowLastTick).toBe(ref.flowLast);
-          expect(s.energy).toBe(ref.energy);
-          expect(s.producedLastTick).toBe(long(ref.generated));
-        }
-        let s = machine(await step({ cmd: "advance", seconds: 0.05 }), "t");
-        expect(s.rpm as number).toBeGreaterThan(100);
-        expect(s.energy as number).toBeGreaterThan(0);
-        // disengage the inductor: no power, the rotor speeds up
-        const rpm = s.rpm as number;
-        await step({ cmd: "brSetLoad", peripheral: "t", rate: 0 });
-        const result = await step({ cmd: "advance", seconds: 0.05 });
-        expect(machine(result, "t").load).toBe(0);
-        s = machine(result, "t");
-        expect(s.rpm as number).toBeGreaterThan(rpm * 0.9);
-      },
-    );
-  }, 240000);
+describe.skipIf(!ready)("Bigger Reactors sim commands", () => {
+  it("a 1.21.1 world cannot have one: there is no release", () => {
+    expect(() =>
+      worldJson({
+        version: "1.21.1",
+        peripherals: [{ name: "r", type: "BiggerReactors_Reactor" }],
+      } as WorldConfig),
+    ).toThrow(/Bigger Reactors/);
+  });
 
   it("sim commands, and rod handles that go stale when the reactor is rebuilt", async () => {
     put(

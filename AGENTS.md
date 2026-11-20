@@ -106,9 +106,11 @@ and `craftos_help` lists every id. An addon only runs on the Minecraft versions 
 came out for 1.18.2 behaves as its 1.18.2 version on 1.20.1 and 1.21.1 too, so `world.version: "1.18.2"` gives the
 most complete simulation.
 
-- Advanced Peripherals 0.7.31r (`advanced-peripherals`): player, energy and environment detectors, chat box, redstone
+- Advanced Peripherals (`advanced-peripherals`): player, energy and environment detectors, chat box, redstone
   integrator, NBT storage, AR controller, ME and RS bridges, from fixtures (`docs/advanced-peripherals.md`,
-  `worlds/advanced-peripherals-demo.json`).
+  `worlds/advanced-peripherals-demo.json`). It follows each version's own release: 0.7.31r on 1.18.2, 0.7.48r on
+  1.20.1 (no AR controller), 0.7.62b on 1.21.1 (types `player_detector`, `chat_box`, ..., no redstone integrator,
+  rewritten bridges); `docs/advanced-peripherals-versions.md` lists the differences.
 - Mekanism 10.2.5 (`mekanism`, `mekanism-generators`): QIO, the Quantum Entangloporter, machines and reactors
   (`docs/mekanism-qio.md`, `worlds/mekanism-qio-demo.json`).
 - Create, Tom's Peripherals (GPU screens appear in screenshots), Bigger and Extreme Reactors each have a doc in

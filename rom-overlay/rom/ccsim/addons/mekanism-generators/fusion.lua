@@ -240,6 +240,15 @@ return function(E)
   end)
   MB.getPassiveGeneration = { { "boolean" }, function(c, active) return passiveGeneration(c.mb, active) end }
   MB.getProductionRate = { {}, function(c) return passiveGeneration(c.mb, false) end }
+  if E.J.NEW then
+    -- 10.4+: lastEnvironmentLoss / lastTransferLoss of the reactor's simulate(). The emulator moves the case's heat
+    -- only through water, steam and the casing's air loss above, so both read 0 (docs/mekanism-versions.md)
+    MB.getEnvironmentalLoss = { {}, function() return 0 end }
+    MB.getTransferLoss = { {}, function() return 0 end }
+  end
+  if E.J.V21 then
+    MB.isIgnited = { {}, function(c) return c.mb.burning == true end } -- 10.7 isBurning, as isIgnited
+  end
   E.shapeMethods(MB)
 
   --- READY / CAPACITY / DEPLETED: whether the adapter emits redstone (checkMode)

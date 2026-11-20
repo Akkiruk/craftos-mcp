@@ -1,5 +1,5 @@
 {
-  "note": "Tom's Peripherals 1.18.2-1.2.1. listMethods: each class's @LuaMethod methods (read from the jar with javap) in the order ITMPeripheral.findLuaMethods' HashMap gives them, listMethods included. peripherals: peripheral.getMethods, CC's HashMap(n) filled in that order. objects: what the GPU's returned objects hold.",
+  "note": "Tom's Peripherals 1.18.2-1.2.1. listMethods: each class's @LuaMethod methods (read from the jar with javap) in the order ITMPeripheral.findLuaMethods' HashMap gives them, listMethods included. peripherals: peripheral.getMethods on CC:Tweaked 1.101.3 (Minecraft 1.18.2), a HashMap(n) filled in that order. peripheralsCc121: where CC:Tweaked 1.121.0 (Minecraft 1.20.1, 1.21.1) differs: its HashMap() has 16 buckets (orders from the JDK's own HashMap). The mod's jars 1.20.1-1.3.1 and 1.21.1-1.3.1 have the same methods as 1.18.2-1.2.1. objects: what the GPU's returned objects hold.",
   "peripherals": {
     "tm_gpu": [
       "newImage",
@@ -61,6 +61,16 @@
       "setTimeout",
       "getTimeout",
       "isEnabled"
+    ]
+  },
+  "peripheralsCc121": {
+    "tm_wdt": [
+      "setEnabled",
+      "setTimeout",
+      "getTimeout",
+      "isEnabled",
+      "reset",
+      "listMethods"
     ]
   },
   "listMethods": {

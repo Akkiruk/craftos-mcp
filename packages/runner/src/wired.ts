@@ -1,3 +1,5 @@
+import { reportedTypeName } from "./addons.js";
+import { resolveVersion } from "./versions.js";
 import type {
   BlockPos,
   ComputerPosition,
@@ -167,8 +169,16 @@ export function resolveWired(
     for (const m of modemsOf(world)) if (m.localName) taken.add(m.localName);
   for (const n of networks)
     for (const p of n.peripherals ?? []) if (p.name) taken.add(p.name);
+  // CC names a block after the type its mod reports, which some mods change by Minecraft version (addons.ts byVersion)
+  let mc: string | undefined;
+  try {
+    mc = resolveVersion(computers[0]?.world?.version).mc;
+  } catch {
+    mc = undefined; // a bad version is refused elsewhere, with its own message
+  }
   const counters = new Map<string, number>();
-  const nextName = (type: string): string => {
+  const nextName = (worldType: string): string => {
+    const type = mc ? reportedTypeName(worldType, mc) : worldType;
     for (;;) {
       const n = counters.get(type) ?? 0;
       counters.set(type, n + 1);

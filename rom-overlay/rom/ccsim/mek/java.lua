@@ -5,8 +5,15 @@
 --   CCArgumentWrapper.sanitizeArgument / wrapReturnType / sanitizeNBT / convertMapToFilter
 --   CobaltLuaMachine.toObject (CC:Tweaked 1.101.3)    how a Lua value reaches Java: numbers are Double, tables HashMap
 -- Messages that quote a Java value (`with value %s`) print it the way Java does: Double.toString, HashMap.toString.
-return function()
+--
+-- `mc` is the world's Minecraft version (core.version.mc; nil is 1.18.2). On 1.20.1 (Mekanism 10.4.16) and 1.21.1
+-- (10.7.19) the calling layer is another one (CCMethodCaller, CCComputerHelper, BaseComputerHelper): see the
+-- "Mekanism 10.4 and 10.7" section at the end and docs/mekanism-versions.md.
+return function(mc)
   local J = {}
+  J.MC = mc or "1.18.2"
+  J.NEW = J.MC ~= "1.18.2" -- Mekanism 10.4 / 10.7: generated ComputerHandlers, CC's own argument checks
+  J.V21 = J.MC == "1.21.1" -- Mekanism 10.7: long energy, merged chemicals, data components
 
   local floor, huge = math.floor, math.huge
   local band, bxor, rshift = bit32.band, bit32.bxor, bit32.rshift
@@ -232,6 +239,9 @@ return function()
   --- The error a main-thread method raises: ComputerException message, formatted a second time, or the
   --- "Java Exception Thrown" text LuaContext.issueMainThreadTask produces when that formatting throws.
   function J.computerError(msg)
+    -- 10.4+: ComputerException(String format, Object... args) formats once, where it is thrown, and CCMethodCaller
+    -- passes the message on as it is
+    if J.NEW then error(tostring(msg), 0) end
     local text, exception = J.reformat(msg)
     if text then error(text, 0) end
     error("Java Exception Thrown: " .. exception, 0)
@@ -698,6 +708,8 @@ return function()
     DataType = { "NONE", "INPUT", "INPUT_1", "INPUT_2", "OUTPUT", "OUTPUT_1", "OUTPUT_2", "INPUT_OUTPUT", "ENERGY", "EXTRA" },
   }
   J.ENUMS = ENUMS
+  -- 10.7 merged GAS, INFUSION, PIGMENT and SLURRY into CHEMICAL (lib/transmitter/TransmissionType)
+  if J.V21 then ENUMS.TransmissionType = { "ENERGY", "FLUID", "CHEMICAL", "ITEM", "HEAT" } end
 
   local function enumFromString(list, s)
     if s == "" then return nil end
@@ -774,6 +786,228 @@ return function()
       out[index] = converted
     end
     return out
+  end
+
+  -- ===== Mekanism 10.4 and 10.7 (1.20.1, 1.21.1) =====
+  -- Read in the 10.4.16.80 and 10.7.19.85 jars and their tags' source (integration/computer/):
+  --   computercraft/CCMethodCaller.callMethod   the methods are a multimap name -> overloads: the call takes the
+  --                                             overload with as many parameters as it got, else "Found %d arguments,
+  --                                             expected %s", at once on the computer thread; every peripheral method
+  --                                             then runs as a main-thread task (none sets threadSafe)
+  --   computercraft/CCComputerHelper            each argument is read inside that task with CC's IArguments, so a
+  --                                             wrong type is "bad argument #%d (%s expected, got %s)" after the wait
+  --   BaseComputerHelper                        enums through CC's getEnum (a string, any case: "unknown option"),
+  --                                             ResourceLocation / Item ("Invalid parameter at index %d", unknown items
+  --                                             are air), FloatingLong (10.4: a number >= 0 or a string), filters
+  --   BoundMethodHolder                         help() and help(methodName) on every block
+  -- Values come back through BaseComputerHelper.convert: stacks wrapStack (below), frequencies J.frequency.
+
+  local function luaType(v) return v == nil and "nil" or type(v) end
+  local function bad(i, expected, v)
+    error(("bad argument #%d (%s expected, got %s)"):format(i, expected, luaType(v)), 0)
+  end
+  local function numType(v)
+    if v ~= v then return "nan" elseif v == huge then return "inf" elseif v == -huge then return "-inf" end
+    return "number"
+  end
+  --- IArguments.getLong: a finite number, Double.longValue (toward zero, saturating).
+  local function ccLong(i, v)
+    if type(v) ~= "number" then bad(i, "number", v) end
+    if not finite(v) then error(("bad argument #%d (number expected, got %s)"):format(i, numType(v)), 0) end
+    if v >= 9.2233720368547758e18 then return 9.2233720368547758e18 end
+    if v <= -9.2233720368547758e18 then return -9.2233720368547758e18 end
+    return v >= 0 and floor(v) or -floor(-v)
+  end
+  J.ccLong = ccLong
+  --- IArguments.getInt: (int) getLong, the low 32 bits.
+  local function ccInt(i, v)
+    local l = ccLong(i, v) % 4294967296
+    if l >= 2147483648 then l = l - 4294967296 end
+    return l
+  end
+
+  --- The overloads of a method entry: entry.overloads, or the entry itself.
+  function J.overloads(m) return m.overloads or { m } end
+
+  --- CCMethodCaller.getBoundMethodData: the overload for this many arguments.
+  function J.pick(m, args)
+    local list = J.overloads(m)
+    for _, o in ipairs(list) do if #o[1] == args.n then return o end end
+    local counts = {}
+    for i, o in ipairs(list) do counts[i] = tostring(#o[1]) end
+    error(("Found %d arguments, expected %s"):format(args.n, table.concat(counts, " or ")), 0)
+  end
+
+  --- One argument as the generated handler reads it (`i` from 1). `ctx.convert(expected, value, i)` handles the
+  --- types a module knows (filters); `ctx.filter(map, i)` QIO's filters.
+  local function ccArg(i, expected, v, ctx)
+    if expected == "boolean" then
+      if type(v) ~= "boolean" then bad(i, "boolean", v) end
+      return v
+    end
+    if expected == "String" then
+      if type(v) ~= "string" then bad(i, "string", v) end
+      return v
+    end
+    if expected == "double" then
+      if type(v) ~= "number" then bad(i, "number", v) end
+      return v
+    end
+    if expected == "long" then return ccLong(i, v) end
+    if expected == "int" then return ccInt(i, v) end
+    if ENUMS[expected] then
+      -- LuaValues.checkEnum: the string, compared ignoring case
+      if type(v) ~= "string" then bad(i, "string", v) end
+      local upper = v:upper()
+      for _, name in ipairs(ENUMS[expected]) do if name == upper then return name end end
+      error(("bad argument #%d (unknown option %s)"):format(i, v), 0)
+    end
+    if expected == "ResourceLocation" or expected == "Item" then
+      if type(v) ~= "string" then bad(i, "string", v) end
+      local rl = J.resourceLocation(v)
+      if not rl then error(("Invalid parameter at index %d"):format(i - 1), 0) end
+      if expected == "Item" and ctx and ctx.knownItem and not ctx.knownItem(rl) then return "minecraft:air" end
+      return rl
+    end
+    if expected == "FloatingLong" and J.V21 then return ccLong(i, v) end -- 10.7: those parameters are longs
+    if expected == "FloatingLong" then
+      -- 10.4 CCComputerHelper.getFloatingLong: a string is parsed, a number must be finite, below 0 is 0
+      -- (FloatingLong.createConst: `ctx.floatingLong` rounds it the way the module keeps FloatingLongs)
+      local fl = ctx and ctx.floatingLong or function(d) return d end
+      if type(v) == "string" then
+        local n = tonumber(v)
+        if not n or not v:match("^%s*[%d.]+%s*$") then
+          error("Java Exception Thrown: java.lang.NumberFormatException: For input string: \"" .. v .. "\"", 0)
+        end
+        return fl(n)
+      end
+      if type(v) ~= "number" then bad(i, "number", v) end
+      if not finite(v) then error(("bad argument #%d (number expected, got %s)"):format(i, numType(v)), 0) end
+      return fl(v < 0 and 0 or v)
+    end
+    -- the rest are tables: IArguments.getTable, then the module's converter
+    if type(v) ~= "table" then bad(i, "table", v) end
+    local map = J.toJava(v)
+    if expected == "QIOFilter" and ctx and ctx.filter then return ctx.filter(map, i) end
+    if ctx and ctx.convert then
+      local r = ctx.convert(expected, map, i)
+      if r ~= nil then return r end
+    end
+    error("ccsim: no converter for a Mekanism " .. tostring(expected) .. " argument", 0)
+  end
+
+  --- The arguments of one overload, read the way its handler reads them.
+  function J.ccArguments(params, args, ctx)
+    local out = { n = args.n }
+    for i = 1, #params do out[i] = ccArg(i, params[i], args[i], ctx) end
+    return out
+  end
+
+  --- On the computer thread, before the wait: 1.18.2 checks and converts everything (J.checkArguments); 10.4+ only
+  --- picks the overload. Returns what J.prepare takes.
+  function J.validate(name, m, args, ctx)
+    if not J.NEW then return J.checkArguments(name, m[1], args, ctx) end
+    local o = J.pick(m, args)
+    return { n = args.n, raw = args, overload = o }
+  end
+  --- In the main-thread task: the arguments to call with, and the overload ({ params, fn, void = bool }).
+  function J.prepare(m, validated, ctx)
+    if not J.NEW then return validated, m end
+    return J.ccArguments(validated.overload[1], validated.raw, ctx), validated.overload
+  end
+
+  --- help() and help(methodName) (BoundMethodHolder.HELP_METHOD): every 10.4+ block has them. What they return is a
+  --- table of every method's MethodHelpData (parameter names, types, descriptions), which is not in the emulator.
+  local function helpMissing()
+    error("ccsim: Mekanism's help() is not simulated (docs/mekanism-versions.md); its method list is peripheral.getMethods", 0)
+  end
+  J.HELP = { overloads = { { {}, helpMissing }, { { "String" }, helpMissing } } }
+
+  --- peripheral.getMethods order on CC:Tweaked 1.121.0: PeripheralWrapper puts the names into a new HashMap() (16
+  --- buckets, doubling past 0.75), in the order Mekanism's ArrayListMultimap gives its keys, itself a HashMap made for
+  --- 12 keys (32 buckets). `keys` is Mekanism's binding order.
+  function J.methodOrder(keys)
+    local n = #keys
+    local c, g = 16, 32
+    while n > c * 0.75 do c = c * 2 end
+    while n > g * 0.75 do g = g * 2 end
+    local items = {}
+    for i, k in ipairs(keys) do
+      local h = stringHash(k)
+      local spread = bxor(h, rshift(h, 16))
+      items[i] = { k = k, i = i, b = band(spread, c - 1), g = band(spread, g - 1) }
+    end
+    table.sort(items, function(a, b)
+      if a.b ~= b.b then return a.b < b.b end
+      if a.g ~= b.g then return a.g < b.g end
+      return a.i < b.i
+    end)
+    local out = {}
+    for i, it in ipairs(items) do out[i] = it.k end
+    return out
+  end
+
+  --- Stringified NBT the way Minecraft's StringTagVisitor writes it (keys sorted, quoted when not plain).
+  local SNBT_SUFFIX = { byte = "b", short = "s", int = "", long = "L", float = "f", double = "d" }
+  local function snbtString(s)
+    local q = s:find('"', 1, true) and "'" or '"'
+    return q .. s:gsub("\\", "\\\\"):gsub(q, "\\" .. q) .. q
+  end
+  function N.toSnbt(tag)
+    local t = tag.t
+    if t == "compound" then
+      local keys = {}
+      for k in pairs(tag.v) do keys[#keys + 1] = k end
+      table.sort(keys)
+      local parts = {}
+      for i, k in ipairs(keys) do
+        local key = k:match("^[A-Za-z0-9._+%-]+$") and k or snbtString(k)
+        parts[i] = key .. ":" .. N.toSnbt(tag.v[k])
+      end
+      return "{" .. table.concat(parts, ",") .. "}"
+    end
+    if t == "list" then
+      local parts = {}
+      for i, v in ipairs(tag.v) do parts[i] = N.toSnbt(v) end
+      return "[" .. table.concat(parts, ",") .. "]"
+    end
+    if t == "byte_array" or t == "int_array" or t == "long_array" then
+      local kind = t == "byte_array" and "B" or t == "int_array" and "I" or "L"
+      local suffix = kind == "B" and "b" or kind == "L" and "L" or ""
+      local parts = {}
+      for i, v in ipairs(tag.v) do parts[i] = string.format("%d", v) .. suffix end
+      return "[" .. kind .. ";" .. table.concat(parts, ",") .. "]"
+    end
+    if t == "string" then return snbtString(tag.v) end
+    if t == "float" or t == "double" then return J.double(tag.v) .. SNBT_SUFFIX[t] end
+    return string.format("%d", tag.v) .. SNBT_SUFFIX[t]
+  end
+
+  --- An ItemStack / FluidStack as it comes back (SpecialConverters.wrapStack): { name, <sizeKey> = amount } and
+  --- its NBT when there is some and the amount is above 0. 1.18.2: `nbt`, a table (CCArgumentWrapper.wrapNBT);
+  --- 1.20.1: `nbt`, a string (NbtUtils.structureToSnbt); 1.21.1: `components`, a string (the stack's
+  --- DataComponentPatch as SNBT; `components` is the fixture's text when it has one, else the NBT's).
+  function J.wrapStack(name, sizeKey, amount, tag, components)
+    local out = { name = name }
+    out[sizeKey] = amount
+    if amount > 0 then
+      local hasTag = tag ~= nil and not N.isEmptyCompound(tag)
+      if J.V21 then
+        if components then out.components = components elseif hasTag then out.components = N.toSnbt(tag) end
+      elseif hasTag then
+        out.nbt = J.NEW and N.toSnbt(tag) or N.toLua(tag)
+      end
+    end
+    return out
+  end
+
+  --- A frequency's identity (BaseComputerHelper.convert(Frequency)): 1.18.2 / 1.20.1 { key, public }; 1.21.1
+  --- { key, security_mode, owner } (SerializationConstants SECURITY_MODE, OWNER_UUID).
+  function J.frequency(name, public, ownerUuid, securityMode)
+    if J.V21 then
+      return { key = name, security_mode = securityMode or (public and "PUBLIC" or "PRIVATE"), owner = ownerUuid }
+    end
+    return { key = name, public = public }
   end
 
   return J

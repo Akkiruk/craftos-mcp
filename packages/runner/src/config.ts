@@ -30,6 +30,15 @@ export interface RunnerConfig {
   readonly runtimeDir: string;
   /** Helper Lua libraries shipped with this package (ccunit). */
   readonly luaLibDir: string;
+  /** The computer's disk size in bytes when a run does not give its own (StartOptions.computerSpaceLimit). */
+  readonly computerSpaceLimit?: number;
+  /** The http address rules when a run does not give its own (StartOptions.httpRules). */
+  readonly httpRules?: {
+    readonly allow?: readonly string[];
+    readonly deny?: readonly string[];
+  };
+  /** false: the computer has no http API at all (CC's http.enabled off on the server). */
+  readonly httpEnable?: boolean;
 }
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));

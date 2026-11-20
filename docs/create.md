@@ -1,5 +1,9 @@
 # Create 0.5.1.i emulation
 
+This page is Create 0.5.1.i, the 1.18.2 release. On 1.20.1 (6.0.8) and 1.21.1 (6.0.10) the emulator acts as those
+releases: twelve more peripherals, events, and changes to the display link and station; `docs/create-versions.md` has
+every difference. "Create sends no events" below holds on 1.18.2 only.
+
 Addon id `create`. Lua in `rom-overlay/rom/ccsim/addons/create/`: `init.lua` (kinetics, gauges, speed controller,
 sequenced gearshift, display link, sim commands), `trains.lua` (stations, trains, schedules, the schedule runtime),
 `common.lua` (CC argument checks, CC's method order, Java casts and exception text, a small NBT model).

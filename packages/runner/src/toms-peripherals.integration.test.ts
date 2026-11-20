@@ -92,9 +92,21 @@ const surface = JSON.parse(
   ),
 ) as {
   peripherals: Record<string, string[]>;
+  peripheralsCc121: Record<string, string[]>;
   listMethods: Record<string, string[]>;
   objects: Record<string, string[]>;
 };
+
+/**
+ * The mod's jars for 1.18.2 (1.18.2-1.2.1), 1.20.1 (1.20.1-1.3.1) and 1.21.1 (1.21.1-1.3.1) have the same Lua
+ * surface (docs/toms-peripherals.md, "Versions"); what peripheral.getMethods gives still depends on CC:Tweaked's
+ * HashMap: 1.101.3 on 1.18.2, 1.121.0 on 1.20.1 and 1.21.1.
+ */
+const MC_VERSIONS = ["1.18.2", "1.20.1", "1.21.1"] as const;
+const getMethodsOn = (mc: string): Record<string, string[]> =>
+  mc === "1.18.2"
+    ? surface.peripherals
+    : { ...surface.peripherals, ...surface.peripheralsCc121 };
 
 describe("method surface (no engine)", () => {
   it("every class's listMethods holds the jar's @LuaMethod names plus listMethods", () => {
@@ -103,7 +115,10 @@ describe("method surface (no engine)", () => {
       expect(new Set(names).size, cls).toBe(names.length);
     }
     // the peripheral order is CC's HashMap(n) of the mod's names: the same names
-    for (const [type, names] of Object.entries(surface.peripherals)) {
+    for (const [type, names] of [
+      ...Object.entries(surface.peripherals),
+      ...Object.entries(surface.peripheralsCc121),
+    ]) {
       const own =
         type === "tm_keyboard"
           ? ["setFireNativeEvents"]
@@ -114,21 +129,24 @@ describe("method surface (no engine)", () => {
 });
 
 describe.skipIf(!ready)("method surface", () => {
-  it("each peripheral has these methods in this order, and its objects these", async () => {
-    const result = await lua(
-      `
-local expected = ${JSON.stringify(surface.peripherals)
-        .replace(/\[/g, "{")
-        .replace(/\]/g, "}")
-        .replace(/"(\w+)":/g, "$1 =")}
+  it.each(MC_VERSIONS)(
+    "%s: each peripheral has these methods in this order, and its objects these",
+    async (mc) => {
+      const result = await lua(
+        `
+ccunit.test("version", function() ccunit.eq(_HOST:match("Minecraft ([%d.]+)"), "${mc}") end)
+local expected = ${JSON.stringify(getMethodsOn(mc))
+          .replace(/\[/g, "{")
+          .replace(/\]/g, "}")
+          .replace(/"(\w+)":/g, "$1 =")}
 local listed = ${JSON.stringify(surface.listMethods)
-        .replace(/\[/g, "{")
-        .replace(/\]/g, "}")
-        .replace(/"(\w+)":/g, "$1 =")}
+          .replace(/\[/g, "{")
+          .replace(/\]/g, "}")
+          .replace(/"(\w+)":/g, "$1 =")}
 local objects = ${JSON.stringify(surface.objects)
-        .replace(/\[/g, "{")
-        .replace(/\]/g, "}")
-        .replace(/"(\w+)":/g, "$1 =")}
+          .replace(/\[/g, "{")
+          .replace(/\]/g, "}")
+          .replace(/"(\w+)":/g, "$1 =")}
 for ty, names in pairs(expected) do
   ccunit.test(ty, function()
     ccunit.eq(peripheral.getMethods("p_" .. ty), names)
@@ -151,22 +169,25 @@ ccunit.test("objects", function()
   end
 end)
 `,
-      {
-        peripherals: [
-          {
-            name: "p_tm_gpu",
-            type: "tm_gpu",
-            monitor: { width: 1, height: 1 },
-          },
-          { name: "p_tm_keyboard", type: "tm_keyboard" },
-          { name: "p_tm_rsPort", type: "tm_rsPort" },
-          { name: "p_tm_wdt", type: "tm_wdt" },
-        ],
-      },
-      "surface.test.lua",
-    );
-    expectAllPassed(result);
-  }, 60000);
+        {
+          version: mc,
+          peripherals: [
+            {
+              name: "p_tm_gpu",
+              type: "tm_gpu",
+              monitor: { width: 1, height: 1 },
+            },
+            { name: "p_tm_keyboard", type: "tm_keyboard" },
+            { name: "p_tm_rsPort", type: "tm_rsPort" },
+            { name: "p_tm_wdt", type: "tm_wdt" },
+          ],
+        },
+        `surface-${mc}.test.lua`,
+      );
+      expectAllPassed(result);
+    },
+    60000,
+  );
 });
 
 // ───────────── the GPU ─────────────
@@ -1261,20 +1282,22 @@ describe.skipIf(!ready)("addon off", () => {
 });
 
 describe.skipIf(!ready)("demo world", () => {
-  it("loads, and every peripheral answers", async () => {
-    const demo = JSON.parse(
-      readFileSync(
-        fileURLToPath(
-          new URL(
-            "../../../worlds/toms-peripherals-demo.json",
-            import.meta.url,
+  it.each(MC_VERSIONS)(
+    "%s: loads, and every peripheral answers",
+    async (mc) => {
+      const demo = JSON.parse(
+        readFileSync(
+          fileURLToPath(
+            new URL(
+              "../../../worlds/toms-peripherals-demo.json",
+              import.meta.url,
+            ),
           ),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ) as WorldConfig;
-    const result = await lua(
-      `
+      ) as WorldConfig;
+      const result = await lua(
+        `
 ccunit.test("demo", function()
   local gpu = peripheral.find("tm_gpu")
   gpu.refreshSize()
@@ -1282,11 +1305,17 @@ ccunit.test("demo", function()
   ccunit.truthy(peripheral.find("tm_keyboard"))
   ccunit.eq(peripheral.find("tm_rsPort").getAnalogInput("north"), 15)
   ccunit.eq(peripheral.find("tm_wdt").getTimeout(), 200)
+  local img = gpu.newImage(2, 2)
+  img.setRGB(0, 0, 0x12345678)
+  ccunit.eq(img.getRGB(0, 0), 0x12345678)
+  ccunit.eq(err(gpu.setSize, 15), "Bad Argument #1, (too small number (15) minimum value is 16 )")
 end)
 `,
-      demo,
-      "demo.test.lua",
-    );
-    expectAllPassed(result);
-  }, 60000);
+        { ...demo, version: mc },
+        `demo-${mc}.test.lua`,
+      );
+      expectAllPassed(result);
+    },
+    60000,
+  );
 });

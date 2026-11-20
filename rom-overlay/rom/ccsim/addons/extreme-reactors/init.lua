@@ -20,12 +20,23 @@
 -- methods). The setters are queued for the next server tick and return nothing at once; whatever goes wrong in them
 -- there is only logged. The machines run on the virtual clock: each 50 ms is a server tick, simulated tick by tick
 -- (with Java's float arithmetic where the mod uses floats) whenever anything looks.
+--
+-- Minecraft 1.20.1 runs ExtremeReactors2 1.20.1-2.0.97 with ZeroCore2 1.20.1-2.1.48, and 1.21.1 runs 1.21.1-2.4.28
+-- with ZeroCore2 1.21.1-2.4.21 (jars diffed with javap; source tags 1.20.1-2.0.96 and 1.21.1-2.4.27, whose logic the
+-- final jars keep). The method lists and ZeroCore's computer code are the same on all three. What differs is behind
+-- `NEW` (1.20.1 and 1.21.1) and `V121` (1.21.1 only): getCoolantType/getHotFluidType, getControlRodLocation, the
+-- reinforced variants, energy buffers scaled by the power multipliers, disassembly keeping a machine active, more
+-- moderators, the Energizer (BigReactors-Energizer), and on 1.21.1 "last tick" stats that are no longer reset each
+-- tick. docs/extreme-reactors.md "Versions" has the whole diff.
 return function(core, host)
   local floor, abs, exp, cos, min, max, huge = math.floor, math.abs, math.exp, math.cos, math.min, math.max, math.huge
   local log10 = math.log10 or function(x) return math.log(x, 10) end
   local PI = math.pi
 
   local cfg = core.world.extremeReactors or {}
+  local MC = core.version and core.version.mc or "1.18.2"
+  local NEW = MC ~= "1.18.2" -- 2.0.97 on 1.20.1, 2.4.28 on 1.21.1; 2.0.71 on 1.18.2
+  local V121 = MC == "1.21.1"
 
   -- ===== Java float arithmetic =====
 
@@ -171,6 +182,12 @@ return function(core, host)
     reinforced = { partEnergyCapacity = 20000, maxExtract = 5000000, maxFlow = 2000, fluidPerBlade = 25,
       dragCoefficient = F(0.01), bladeMass = 10, shaftMass = 10, partFluidCapacity = 500, maxFluidCapacity = 300000 },
   }
+  if NEW then
+    -- ReactorVariant / TurbineVariant from 2.0.7x on: reinforced generates at full efficiency and extracts 50 MFE/t
+    REACTOR_VARIANTS.reinforced.energyEfficiency = F(1)
+    REACTOR_VARIANTS.reinforced.maxExtract = 50000000
+    TURBINE_VARIANTS.reinforced.maxExtract = 50000000
+  end
 
   -- Fuels: FuelProperties(moderationFactor, absorptionCoefficient, hardnessDivisor, fissionEventsPerFuelUnit,
   -- fuelUnitsPerFissionEvent) and the reaction's reactivity and waste (ReactorGameData).
@@ -201,6 +218,24 @@ return function(core, host)
     redfrigium = { 0.66, 0.95, 6.00, C_DIAMOND }, liquid_starlight = { 0.92, 0.80, 2.00, C_DIAMOND },
     sodium = { 0.28, 0.60, 1.70, C_COPPER }, ethene = { 0.45, 0.65, 1.90, C_SILVER },
   }
+  if NEW then
+    -- ReactorGameData from 2.0.7x on: Draconic Evolution, Thermal Extra, Allthemodium blocks; Thermal and
+    -- Allthemodium fluids
+    local C_GRAPHENE = 5
+    MOD.draconium = { 0.59, 0.88, 1.60, 3.3 }
+    MOD.draconium_awakened = { 0.76, 0.88, 1.78, 4.8 }
+    MOD.dragonsteel = { 0.55, 0.81, 1.46, C_SILVER }
+    MOD.twinite = { 0.50, 0.78, 1.42, C_COPPER }
+    MOD.shellite = { 0.52, 0.78, 1.42, C_GOLD }
+    MOD.allthemodium = { 0.697, 0.942, 3.84, 3.65 }
+    MOD.vibranium = { 0.24, 0.81, 7.47, 4.38 }
+    MOD.unobtainium = { 0.972, 0.91, 3.074, C_GRAPHENE }
+    MOD.ender = { 0.92, 0.76, 2.02, C_GOLD }         -- thermal:ender (Resonant Ender)
+    MOD.redstone = { 0.77, 0.56, 1.61, C_EMERALD }   -- thermal:redstone (Destabilized Redstone)
+    MOD.molten_allthemodium = { 0.697, 0.942, 3.84, 3.65 }
+    MOD.molten_vibranium = { 0.24, 0.81, 7.47, 4.38 }
+    MOD.molten_unobtainium = { 0.972, 0.91, 3.074, C_GRAPHENE }
+  end
   for k, v in pairs(MOD) do
     -- Moderator's setters clamp: absorption and efficiency to 0..1, moderation >= 1, conductivity >= 0
     MOD[k] = { absorption = F(v[1]), efficiency = F(v[2]), moderation = F(v[3]), conductivity = F(v[4]), name = k }
@@ -220,10 +255,12 @@ return function(core, host)
   }
   for k, v in pairs(COILS) do COILS[k] = { efficiency = F(v[1]), bonus = F(v[2]), extraction = F(v[3]) } end
 
-  --- "minecraft:gold_block", "forge:storage_blocks/gold", "gold" all name the gold moderator/coil.
+  --- "minecraft:gold_block", "forge:storage_blocks/gold", "gold" all name the gold moderator/coil. 1.21.1's tags are
+  --- "c:storage_blocks/gold" and "c:glass/colorless"; both spellings are taken on every version.
   local function materialKey(name)
     local s = tostring(name):lower()
-    s = s:gsub("^forge:storage_blocks?/", ""):gsub("^forge:glass/colorless$", "glass"):gsub("^[%w_]+:", "")
+    s = s:gsub("^forge:storage_blocks?/", ""):gsub("^c:storage_blocks?/", "")
+    s = s:gsub("^forge:glass/colorless$", "glass"):gsub("^c:glass/colorless$", "glass"):gsub("^[%w_]+:", "")
     s = s:gsub("_block$", ""):gsub("^block_", ""):gsub("^flowing_", ""):gsub("_flowing$", ""):gsub("_fluid$", "")
     if s == "cave_air" or s == "void_air" then s = "air" end
     return s
@@ -272,8 +309,15 @@ return function(core, host)
 
   -- ===== the energy buffer (WideEnergyBuffer of WideAmount: an integer part and 4 decimal digits) =====
 
+  --- WideAmount.from(double) in units of 1/10000: the integer part, and DecimalFormat("0.0000")'s four digits
+  local function wideUnits(v)
+    if not (v > 0) then return 0 end
+    local ip = floor(v)
+    return ip * 10000 + roundHalfEven(v * 10000) % 10000
+  end
+
   local function newBuffer(capacity, maxExtract, stored)
-    local b = { units = 0, capacityUnits = capacity * 10000, maxExtract = maxExtract }
+    local b = { units = 0, capacityUnits = wideUnits(capacity), maxExtract = maxExtract }
     function b.value() return floor(b.units / 10000) + (b.units % 10000) / 10000 end
     function b.grow(v)
       if not (v > 0) then return end
@@ -391,7 +435,12 @@ return function(core, host)
     m.volume = ix * iy * iz
     m.fuelCapacity = m.fuelRodCount * FUEL_CAPACITY_PER_FUEL_ROD
     m.parts = shellCount(X, Y, Z) + m.fuelRodCount
-    m.energy = newBuffer(variant.partEnergyCapacity * m.parts, variant.maxExtract, def.energy)
+    local capacity = variant.partEnergyCapacity * m.parts
+    if NEW then
+      -- MultiblockReactor.onMachineAssembled: the buffer is scaled by the power multipliers and the variant's efficiency
+      capacity = capacity * ((POWER_MULT * REACTOR_POWER_MULT) * variant.energyEfficiency)
+    end
+    m.energy = newBuffer(capacity, variant.maxExtract, def.energy)
     m.fluidCapacity = activeCooling and max(0, min(variant.maxFluidCapacity, shellCount(X, Y, Z) * variant.partFluidCapacity)) or 0
 
     -- ReactorFuelRodEntity.getHeatTransferRate, summed over every fuel rod (FuelRodsMap.getHeatTransferRate)
@@ -576,8 +625,12 @@ return function(core, host)
   local function reactorTick(m)
     if not (m.connected and m.assembled) then return end
     if m.reactorHeat ~= m.reactorHeat then m.reactorHeat = 0 end
-    m.amountGenerated = 0.0
-    m.fuelConsumed = F(0)
+    if not V121 then
+      -- ReactorLogic.update up to 2.0.97 zeroes the stats first; 2.4.28 sets them when they happen, so they keep
+      -- the last value while nothing is generated or burned (an idle or empty reactor)
+      m.amountGenerated = 0.0
+      m.fuelConsumed = F(0)
+    end
     -- irradiation, from the next fuel rod
     if m.active then
       m.cursor = m.cursor % m.fuelRodCount + 1
@@ -585,7 +638,7 @@ return function(core, host)
       if fuelEnergy then
         m.fuelHeat = heatAdd(m.fuelHeat, tempOf(m.fuelRodCount, fuelEnergy))
         m.reactorHeat = heatAdd(m.reactorHeat, tempOf(m.volume, envEnergy))
-        m.fuelConsumed = F(m.fuelConsumed + usage)
+        m.fuelConsumed = V121 and usage or F(m.fuelConsumed + usage)
       end
     end
     -- radiation decay
@@ -619,7 +672,7 @@ return function(core, host)
         e = e * F02
         local raw = e * F05 * POWER_MULT * REACTOR_POWER_MULT * m.variant.energyEfficiency
         m.energy.grow(raw)
-        m.amountGenerated = m.amountGenerated + raw
+        m.amountGenerated = V121 and raw or m.amountGenerated + raw
       else
         e = e - absorbHeat(m, e)
         m.amountGenerated = m.liquidVaporizedLastTick
@@ -700,7 +753,10 @@ return function(core, host)
     m.coilSize = size
     m.fluidPerBlade = floor(variant.fluidPerBlade * TURBINE_FLUID_PER_BLADE_MULT)
     m.parts = shellCount(X, Y, Z) + m.shafts + m.blades
-    m.energy = newBuffer(variant.partEnergyCapacity * m.parts, variant.maxExtract, def.energy)
+    local capacity = variant.partEnergyCapacity * m.parts
+    -- MultiblockTurbine.onMachineAssembled from 2.0.7x on: scaled by the power multipliers
+    if NEW then capacity = capacity * (POWER_MULT * TURBINE_POWER_MULT) end
+    m.energy = newBuffer(capacity, variant.maxExtract, def.energy)
     m.fluidCapacity = max(0, min(variant.maxFluidCapacity, shellCount(X, Y, Z) * variant.partFluidCapacity))
     m.vent = ({ none = "DoNotVent", overflow = "VentOverflow", all = "VentAll" })[tostring(def.vent or "overflow"):lower()]
       or "VentOverflow"
@@ -735,10 +791,13 @@ return function(core, host)
       local add = supply == "full" and free or min(free, floor(supply))
       if add > 0 then m.gas = m.gas + add end
     end
-    -- TurbineLogic.update
-    m.energyGenerated = 0.0
-    m.fluidConsumed = 0
-    m.rotorEfficiency = F(1)
+    -- TurbineLogic.update (resetStats up to 2.0.97; 2.4.28 dropped it, so each stat keeps its last value until it is
+    -- set again: power while the coils make some, flow while vapor goes through, efficiency on excess steam)
+    if not V121 then
+      m.energyGenerated = 0.0
+      m.fluidConsumed = 0
+      m.rotorEfficiency = F(1)
+    end
     local vapor = 0
     if m.active then
       vapor = min(m.maxIntake, m.gas)
@@ -768,7 +827,7 @@ return function(core, host)
         if speed < 500 then efficiency = min(F05, efficiency) end
         local raw = F(energy * efficiency) * POWER_MULT * TURBINE_POWER_MULT
         m.energy.grow(raw)
-        m.energyGenerated = m.energyGenerated + raw
+        m.energyGenerated = V121 and raw or m.energyGenerated + raw
       end
       local delta = F(F(F(lift + F(-1 * induction)) + F(-1 * aero)) + F(-1 * m.frictionalDrag))
       local newE = F(m.rotorEnergy + delta)
@@ -802,6 +861,71 @@ return function(core, host)
     end
   end
 
+  -- ----- energizer (2.0.7x on: gamecontent/multiblock/energizer/MultiBlockEnergizer, variant/EnergizerVariant;
+  -- ZeroCore lib/energy/MeteredWideEnergyBuffer) -----
+
+  -- EnergizerVariant.CAPACITY_PER_BLOCK = WideAmount.MAX_VALUE / (30 * 30 * 30): 683212743470724.1339 FE a cell
+  local CELL_INT, CELL_DEC = 683212743470724, 1339
+
+  --- CAPACITY_PER_BLOCK.multiply(cells), exactly, then WideAmount.doubleValue() (mathUnsignedLongToDouble + dec)
+  local function energizerCapacity(cells)
+    -- integer part: CELL_INT * cells + cells * 1339 / 10000, kept as hi * 2^32 + lo so nothing rounds
+    local hiA, loA = floor(CELL_INT / 16777216), CELL_INT % 16777216 -- CELL_INT = hiA * 2^24 + loA
+    local p1 = hiA * cells                                          -- * 2^24, < 2^42
+    local extra = floor(cells * CELL_DEC / 10000)
+    local dec = (cells * CELL_DEC) % 10000
+    local lo = (p1 % 256) * 16777216 + loA * cells + extra
+    local hi = floor(p1 / 256) + floor(lo / 4294967296)
+    lo = lo % 4294967296
+    local d
+    if hi >= 2147483648 then
+      d = (hi - 2147483648) * 4294967296 + lo -- (double)(value & Long.MAX_VALUE), then + 2^63
+      d = d + 2 ^ 63
+    else
+      d = hi * 4294967296 + lo
+    end
+    return d + dec / 10000
+  end
+
+  local function buildEnergizer(def)
+    if not NEW then fail("ccsim: Extreme Reactors has no Energizer on Minecraft 1.18.2 (2.0.71)") end
+    local X, Y, Z = dims(def, 3, 3, 3)
+    if X < 3 or Y < 3 or Z < 3 then fail("ccsim: an extreme-reactors energizer is at least 3x3x3") end
+    if X > 32 or Y > 32 or Z > 32 then fail("ccsim: an extreme-reactors energizer is at most 32x32x32") end
+    local m = { kind = "energizer", name = def.name, X = X, Y = Y, Z = Z, pos = position(def) }
+    m.connected = def.connected ~= false
+    m.assembled = def.assembled ~= false
+    m.active = def.active == true
+    m.cells = (X - 2) * (Y - 2) * (Z - 2)
+    m.capacity = energizerCapacity(m.cells)
+    m.variant = { maxExtract = huge }
+    m.energy = newBuffer(0, huge, 0)
+    m.energy.capacityUnits = m.capacity * 10000
+    m.energy.grow(tonumber(def.energy) or 0)
+    m.input = max(0, numberOr(def.input, 0))
+    m.load = max(0, numberOr(def.load, 0))
+    m.curIn, m.curOut, m.lastIn, m.lastOut = 0, 0, 0, 0 -- units of 1/10000 FE
+    return m
+  end
+
+  --- MultiBlockEnergizer.updateServer, with the fixture's generator (input) and consumer (load) around it
+  local function energizerTick(m)
+    if not (m.connected and m.assembled) then return end
+    if m.active then
+      if m.input > 0 then -- insertEnergy from a power port in input mode: only while active
+        local before = m.energy.units
+        m.energy.grow(m.input)
+        m.curIn = m.curIn + (m.energy.units - before)
+      end
+      if m.load > 0 and m.energy.units > 0 then -- distributeEnergyEqually, then shrink: metered as extracted
+        local units = min(m.energy.units, floor(m.load * 10000))
+        m.energy.shrink(units)
+        m.curOut = m.curOut + units
+      end
+    end
+    m.lastIn, m.lastOut, m.curIn, m.curOut = m.curIn, m.curOut, 0, 0 -- MeteredWideEnergyBuffer.tick
+  end
+
   -- ===== catching up =====
 
   local function signature(m)
@@ -809,6 +933,7 @@ return function(core, host)
       return { m.active, m.fuel, m.waste, m.radiationFuelUsage, m.fertility, m.fuelHeat, m.reactorHeat, m.energy.units,
         m.liquid, m.gas, m.amountGenerated, m.fuelConsumed, m.liquidVaporizedLastTick, m.wasteEjected, m.energyOut }
     end
+    if m.kind == "energizer" then return { m.active, m.energy.units, m.lastIn, m.lastOut } end
     return { m.active, m.rotorEnergy, m.gas, m.liquid, m.energy.units, m.energyGenerated, m.fluidConsumed,
       m.rotorEfficiency, m.energyOut }
   end
@@ -847,7 +972,9 @@ return function(core, host)
       local before = {}
       for i, m in ipairs(machines) do before[i] = signature(m) end
       for _, m in ipairs(machines) do
-        if m.kind == "reactor" then reactorTick(m) else turbineTick(m) end
+        if m.kind == "reactor" then reactorTick(m)
+        elseif m.kind == "energizer" then energizerTick(m)
+        else turbineTick(m) end
       end
       local changed = false
       for i, m in ipairs(machines) do
@@ -897,9 +1024,16 @@ return function(core, host)
     "getEnergyStoredAsText", "help", "getInputAmount", "getFluidFlowRateMaxMax", "setActive", "getBladeEfficiency",
     "getActive", "mbIsDisassembled", "getOutputAmount" }
 
+  local ENERGIZER_ORDER = { "getEnergyExtractedLastTickAsText", "getEnergyStatsAsText", "mbIsConnected",
+    "mbGetMinimumCoordinate", "getEnergyIoLastTick", "getEnergyStored", "mbIsPaused", "getEnergyCapacityAsText",
+    "getEnergyInsertedLastTick", "getEnergyStats", "mbIsAssembled", "getEnergyStoredAsText", "getEnergyExtractedLastTick",
+    "getEnergyIoLastTickAsText", "help", "setActive", "getEnergyInsertedLastTickAsText", "isMethodAvailable", "getActive",
+    "mbIsDisassembled", "mbGetMaximumCoordinate", "mbGetMultiblockControllerTypeName", "getEnergyCapacity" }
+
   local CONTROLLER_CLASS = {
     reactor = "it.zerono.mods.extremereactors.gamecontent.multiblock.reactor.MultiblockReactor",
     turbine = "it.zerono.mods.extremereactors.gamecontent.multiblock.turbine.MultiblockTurbine",
+    energizer = "it.zerono.mods.extremereactors.gamecontent.multiblock.energizer.MultiBlockEnergizer",
   }
 
   --- Build the method table. `spec[name] = { min = n, server = bool, part = bool, fn = function(m, a) }`.
@@ -977,14 +1111,27 @@ return function(core, host)
     spec.isActivelyCooled = { fn = function() return m.activeCooling end }
     spec.getCoolantAmount = { fn = function() return m.liquid end }
     spec.getCoolantAmountMax = { fn = function() return m.fluidCapacity end }
-    spec.getCoolantType = { fn = function() return m.liquid > 0 and "minecraft:water" or "" end }
+    -- from 2.0.7x on the two type getters return the Optional itself (no .orElse("")), which CC cannot convert: nil,
+    -- full tank or empty
+    spec.getCoolantType = { fn = function()
+      if NEW then return nil end
+      return m.liquid > 0 and "minecraft:water" or ""
+    end }
     spec.getHotFluidAmount = { fn = function() return m.gas end }
     spec.getHotFluidAmountMax = { fn = function() return m.fluidCapacity end }
-    spec.getHotFluidType = { fn = function() return m.gas > 0 and m.steamFluid or "" end }
+    spec.getHotFluidType = { fn = function()
+      if NEW then return nil end
+      return m.gas > 0 and m.steamFluid or ""
+    end }
     spec.getFuelReactivity = { fn = function() return F(m.fertility * 100) end }
     spec.getFuelConsumedLastTick = { fn = function() return m.fuelConsumed end }
-    -- the rod's position comes back as a BlockPos, which CC cannot convert: nil
-    spec.getControlRodLocation = { min = 1, fn = function(_, a) rodByIndex(m, argInt(a, 0)); return nil end }
+    -- 1.18.2: the rod's position comes back as a BlockPos, which CC cannot convert: nil. From 2.0.7x on it is a
+    -- { x, y, z } map of the rod's position minus the reactor's minimum corner (the control rod is in the top casing)
+    spec.getControlRodLocation = { min = 1, fn = function(_, a)
+      local r = rodByIndex(m, argInt(a, 0))
+      if NEW and r then return { x = r.x, y = m.Y - 1, z = r.z } end
+      return nil
+    end }
     spec.getControlRodsLevels = { fn = function()
       local t = {}
       for i, r in ipairs(m.rods) do t[i - 1] = r.insertion end
@@ -1076,7 +1223,45 @@ return function(core, host)
     return spec
   end
 
+  --- EnergizerComputerPeripheral: the common methods, getActive/setActive and the metered buffer, each energy
+  --- getter also as "...AsText" (CodeHelper.formatAsHumanReadableNumber of the doubleValue)
+  local function energizerPeripheral(m)
+    local common = commonSpec(m)
+    local spec = {}
+    for _, k in ipairs({ "mbIsConnected", "mbIsAssembled", "mbIsDisassembled", "mbIsPaused",
+      "mbGetMultiblockControllerTypeName", "mbGetMinimumCoordinate", "mbGetMaximumCoordinate", "getActive", "setActive" }) do
+      spec[k] = common[k]
+    end
+    local function io() return max(0, m.lastIn - m.lastOut) / 10000 end -- WideAmount.subtract clamps at zero
+    local getters = {
+      getEnergyStored = function() return m.energy.value() end,
+      getEnergyCapacity = function() return m.capacity end,
+      getEnergyIoLastTick = io,
+      getEnergyInsertedLastTick = function() return m.lastIn / 10000 end,
+      getEnergyExtractedLastTick = function() return m.lastOut / 10000 end,
+    }
+    for name, get in pairs(getters) do
+      spec[name] = { fn = get }
+      spec[name .. "AsText"] = { fn = function() return humanReadable(get(), "FE") end }
+    end
+    spec.getEnergyStats = { fn = function()
+      return { energyStored = getters.getEnergyStored(), energyCapacity = m.capacity, energyIoLastTick = io(),
+        energyInsertedLastTick = m.lastIn / 10000, energyExtractedLastTick = m.lastOut / 10000, energySystem = "FE" }
+    end }
+    spec.getEnergyStatsAsText = { fn = function()
+      return { energyStored = humanReadable(getters.getEnergyStored(), "FE"), energyCapacity = humanReadable(m.capacity, "FE"),
+        energyIoLastTick = humanReadable(io(), "FE"), energyInsertedLastTick = humanReadable(m.lastIn / 10000, "FE"),
+        energyExtractedLastTick = humanReadable(m.lastOut / 10000, "FE"), energySystem = "FE" }
+    end }
+    return spec
+  end
+
   local function machineState(m)
+    if m.kind == "energizer" then
+      return { kind = "energizer", connected = m.connected, assembled = m.assembled, active = m.active, cells = m.cells,
+        energy = m.energy.value(), energyCapacity = m.capacity, insertedLastTick = m.lastIn / 10000,
+        extractedLastTick = m.lastOut / 10000, input = m.input, load = m.load }
+    end
     if m.kind == "reactor" then
       local rods = {}
       for i, r in ipairs(m.rods) do rods[i] = { name = r.name, level = r.insertion } end
@@ -1132,18 +1317,27 @@ return function(core, host)
   function handlers.erDrainEnergy(cmd)
     local m, err = target(cmd); if not m then return false, err end
     -- extractEnergy: no more than the buffer's max extract per call
+    if m.kind == "energizer" and not m.active then return true end -- MultiBlockEnergizer.extractEnergy: only active
     local units = min(m.energy.units, floor(min(tonumber(cmd.amount) or 0, m.variant.maxExtract) * 10000))
     m.energy.shrink(max(0, units))
+    if m.kind == "energizer" then m.curOut = m.curOut + max(0, units) end -- metered, in this tick's I/O
+    return true
+  end
+  function handlers.erSetInput(cmd)
+    local m, err = target(cmd, "energizer"); if not m then return false, err end
+    m.input = max(0, tonumber(cmd.rate) or 0)
     return true
   end
   function handlers.erAddCoolant(cmd)
     local m, err = target(cmd); if not m then return false, err end
+    if m.kind == "energizer" then return false, "an energizer has no fluid tanks" end
     if m.kind == "reactor" and not m.activeCooling then return false, "a passively cooled reactor has no coolant tank" end
     m.liquid = min(m.fluidCapacity, m.liquid + max(0, floor(tonumber(cmd.amount) or 0)))
     return true
   end
   function handlers.erAddSteam(cmd)
     local m, err = target(cmd); if not m then return false, err end
+    if m.kind == "energizer" then return false, "an energizer has no fluid tanks" end
     if m.kind == "reactor" and not m.activeCooling then return false, "a passively cooled reactor has no steam tank" end
     m.gas = min(m.fluidCapacity, m.gas + max(0, floor(tonumber(cmd.amount) or 0)))
     return true
@@ -1168,7 +1362,8 @@ return function(core, host)
     local m, err = target(cmd); if not m then return false, err end
     local on = cmd.assembled ~= false
     if m.assembled and not on then
-      m.active = false -- onMachineDisassembled
+      -- onMachineDisassembled; from 2.0.7x on it no longer switches the machine off (the lines are commented out)
+      if not NEW then m.active = false end
       if m.kind == "turbine" then m.rotorEnergy = F(0) end -- TurbineData.onTurbineDisassembled
     end
     m.assembled = on
@@ -1185,7 +1380,9 @@ return function(core, host)
   return {
     peripheral = function(def)
       local m
-      if def.type == "BigReactors-Reactor" then m = buildReactor(def) else m = buildTurbine(def) end
+      if def.type == "BigReactors-Reactor" then m = buildReactor(def)
+      elseif def.type == "BigReactors-Energizer" then m = buildEnergizer(def)
+      else m = buildTurbine(def) end
       catchUp()
       if byName[def.name] then
         for i, other in ipairs(machines) do if other.name == def.name then table.remove(machines, i) break end end
@@ -1193,11 +1390,14 @@ return function(core, host)
       machines[#machines + 1] = m
       byName[def.name] = m
       linkUp()
-      local spec = m.kind == "reactor" and reactorPeripheral(m) or turbinePeripheral(m)
-      local methods, threads = bind(m, spec, m.kind == "reactor" and REACTOR_ORDER or TURBINE_ORDER)
+      local spec, order
+      if m.kind == "reactor" then spec, order = reactorPeripheral(m), REACTOR_ORDER
+      elseif m.kind == "energizer" then spec, order = energizerPeripheral(m), ENERGIZER_ORDER
+      else spec, order = turbinePeripheral(m), TURBINE_ORDER end
+      local methods, threads = bind(m, spec, order)
       return {
         methods = methods,
-        methodOrder = m.kind == "reactor" and REACTOR_ORDER or TURBINE_ORDER,
+        methodOrder = order,
         computerThread = threads,
         exactReturns = true, -- each method returns what its Java does: one nil for a null, none for an empty result
         state = function() catchUp(); return machineState(m) end,

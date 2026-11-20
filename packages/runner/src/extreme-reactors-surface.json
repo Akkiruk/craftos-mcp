@@ -83,5 +83,30 @@
     "getActive",
     "mbIsDisassembled",
     "getOutputAmount"
+  ],
+  "BigReactors-Energizer": [
+    "getEnergyExtractedLastTickAsText",
+    "getEnergyStatsAsText",
+    "mbIsConnected",
+    "mbGetMinimumCoordinate",
+    "getEnergyIoLastTick",
+    "getEnergyStored",
+    "mbIsPaused",
+    "getEnergyCapacityAsText",
+    "getEnergyInsertedLastTick",
+    "getEnergyStats",
+    "mbIsAssembled",
+    "getEnergyStoredAsText",
+    "getEnergyExtractedLastTick",
+    "getEnergyIoLastTickAsText",
+    "help",
+    "setActive",
+    "getEnergyInsertedLastTickAsText",
+    "isMethodAvailable",
+    "getActive",
+    "mbIsDisassembled",
+    "mbGetMaximumCoordinate",
+    "mbGetMultiblockControllerTypeName",
+    "getEnergyCapacity"
   ]
 }
