@@ -71,7 +71,9 @@ writeFileSync(
     'local m = peripheral.find("monitor")',
     "m.clear()",
     "m.setCursorPos(1, 1)",
-    'm.write("HELLO " .. peripheral.find("playerDetector").getOnlinePlayers()[1])',
+    // player_detector from Minecraft 1.21.1 on (the default)
+    'local detector = peripheral.find("playerDetector") or peripheral.find("player_detector")',
+    'm.write("HELLO " .. detector.getOnlinePlayers()[1])',
     'print("clock started")',
     "while true do sleep(1) end",
     "",

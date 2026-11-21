@@ -667,16 +667,26 @@ exports.run = async function run() {
           .filter((d) => d.source === "craftos-mcp");
       try {
         await vscode.window.showTextDocument(uri);
+        // on the default version (1.21.1) Advanced Peripherals calls the chat box chat_box, so chatBox is flagged too
         await until(
-          () => ours().length === 1,
-          "only the os.shutdown warning on the default version",
+          () => ours().length === 2,
+          "the os.shutdown and chat box name warnings on the default version",
         );
-        assert.equal(ours()[0].code, "shutdown-exit-code");
-        assert.equal(ours()[0].range.start.line, 6);
+        assert.deepEqual(
+          ours()
+            .map((d) => d.code)
+            .sort(),
+          ["shutdown-exit-code", "type-renamed"],
+        );
+        const renamed = ours().find((d) => d.code === "type-renamed");
+        assert.equal(renamed.range.start.line, 5);
+        assert.match(renamed.message, /"chat_box"/);
+        const shutdown = ours().find((d) => d.code === "shutdown-exit-code");
+        assert.equal(shutdown.range.start.line, 6);
         const fixes = await vscode.commands.executeCommand(
           "vscode.executeCodeActionProvider",
           uri,
-          ours()[0].range,
+          shutdown.range,
         );
         assert.ok(
           fixes.some((f) => /Remove the exit code/.test(f.title)),
@@ -794,14 +804,14 @@ exports.run = async function run() {
   );
 
   await step(
-    "the MCP server definition is the supervisor running npx craftos-mcp@0.6.1 serve in the project",
+    "the MCP server definition is the supervisor running npx craftos-mcp@0.7.0 serve in the project",
     async () => {
       const def = api.serverDefinition();
       assert.ok(def instanceof vscode.McpStdioServerDefinition);
       assert.equal(def.command, process.execPath);
       assert.match(def.args[0], /dist[\\/]supervisor\.js$/);
       const supervise = JSON.parse(def.env.CRAFTOS_SUPERVISE);
-      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.6.1"]);
+      assert.deepEqual(supervise.base, ["npx", "-y", "craftos-mcp@0.7.0"]);
       assert.deepEqual(supervise.sub, ["serve"]);
       assert.ok(supervise.pipe, "no restart channel");
       assert.equal(def.cwd.fsPath.toLowerCase(), project.toLowerCase());
@@ -993,11 +1003,11 @@ exports.run = async function run() {
           api.serverEvents().filter((e) => e.supervisor === child.pid);
         const started = () => mine().filter((e) => e.type === "started");
         await until(() => started().length >= 1, "started event");
-        // two starts already while craftos-mcp@0.6.1 is not on npm: it, then the 0.6.0 fallback
+        // two starts already while craftos-mcp@0.7.0 is not on npm: it, then the 0.6.1 fallback
         const base = started().length;
         const fellBack = mine().some((e) => e.type === "fallback");
         console.log(
-          `       ${fellBack ? "fell back to 0.6.0" : "runs the pinned version"}`,
+          `       ${fellBack ? "fell back to 0.6.1" : "runs the pinned version"}`,
         );
         const killLatest = () => killTreeByPid(started().at(-1).pid);
 

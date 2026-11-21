@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { FALLBACK_PACKAGE, NPM_PACKAGE } from "../../src/launcher.ts";
 import { Supervisor } from "../../src/supervise.ts";
 
 const fake = fileURLToPath(new URL("./fake-server.mjs", import.meta.url));
@@ -145,10 +146,10 @@ test("a pinned version missing on npm falls back without counting a crash", asyn
   const h = harness({
     env: { FAKE_ETARGET: "1" },
     supervisor: {
-      base: ["npx", "-y", "craftos-mcp@0.6.1"],
+      base: ["npx", "-y", NPM_PACKAGE],
       spawn: (base, sub, opts) => {
         seen.push(base.join(" "));
-        const extra = base.includes("craftos-mcp@0.6.0") ? ["fallback"] : [];
+        const extra = base.includes(FALLBACK_PACKAGE) ? ["fallback"] : [];
         return spawn(process.execPath, [fake, ...extra], {
           env: opts.env,
           stdio: ["pipe", "pipe", "pipe"],
@@ -159,8 +160,8 @@ test("a pinned version missing on npm falls back without counting a crash", asyn
   const init = await initialized(h);
   assert.ok(init.result, JSON.stringify(init));
   assert.deepEqual(seen, [
-    "npx -y craftos-mcp@0.6.1",
-    "npx -y craftos-mcp@0.6.0",
+    `npx -y ${NPM_PACKAGE}`,
+    `npx -y ${FALLBACK_PACKAGE}`,
   ]);
   assert.deepEqual(
     h.events.map((e) => e.type),
