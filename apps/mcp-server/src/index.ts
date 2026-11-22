@@ -993,8 +993,15 @@ tool(
   "craftos_write_file",
   {
     description:
-      "Write a Lua/text file in the workspace (copied to the root of every emulated computer, so paths match a real deployment). Paths are workspace-relative.",
-    inputSchema: { path: z.string(), content: z.string() },
+      "Write a Lua/text file in the workspace, replacing any file already there and making missing folders. The workspace is copied to the root of every computer a session starts, so paths match a real deployment. Paths that leave the workspace are refused.",
+    inputSchema: {
+      path: z
+        .string()
+        .describe(
+          'Workspace-relative path with forward slashes, e.g. "startup.lua".',
+        ),
+      content: z.string().describe("The whole file's new text."),
+    },
   },
   async ({ path, content }) => {
     try {
@@ -1010,7 +1017,17 @@ tool(
 
 tool(
   "craftos_read_file",
-  { description: "Read a workspace file.", inputSchema: { path: z.string() } },
+  {
+    description:
+      "Read a file from the workspace on disk and return its text. Use it to check what a program or test file holds before editing it; to see what a running computer shows, use craftos_ui or craftos_read_terminal instead. Paths that leave the workspace are refused.",
+    inputSchema: {
+      path: z
+        .string()
+        .describe(
+          'Workspace-relative path with forward slashes, e.g. "startup.lua" or "lib/ui.lua".',
+        ),
+    },
+  },
   async ({ path }) => {
     try {
       return { content: [text(readWorkspaceFile(config.workspaceDir, path))] };
@@ -1023,8 +1040,16 @@ tool(
 tool(
   "craftos_list_files",
   {
-    description: "List files in the workspace recursively.",
-    inputSchema: { path: z.string().default(".") },
+    description:
+      "List the files and folders under a workspace folder, recursively. Returns {path, kind, size} entries with workspace-relative paths, ready for craftos_read_file. Use it to find a project's programs and tests before running them. Paths that leave the workspace are refused.",
+    inputSchema: {
+      path: z
+        .string()
+        .default(".")
+        .describe(
+          'Folder to list, workspace-relative (default "." lists everything).',
+        ),
+    },
   },
   async ({ path }) => {
     try {
@@ -1457,7 +1482,7 @@ tool(
   "craftos_network_update",
   {
     description:
-      "Change a network from craftos_network_create while it runs: move a computer, right-click a wired modem to switch its computer on or off the network, or unload/load a computer's chunk (loaded).",
+      "Change a network from craftos_network_create while it runs: move a computer, right-click a wired modem to switch its computer on or off the network, or unload/load a computer's chunk. The changes given are applied in that order; the other computers keep running. Use it to test how programs cope with a computer moving away, dropping off the cable or reloading.",
     inputSchema: {
       network: z.string().describe("Id from craftos_network_create."),
       computer: z.string().describe("The computer's name."),
@@ -1468,9 +1493,18 @@ tool(
           z: z.number().optional(),
           dimension: z.string().optional(),
         })
-        .optional(),
-      modem: z.string().optional().describe("Wired modem's peripheral name."),
-      on: z.boolean().optional(),
+        .optional()
+        .describe("New block position; only the fields given change."),
+      modem: z
+        .string()
+        .optional()
+        .describe("Wired modem's peripheral name, used with on."),
+      on: z
+        .boolean()
+        .optional()
+        .describe(
+          "With modem: true connects the computer to the cable network, false disconnects it.",
+        ),
       loaded: z
         .boolean()
         .optional()
@@ -1670,11 +1704,14 @@ tool(
   "craftos_type",
   {
     description:
-      "Type text into the computer, like a player at the keyboard. enter presses Enter afterwards.",
+      'Type text into the computer, like a player at the keyboard, and return "ok" at once without waiting for the program. Prefer craftos_act with text, which also waits until the program read it and the screen settled; use this one to type ahead or into a program that is busy.',
     inputSchema: {
       id: sessionId,
-      text: z.string(),
-      enter: z.boolean().default(true),
+      text: z.string().describe("Characters to type, as char events."),
+      enter: z
+        .boolean()
+        .default(true)
+        .describe("Press Enter after the text (default true)."),
     },
   },
   async ({ id, text: input, enter }) => {
@@ -1696,9 +1733,9 @@ tool(
       "Press a key by name (enter, backspace, up, down, left, right, tab, escape, f1..f12, a..z, ...), with ctrl:true or shift:true held around it. A tap of ctrl+t does not terminate, as in the game: pass holdMs to hold the key down instead (key repeats every tick), and holding ctrl+t for 1000 ms or more sends `terminate`.",
     inputSchema: {
       id: sessionId,
-      key: z.string(),
-      ctrl: z.boolean().default(false),
-      shift: z.boolean().default(false),
+      key: z.string().describe('Key name, e.g. "enter", "up", "f1" or "c".'),
+      ctrl: z.boolean().default(false).describe("Hold Ctrl around the key."),
+      shift: z.boolean().default(false).describe("Hold Shift around the key."),
       holdMs: z
         .number()
         .int()
@@ -1733,13 +1770,20 @@ tool(
   "craftos_touch_monitor",
   {
     description:
-      "Click a monitor cell (1-based x,y), producing a monitor_touch event like a player right-clicking it. player names who touches (default: the interacting player); an unknown name is an error.",
+      'Click a monitor cell, producing a monitor_touch event like a player right-clicking it, and return "ok" at once. Prefer craftos_act with touch, which waits for the program to react; use this one when it matters which player touched (player detectors, per-player menus). Find the cell to touch with craftos_ui.',
     inputSchema: {
       id: sessionId,
-      monitor: z.string(),
-      x: z.number().int().min(1),
-      y: z.number().int().min(1),
-      player: z.string().optional(),
+      monitor: z
+        .string()
+        .describe('Monitor peripheral name, e.g. "top" or "monitor_0".'),
+      x: z.number().int().min(1).describe("Column, 1-based."),
+      y: z.number().int().min(1).describe("Row, 1-based."),
+      player: z
+        .string()
+        .optional()
+        .describe(
+          "Who touches (default: the interacting player); a name not in the world is an error.",
+        ),
     },
   },
   async ({ id, monitor, x, y, player }) => {
@@ -2103,8 +2147,17 @@ tool(
       "Jump the virtual clock forward by N seconds and fire every timer that falls due in that window (earliest first), so sleep(), timeouts, countdowns and inactivity logic pass instantly and deterministically. os.clock()/os.epoch() move too. Timers due later keep their real deadline. Then waits for the program to settle.",
     inputSchema: {
       id: sessionId,
-      seconds: z.number().positive().max(86400),
-      timeoutMs: z.number().int().min(100).default(15000),
+      seconds: z
+        .number()
+        .positive()
+        .max(86400)
+        .describe("How far to jump, in seconds (up to a day)."),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(100)
+        .default(15000)
+        .describe("Longest wait for the program to settle afterwards."),
     },
   },
   async ({ id, seconds, timeoutMs }) => {
@@ -2275,11 +2328,21 @@ tool(
   "craftos_settle",
   {
     description:
-      "Wait until the program is blocked waiting for input and nothing on screen has changed for quietMs. Replaces fixed sleeps after any action.",
+      "Wait until the program is blocked waiting for input and nothing on screen has changed for quietMs, then return its state. Use it instead of fixed sleeps after craftos_type, craftos_key, craftos_send_event or a network change; craftos_act already settles by itself.",
     inputSchema: {
       id: sessionId,
-      quietMs: z.number().int().min(0).default(250),
-      timeoutMs: z.number().int().min(100).default(15000),
+      quietMs: z
+        .number()
+        .int()
+        .min(0)
+        .default(250)
+        .describe("How long the screen must stay unchanged."),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(100)
+        .default(15000)
+        .describe("Give up after this long (the result says it timed out)."),
     },
   },
   async ({ id, quietMs, timeoutMs }) => {
@@ -2308,11 +2371,27 @@ tool(
           x: z.number().int().min(1),
           y: z.number().int().min(1),
         })
-        .optional(),
-      key: z.string().optional(),
-      text: z.string().optional(),
-      quietMs: z.number().int().min(0).default(250),
-      timeoutMs: z.number().int().min(100).default(15000),
+        .optional()
+        .describe(
+          "Touch this monitor cell (1-based); craftos_ui gives each button's @x,y.",
+        ),
+      key: z
+        .string()
+        .optional()
+        .describe('Press this key, e.g. "enter" or "up".'),
+      text: z.string().optional().describe("Type these characters."),
+      quietMs: z
+        .number()
+        .int()
+        .min(0)
+        .default(250)
+        .describe("How long the screen must stay unchanged afterwards."),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(100)
+        .default(15000)
+        .describe("Longest wait for the program to react and settle."),
     },
   },
   async ({ id, touch, key, text: typed, quietMs, timeoutMs }) => {
@@ -2350,13 +2429,16 @@ tool(
   "craftos_send_event",
   {
     description:
-      "Queue an arbitrary Lua event, e.g. name 'timer' with params [3], or 'redstone'.",
+      "Queue any event on the computer, as os.queueEvent would, and return \"ok\" at once. Use it for events nothing else produces, e.g. name 'timer' with params [3], or 'redstone'. For keys, typing and touches use craftos_act; to change the world itself (redstone input, items, players) use craftos_sim_command. Follow with craftos_settle to let the program react.",
     inputSchema: {
       id: sessionId,
-      name: z.string(),
+      name: z
+        .string()
+        .describe("Event name, the first value os.pullEvent returns."),
       params: z
         .array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
-        .default([]),
+        .default([])
+        .describe("The event's other values, in order."),
     },
   },
   async ({ id, name, params }) => {
@@ -2373,10 +2455,10 @@ tool(
   "craftos_wait_for_text",
   {
     description:
-      "Wait until text appears on the terminal (window 0) or a monitor window.",
+      'Wait until text appears anywhere on the terminal or one monitor, returning "found", or an error after timeoutMs. Use it to wait for a program\'s output while it runs; craftos_expect waits too and checks several things (text, rectangles, sim values) in one call.',
     inputSchema: {
       id: sessionId,
-      text: z.string(),
+      text: z.string().describe("Exact text to find, case-sensitive."),
       window: z
         .number()
         .int()
@@ -2384,7 +2466,12 @@ tool(
         .describe(
           "0 = terminal; see craftos_session_list for monitor windows.",
         ),
-      timeoutMs: z.number().int().min(100).default(10000),
+      timeoutMs: z
+        .number()
+        .int()
+        .min(100)
+        .default(10000)
+        .describe("Give up after this long."),
     },
   },
   async ({ id, text: needle, window, timeoutMs }) => {
@@ -2433,7 +2520,7 @@ tool(
   "craftos_read_terminal",
   {
     description:
-      "Read the current text of the terminal and every monitor. delta:true gives a screen that has not changed since the previous read_terminal of this session as just {window, peripheral?, unchanged: true}.",
+      "Read the plain text of the terminal and every monitor, one entry per screen with its window number, peripheral name and lines. Cheaper than a screenshot when only the words matter; craftos_ui also gives colours, buttons and the cells to touch. delta:true gives a screen that has not changed since the previous read_terminal of this session as just {window, peripheral?, unchanged: true}.",
     inputSchema: {
       id: sessionId,
       fullScreens: fullScreensSchema,
@@ -2454,10 +2541,16 @@ tool(
   "craftos_screenshot",
   {
     description:
-      "Take PNG screenshots of the terminal and every monitor of a session.",
+      "Take PNG screenshots of the terminal and every monitor of a session, returned as images next to each screen's text. Use it to judge how something looks (layout, colours, art); to find or check text and buttons, craftos_ui is cheaper and exact.",
     inputSchema: {
       id: sessionId,
-      scale: z.number().int().min(1).max(8).default(3),
+      scale: z
+        .number()
+        .int()
+        .min(1)
+        .max(8)
+        .default(3)
+        .describe("Pixels per screen pixel, 1-8 (default 3)."),
     },
   },
   async ({ id, scale }) => {
@@ -2532,8 +2625,13 @@ tool(
   "craftos_help",
   {
     description:
-      'How to use this server, on request: topic "guide" (the workflow and the facts that bite), "world" (the full JSON Schema of `world`, every field described), "ccunit" (the test API), "worlds" (saved worlds for worldFile), "docs" (docs and examples to read).',
-    inputSchema: { topic: z.enum(HELP_TOPICS).default("guide") },
+      'Return this server\'s documentation as markdown, without touching any computer. Read "guide" before a first session, and "world" before writing a world. Topics: "guide" (the workflow and the facts that bite), "world" (the full JSON Schema of `world`, every field described), "ccunit" (the test API), "worlds" (saved worlds for worldFile), "docs" (docs and examples to read).',
+    inputSchema: {
+      topic: z
+        .enum(HELP_TOPICS)
+        .default("guide")
+        .describe('Which page (default "guide").'),
+    },
   },
   async ({ topic }) => ({ content: [text(helpText(topic))] }),
 );

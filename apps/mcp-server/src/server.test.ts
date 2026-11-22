@@ -58,8 +58,9 @@ describe("what a client gets", () => {
   it("a tool list that does not repeat the world schema", async () => {
     const { tools } = await client.listTools();
     const size = JSON.stringify(tools).length;
-    // 0.2.0 sent about 64k characters (85k with the private tools), most of it the world schema four times
-    expect(size).toBeLessThan(45_000);
+    // 0.2.0 sent about 64k characters (85k with the private tools), most of it the world schema four times.
+    // 50k leaves room for parameter descriptions (47k with them, private tools included)
+    expect(size).toBeLessThan(50_000);
     for (const t of tools) expect(JSON.stringify(t).length).toBeLessThan(6_000);
     // none of the SDK's filler: $schema lines, ±2^53 integer bounds, the default taskSupport
     const raw = JSON.stringify(tools);
