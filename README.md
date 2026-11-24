@@ -1,5 +1,7 @@
 # craftos-mcp
 
+[![Akkiruk/craftos-mcp MCP server](https://glama.ai/mcp/servers/Akkiruk/craftos-mcp/badges/score.svg)](https://glama.ai/mcp/servers/Akkiruk/craftos-mcp)
+
 **Run and test your ComputerCraft programs without starting Minecraft.** craftos-mcp is a CC:Tweaked emulator for
 people who write CC Lua: computers, monitors you can tap, turtles that dig and build in a block world, rednet between
 several computers, and blocks from Create, Mekanism, Advanced Peripherals and more. Pause the clock, jump a day ahead,
